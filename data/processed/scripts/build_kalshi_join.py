@@ -6,7 +6,8 @@ pitch carries the market-implied home-win probability (and related fields)
 as of the most recent fully-settled price update BEFORE that pitch.
 
 Output:
-    data/processed/mlb_game_state/training_dataset.parquet
+    data/processed/train/training_dataset.parquet
+    data/processed/test/test_dataset.parquet
 
 INPUT ASSUMPTIONS (verify against your own diagnostics output below):
     - pitch_state_features.parquet has: game_pk, game_date, home_team,
@@ -15,6 +16,9 @@ INPUT ASSUMPTIONS (verify against your own diagnostics output below):
       schemas: event_ticker, market_ticker, team_abbr, opponent_abbr,
       game_date, open_time, close_time, period_end_time, price_close,
       yes_bid_close, yes_ask_close, volume, open_interest, ...
+    - game_results_2025.parquet / game_results_2026.parquet (from
+      pull_mlb_game_results.py) have: game_pk, home_runs_final,
+      away_runs_final, home_win.
 
 DATA LEAKAGE PREVENTION:
     Kalshi candles are 1-minute OHLC windows.  period_end_time is the
@@ -25,6 +29,22 @@ DATA LEAKAGE PREVENTION:
     at time T only sees candles whose period_end_time < T (strictly less
     than).  A pitch that falls exactly on a candle boundary gets the
     previous candle's price, not the concurrent one.
+
+CHANGE LOG:
+    - home_win is now loaded from pull_mlb_game_results.py's authoritative
+      linescore-derived output, NOT inferred from the last-by-timestamp
+      Statcast pitch's score_diff. The old approach silently mis-scored
+      walk-off finishes (the winning run scores on a play with no
+      subsequent pitch, so no pitch's score_diff ever reflects the final
+      score) and was fragile against any row with a missing
+      pitch_timestamp_utc affecting which pitch sorted "last".
+    - Output is now explicitly sorted by pitch_timestamp_utc before the
+      train/test split and save. join_prices() sorts the joinable subset
+      internally but appends the not-joinable subset afterward via concat,
+      so without this final sort the saved row order wasn't reliably
+      temporal -- which matters because both training scripts do a naive
+      positional 80/20 split (int(len(df)*0.8)) for their internal eval
+      set, silently assuming row order == time order.
 
 WHY THIS IS TRICKY (read before trusting the output blindly):
     Statcast's team abbreviations and the abbreviations produced by the
@@ -45,27 +65,21 @@ WHY THIS IS TRICKY (read before trusting the output blindly):
 from pathlib import Path
 import pandas as pd
 import numpy as np
+import re
 
 
 # --------------------------------------------------
 # Paths
 # --------------------------------------------------
 
-GAME_STATE_DIR = Path(
-    "data/processed/mlb_game_state"
+GAME_STATE_DIR = Path("data/processed/mlb_game_state")
+KALSHI_DIR = Path("data/raw/kalshi_market_logs")
+GAME_RESULTS_DIR = Path(
+    "/Users/ezraakresh/Documents/mlb-kalshi-trader/data/raw/mlb_game_results"
 )
 
-KALSHI_DIR = Path(
-    "data/raw/kalshi_market_logs"
-)
-
-TRAIN_DIR = Path(
-    "data/processed/train"
-)
-
-TEST_DIR = Path(
-    "data/processed/test"
-)
+TRAIN_DIR = Path("data/processed/train")
+TEST_DIR = Path("data/processed/test")
 
 TRAIN_DIR.mkdir(parents=True, exist_ok=True)
 TEST_DIR.mkdir(parents=True, exist_ok=True)
@@ -74,16 +88,8 @@ TEST_DIR.mkdir(parents=True, exist_ok=True)
 # --------------------------------------------------
 # Team code normalization
 # --------------------------------------------------
-# Maps every known variant spelling/abbreviation to ONE canonical code.
-# This is deliberately generous / redundant -- better to have an unused
-# entry than to silently fail to match a real one. Anything encountered
-# in your actual data that ISN'T covered here will be printed at runtime
-# so you can add it rather than have it fail silently.
-
-import re
 
 TEAM_CODE_CROSSWALK = {
-    # abbreviation-style variants
     "ARI": "ARI", "AZ": "ARI",
     "ATL": "ATL",
     "BAL": "BAL",
@@ -115,7 +121,6 @@ TEAM_CODE_CROSSWALK = {
     "TOR": "TOR",
     "WSH": "WSH", "WAS": "WSH",
 
-    # full nickname variants
     "DIAMONDBACKS": "ARI",
     "BRAVES": "ATL",
     "ORIOLES": "BAL",
@@ -135,7 +140,7 @@ TEAM_CODE_CROSSWALK = {
     "TWINS": "MIN",
     "METS": "NYM",
     "YANKEES": "NYY",
-    "ATHLETICS": "ATH", "AS": "ATH",  # "A's" -> cleaned to "AS"
+    "ATHLETICS": "ATH", "AS": "ATH",
     "PHILLIES": "PHI",
     "PIRATES": "PIT",
     "PADRES": "SD",
@@ -147,12 +152,6 @@ TEAM_CODE_CROSSWALK = {
     "BLUEJAYS": "TOR", "BLUE JAYS": "TOR",
     "NATIONALS": "WSH",
 
-    # city-name variants -- this is what Kalshi's team_abbr/opponent_abbr
-    # fields actually contain (confirmed from a real run): plain city name
-    # for single-team cities, and a truncated disambiguator for the three
-    # two-team cities (Chicago/LA/NY). "Chicago W" and "Chicago WS" both
-    # showed up for the White Sox across different events -- Kalshi wasn't
-    # even internally consistent about the truncation, so both are mapped.
     "ARIZONA": "ARI",
     "ATLANTA": "ATL",
     "BALTIMORE": "BAL",
@@ -177,7 +176,7 @@ TEAM_CODE_CROSSWALK = {
     "SAN DIEGO": "SD",
     "SAN FRANCISCO": "SF",
     "SEATTLE": "SEA",
-    "ST LOUIS": "STL",  # period stripped by _clean() before lookup
+    "ST LOUIS": "STL",
     "TAMPA BAY": "TB",
     "TEXAS": "TEX",
     "TORONTO": "TOR",
@@ -186,9 +185,6 @@ TEAM_CODE_CROSSWALK = {
 
 
 def _clean(s: str) -> str:
-    # Strip punctuation (periods, straight/curly apostrophes) so variants
-    # like "St. Louis" / "ST LOUIS" and "A's" / "AS" normalize the same way,
-    # regardless of exactly which quote character or spacing Kalshi used.
     return re.sub(r"[.'\u2019]", "", s).strip().upper()
 
 
@@ -239,21 +235,39 @@ def load_pitches() -> pd.DataFrame:
               f"pitch_timestamp_utc and cannot be price-joined "
               f"(will appear in output with NaN Kalshi columns).")
 
-    # ------------------------------------------------------------------
-    # Calculate home_win using the final pitch of each game
-    # ------------------------------------------------------------------
-    # Sort by time, group by game, and grab the very last pitch
-    last_pitches = df.sort_values("pitch_timestamp_utc").groupby("game_pk").tail(1)
-    
-    # If the home team has a positive score differential at the end, they won
-    home_winners = last_pitches[last_pitches["score_diff"] > 0]["game_pk"]
-    
-    # Map this boolean back to every pitch in the game as an integer (1 or 0)
-    df["home_win"] = df["game_pk"].isin(home_winners).astype(int)
-    
-    print(f"  Calculated home_win for {df['game_pk'].nunique():,} games.")
-
     return df
+
+
+def load_game_results() -> pd.DataFrame:
+    """
+    Authoritative home_win, from MLB's live-feed linescore (see
+    pull_mlb_game_results.py) -- NOT derived from the last Statcast pitch's
+    score_diff. That approach misses walk-off finishes (the winning run
+    scores on a play with no subsequent pitch, so no pitch's score_diff
+    ever reflects the final score) and is fragile against any row with a
+    missing pitch_timestamp_utc affecting which pitch sorts "last".
+    """
+    frames = []
+    for path in sorted(GAME_RESULTS_DIR.glob("game_results_*.parquet")):
+        print(f"Loading {path}")
+        frames.append(pd.read_parquet(path))
+
+    if not frames:
+        raise FileNotFoundError(
+            f"No game_results_*.parquet files found in {GAME_RESULTS_DIR}. "
+            "Run pull_mlb_game_results.py before build_kalshi_join.py."
+        )
+
+    results = pd.concat(frames, ignore_index=True)
+    dupes = results["game_pk"].duplicated().sum()
+    if dupes:
+        print(f"  WARNING: {dupes} duplicate game_pk in game results "
+              f"(keeping first occurrence).")
+        results = results.drop_duplicates(subset="game_pk", keep="first")
+
+    print(f"Loaded {len(results):,} game results "
+          f"({results['home_win'].mean():.1%} home win rate)")
+    return results[["game_pk", "home_win"]]
 
 
 def load_kalshi() -> pd.DataFrame:
@@ -315,12 +329,6 @@ def build_kalshi_events(kalshi: pd.DataFrame) -> pd.DataFrame:
 
 
 def match_games(statcast_games: pd.DataFrame, kalshi_events: pd.DataFrame) -> pd.DataFrame:
-    """
-    Returns one row per matched game_pk with the event_ticker it corresponds
-    to. Handles doubleheaders (same date + same matchup appearing more than
-    once) by pairing games and events in chronological order rather than
-    relying on ticker string parsing.
-    """
     matches = []
     unmatched_games = []
 
@@ -330,7 +338,6 @@ def match_games(statcast_games: pd.DataFrame, kalshi_events: pd.DataFrame) -> pd
         ]
 
         if len(matchup) != 2:
-            # Missing team code(s) after normalization -- can't match at all.
             unmatched_games.extend(s_group["game_pk"].tolist())
             continue
 
@@ -341,10 +348,6 @@ def match_games(statcast_games: pd.DataFrame, kalshi_events: pd.DataFrame) -> pd
         s_sorted = s_group.sort_values("min_ts")
         k_sorted = k_group.sort_values("open_time")
 
-        # Pair chronologically. Works for the common case (1 game <-> 1
-        # event) and for doubleheaders (2 games <-> 2 events), as long as
-        # both sides are in the same chronological order -- true almost
-        # always since neither Statcast nor Kalshi shuffles same-day games.
         n = min(len(s_sorted), len(k_sorted))
         for i in range(n):
             matches.append({
@@ -353,7 +356,6 @@ def match_games(statcast_games: pd.DataFrame, kalshi_events: pd.DataFrame) -> pd
                 "home_team_canon": s_sorted.iloc[i]["home_team_canon"],
             })
         if len(s_sorted) != len(k_sorted):
-            # Leftover games/events on this date+matchup with no counterpart.
             leftover = s_sorted.iloc[n:]["game_pk"].tolist()
             unmatched_games.extend(leftover)
 
@@ -372,8 +374,6 @@ def match_games(statcast_games: pd.DataFrame, kalshi_events: pd.DataFrame) -> pd
 
 
 def attach_home_market(match_df: pd.DataFrame, kalshi: pd.DataFrame) -> pd.DataFrame:
-    """For each matched game, pick the market_ticker whose team_canon equals
-    the home team -- that market's price is the implied P(home team wins)."""
     if match_df.empty:
         print("  No games matched -- skipping home-market attachment. "
               "Check the TEAM_CODE_CROSSWALK warnings above.")
@@ -410,25 +410,6 @@ KALSHI_PRICE_COLS = [
 
 def join_prices(pitches: pd.DataFrame, game_market_map: pd.DataFrame,
                  kalshi: pd.DataFrame) -> pd.DataFrame:
-    """
-    As-of join: for each pitch, attach the most recently *fully settled*
-    Kalshi candle, i.e. the latest candle whose period_end_time is
-    STRICTLY LESS THAN the pitch timestamp.
-
-    A 1-minute candle closing at T encodes prices from (T-60s, T].  A pitch
-    happening at time T has not yet observed that candle's closing price --
-    it becomes observable only after the window ends.  Using allow_exact_
-    matches=False enforces this strict inequality and eliminates the
-    boundary data-leakage case.
-
-    kalshi_price column
-    -------------------
-    Set to price_close (the last-trade price from the candlestick).
-    Rows where price_close is NaN -- meaning no trade occurred in that
-    candle window, or the 2025 historical API tier which returned zero
-    price data -- are dropped entirely.  The output only contains pitches
-    with an observed Kalshi market price.
-    """
     pitches = pitches.merge(game_market_map, on="game_pk", how="left")
 
     has_ts = pitches["pitch_timestamp_utc"].notna()
@@ -454,9 +435,8 @@ def join_prices(pitches: pd.DataFrame, game_market_map: pd.DataFrame,
         left_on="pitch_timestamp_utc",
         right_on="period_end_time",
         by="market_ticker",
-        direction="backward",      # only look backwards in time
-        allow_exact_matches=False, # strict <: a pitch at exactly T does NOT
-                                   # see the candle that closed at T
+        direction="backward",
+        allow_exact_matches=False,
     )
 
     merged["seconds_since_price_update"] = (
@@ -464,25 +444,17 @@ def join_prices(pitches: pd.DataFrame, game_market_map: pd.DataFrame,
         .dt.total_seconds()
     )
 
-    # Sanity check: all values must be strictly positive (candle is in the past).
     negative = (merged["seconds_since_price_update"] <= 0).sum()
     if negative:
         print(f"  WARNING: {negative:,} pitches have seconds_since_price_update <= 0 "
               f"-- this indicates a data leakage bug. Investigate before training.")
 
-    # Diagnostic: flag suspiciously stale prices (> 30 min since last candle).
     stale = (merged["seconds_since_price_update"] > 1800).sum()
     if stale:
         print(f"  NOTE: {stale:,} pitches have a price that is >30 min old "
               f"(market may have been inactive / pre-game). Consider filtering "
               f"these in training.")
 
-    # ------------------------------------------------------------------
-    # kalshi_price = price_close (original candlestick logic).
-    # Drop rows with no price -- these are entirely the 2025 historical-
-    # tier candles (which returned zero price data) plus any 2026 minutes
-    # with no trades.  Only keep pitches with an actual observed price.
-    # ------------------------------------------------------------------
     merged["kalshi_price"] = merged["price_close"]
 
     n_before = len(merged)
@@ -503,20 +475,12 @@ TRAIN_FRAC = 0.80
 
 
 def chronological_split(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
-    """
-    Splits df into train (first 80% of game dates) and test (last 20%).
-
-    Splitting is done at the GAME DATE level, not the row level, so every
-    pitch from a given game ends up entirely in one set.  A row-level
-    random split would mix pre- and post-event context from the same game
-    across the boundary, which is a subtle form of data leakage.
-    """
     all_dates = sorted(df["game_date"].dropna().unique())
     cutoff_idx = int(len(all_dates) * TRAIN_FRAC)
-    cutoff_date = all_dates[cutoff_idx]  # first date that goes into test
+    cutoff_date = all_dates[cutoff_idx]
 
     train = df[df["game_date"] < cutoff_date].copy()
-    test  = df[df["game_date"] >= cutoff_date].copy()
+    test = df[df["game_date"] >= cutoff_date].copy()
 
     print(f"\nChronological 80/20 split ({TRAIN_FRAC:.0%} train):")
     print(f"  Train: {len(all_dates[:cutoff_idx]):>3} dates  "
@@ -532,8 +496,7 @@ def chronological_split(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
 # --------------------------------------------------
 # Columns to drop from the final model dataset
 # --------------------------------------------------
-# These are identifiers, timestamps, and redundant fields that carry
-# no learnable signal for the model.
+
 DROP_COLS = [
     "game_pk",
     "game_date",
@@ -546,7 +509,7 @@ DROP_COLS = [
     "market_ticker",
     "period_end_time",
     "price_close",
-    "delta_home_win_exp"
+    "delta_home_win_exp",
 ]
 
 
@@ -556,7 +519,17 @@ DROP_COLS = [
 
 def main():
     pitches = load_pitches()
+    game_results = load_game_results()
     kalshi = load_kalshi()
+
+    n_before = len(pitches)
+    pitches = pitches.merge(game_results, on="game_pk", how="left")
+    n_missing_result = pitches["home_win"].isna().sum()
+    if n_missing_result:
+        print(f"  WARNING: {n_missing_result:,} / {n_before:,} pitches have no "
+              f"matching game result and will be dropped.")
+        pitches = pitches[pitches["home_win"].notna()].copy()
+    pitches["home_win"] = pitches["home_win"].astype(int)
 
     statcast_games = build_statcast_games(pitches)
     kalshi_events = build_kalshi_events(kalshi)
@@ -566,18 +539,25 @@ def main():
 
     final = join_prices(pitches, game_market_map, kalshi)
 
+    # Sort chronologically before splitting/saving. This matters beyond
+    # tidiness: both training scripts do a naive positional 80/20 split
+    # (int(len(df)*0.8)) for their internal eval set, which silently
+    # assumes row order == time order. join_prices sorts the joinable
+    # subset but appends the not-joinable subset afterward via concat,
+    # so without this the saved file's row order isn't reliably temporal.
+    final = final.sort_values("pitch_timestamp_utc").reset_index(drop=True)
+
     train, test = chronological_split(final)
 
-    # Drop metadata / identifier columns before saving.
     cols_to_drop = [c for c in DROP_COLS if c in train.columns]
     train = train.drop(columns=cols_to_drop)
     test = test.drop(columns=cols_to_drop)
-    
+
     print(f"\nDropped {len(cols_to_drop)} metadata columns: {cols_to_drop}")
     print(f"Remaining columns ({len(train.columns)}): {train.columns.tolist()}")
 
     train_path = TRAIN_DIR / "training_dataset.parquet"
-    test_path  = TEST_DIR  / "test_dataset.parquet"
+    test_path = TEST_DIR / "test_dataset.parquet"
 
     print(f"\nSaving train ({len(train):,} rows) -> {train_path}")
     train.to_parquet(train_path, index=False)
