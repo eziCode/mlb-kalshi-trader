@@ -1,5 +1,4 @@
 import os
-import os
 import csv
 import time
 import requests
@@ -7,6 +6,7 @@ import asyncio
 import pandas as pd
 import numpy as np
 import joblib
+from datetime import datetime
 from catboost import CatBoostClassifier, Pool
 
 # ---------------------------------------------------------
@@ -15,7 +15,7 @@ from catboost import CatBoostClassifier, Pool
 GAME_PK = 823358  # Brewers vs Pirates (July 12)
 MARKET_TICKER = "KXMLBGAME-26JUL121215MILPIT-PIT"
 
-EDGE_THRESHOLD = 0.15
+EDGE_THRESHOLD = 0.07
 BET_SIZE = 10.0
 
 import os
@@ -87,17 +87,75 @@ async def fetch_mlb_live_state(game_pk):
         current_play = plays.get("currentPlay", {})
         about = current_play.get("about", {})
         
-        # homeWinProbability is typically a percentage (e.g. 54.3)
-        hwe_percent = about.get("homeWinProbability", 50.0)
+        # Fallback to about, but override with contextMetrics which is live
+        try:
+            metrics_url = f"https://statsapi.mlb.com/api/v1/game/{game_pk}/contextMetrics"
+            metrics_data = requests.get(metrics_url, timeout=5).json()
+            hwe_percent = metrics_data.get("homeWinProbability", about.get("homeWinProbability", 50.0))
+        except:
+            hwe_percent = about.get("homeWinProbability", 50.0)
         home_win_exp = hwe_percent / 100.0
         
         # Get game status
         status = data.get("gameData", {}).get("status", {}).get("abstractGameState", "Preview")
         
-        return inning, home_win_exp, status
+        # Get count
+        balls = live_data.get("linescore", {}).get("balls", 0)
+        strikes = live_data.get("linescore", {}).get("strikes", 0)
+        outs = live_data.get("linescore", {}).get("outs", 0)
+        
+        return inning, home_win_exp, status, balls, strikes, outs
     except Exception as e:
         print(f"Error fetching MLB live state: {e}")
-        return 1, 0.5, "Unknown"
+        return 1, 0.5, "Preview", 0, 0, 0
+
+async def get_pregame_anchors(game_pk, market_ticker):
+    """
+    Dynamically fetches the exact Kalshi midpoint and MLB probability from 
+    the minute before the first pitch was thrown.
+    """
+    # 1. Get Game Start Time and Status from MLB
+    url_live = f"https://statsapi.mlb.com/api/v1.1/game/{game_pk}/feed/live"
+    try:
+        data = requests.get(url_live, timeout=5).json()
+        dt_str = data["gameData"]["datetime"]["dateTime"]
+        start_ts = int(datetime.fromisoformat(dt_str).timestamp())
+        status = data.get("gameData", {}).get("status", {}).get("abstractGameState", "Preview")
+    except Exception as e:
+        print(f"Error fetching game start time: {e}")
+        return 0.5, 0.5
+        
+    # 2. Set Historical Pregame MLB Prob
+    if status == "Preview":
+        try:
+            url_metrics = f"https://statsapi.mlb.com/api/v1/game/{game_pk}/contextMetrics"
+            metrics = requests.get(url_metrics, timeout=5).json()
+            pregame_hwe = metrics.get("homeWinProbability", 50.0) / 100.0
+            print(f"  -> Game is in Preview. Fetched precise MLB pregame prob: {pregame_hwe:.1%}")
+        except:
+            pregame_hwe = 0.50
+    else:
+        print("  -> Game already Live. Falling back to 50.0% MLB pregame prob to avoid corruption.")
+        pregame_hwe = 0.50
+    # 3. Get Historical Pregame Kalshi Price
+    kalshi_url = f"https://api.elections.kalshi.com/trade-api/v2/series/KXMLBGAME/markets/{market_ticker}/candlesticks"
+    params = {"start_ts": start_ts - 120, "end_ts": start_ts, "period_interval": 1}
+    try:
+        candles = requests.get(kalshi_url, params=params, timeout=5).json().get("candlesticks", [])
+        if candles:
+            last_candle = candles[-1]
+            bid = float(last_candle.get("yes_bid", {}).get("close_dollars", 0))
+            ask = float(last_candle.get("yes_ask", {}).get("close_dollars", 0))
+            if ask <= bid:
+                ask = bid + 0.01
+            pregame_prob = round((bid + ask) / 2.0, 3)
+        else:
+            pregame_prob = 0.5
+    except Exception as e:
+        print(f"Error fetching Kalshi candlesticks: {e}")
+        pregame_prob = 0.5
+        
+    return pregame_prob, pregame_hwe
 
 # ---------------------------------------------------------
 # Log5 Formula
@@ -143,6 +201,11 @@ async def live_trading_loop():
         writer.writerow(["timestamp", "status", "inning", "kalshi_mid", "spread", "mlb_hwe", "fair_prob", "model_prob", "edge_yes", "edge_no", "portfolio_cash", "open_position"])
     print(f"Logging live data to: {log_file}")
     
+    # Dynamically Fetch Anchor
+    print("\nFetching historical pre-game anchors autonomously...")
+    pregame_prob, pregame_hwe = await get_pregame_anchors(GAME_PK, MARKET_TICKER)
+    print(f"[ANCHOR SET] Pregame Kalshi: {pregame_prob:.1%} | Pregame MLB: {pregame_hwe:.1%}\n")
+    
     while True:
         # 1. Fetch live market prices
         midpoint, spread, bid, ask = await fetch_kalshi_orderbook(MARKET_TICKER)
@@ -154,9 +217,9 @@ async def live_trading_loop():
         seconds_since_update = time.time() - last_price_update
         
         # 2. Fetch live MLB state
-        inning, hwe, status = await fetch_mlb_live_state(GAME_PK)
+        inning, hwe, status, balls, strikes, outs = await fetch_mlb_live_state(GAME_PK)
         
-        print(f"[{time.strftime('%H:%M:%S')}] Heartbeat | Status: {status} | Inning: {inning} | Kalshi Mid: {midpoint} | MLB HWE: {hwe:.1%}")
+        print(f"[{time.strftime('%H:%M:%S')}] Status: {status} | Inn: {inning} | Outs: {outs} | Count: {balls}-{strikes} | Kalshi Mid: {midpoint} | MLB HWE: {hwe:.1%}")
         
         if status == "Preview" or midpoint is None:
             await asyncio.sleep(5)
@@ -167,20 +230,17 @@ async def live_trading_loop():
             # We would look at final score here to print final PnL
             break
             
-        # 3. Anchor pregame probabilities on first data point
-        if pregame_prob is None:
-            pregame_prob = midpoint
-            pregame_hwe = hwe
-            print(f"\n[ANCHOR SET] Pregame Kalshi: {pregame_prob:.1%} | Pregame MLB: {pregame_hwe:.1%}\n")
-            
-        # 4. Calculate Fair Prob (Log5)
+        # 3. Calculate Fair Prob (Log5)
         fair_prob = apply_log5(hwe, pregame_prob, pregame_hwe)
         market_error = midpoint - fair_prob
         
         # 5. Predict Edge (Reaction Model)
         
         # Scale continuous features correctly using the pre-fitted scaler
-        scaled_vals = scaler.transform([[1000, seconds_since_update]])
+        scaled_vals = scaler.transform(pd.DataFrame([{
+            "volume": 1000, 
+            "seconds_since_price_update": seconds_since_update
+        }]))
         
         features = pd.DataFrame([{
             "market_error": market_error,
