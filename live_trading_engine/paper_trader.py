@@ -1,4 +1,6 @@
 import os
+import os
+import csv
 import time
 import requests
 import asyncio
@@ -134,6 +136,13 @@ async def live_trading_loop():
     last_price_update = time.time()
     last_midpoint = 0.5
     
+    # Setup CSV Logging
+    log_file = os.path.join(SCRIPT_DIR, "logs", f"paper_trade_log_{GAME_PK}_{int(time.time())}.csv")
+    with open(log_file, "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["timestamp", "status", "inning", "kalshi_mid", "spread", "mlb_hwe", "fair_prob", "model_prob", "edge_yes", "edge_no", "portfolio_cash", "open_position"])
+    print(f"Logging live data to: {log_file}")
+    
     while True:
         # 1. Fetch live market prices
         midpoint, spread, bid, ask = await fetch_kalshi_orderbook(MARKET_TICKER)
@@ -191,6 +200,13 @@ async def live_trading_loop():
         
         edge_yes = final_prob - ask
         edge_no = bid - final_prob
+        
+        # 5.5 Write Log
+        with open(log_file, "a", newline="") as f:
+            writer = csv.writer(f)
+            writer.writerow([
+                time.time(), status, inning, midpoint, spread, hwe, fair_prob, final_prob, edge_yes, edge_no, portfolio.cash, portfolio.position
+            ])
         
         # 6. Portfolio Execution Logic
         # -- Early Exits / Hedging --
