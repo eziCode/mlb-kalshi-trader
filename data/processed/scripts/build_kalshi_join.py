@@ -506,7 +506,6 @@ def chronological_split(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
 # --------------------------------------------------
 
 DROP_COLS = [
-    "game_pk",
     "game_date",
     "home_team",
     "away_team",
