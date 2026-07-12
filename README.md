@@ -12,16 +12,20 @@ This system avoids the common trap of building an MLB probability model from scr
 2. **Market Reaction Model (The Trader)**
    The reaction model (CatBoost) does *not* try to predict baseball. It uses the `fair_prob` directly as a mathematical `baseline` (base margin in log-odds). The model is explicitly fed only market-level features (`market_error`, `kalshi_price`, `spread`, `volume`) to isolate and identify when the market diverges from the mathematical truth. By modeling just the residuals (the overreactions), it effectively spots when human traders panic or underreact, and corrects the probability.
 
+3. **Stateful Portfolio Manager (The Executioner)**
+   Rather than placing static, hold-to-expiration bets, the system runs a chronological, stateful simulation. It prevents duplicate bets on the same game, manages inventory, and actively "trades out" of positions (hedging/selling early) when the mathematical edge vanishes, successfully locking in profits before the game ends.
+
 ## Performance
 
 Backtesting on an unseen chronologically-split holdout dataset (June 28, 2026 - July 10, 2026) yielded the following per-pitch simulated performance. 
 
-*Assumption: Flat $10 bets on any pitch where the Market Reaction Model identifies a >15% edge against the Kalshi midpoint.*
+*Assumption: Flat $10 bets on any pitch where the Market Reaction Model identifies a >15% edge against the Kalshi midpoint. The position is actively managed and sold early if the edge flips.*
 
-- **Win Rate:** 72.86%
-- **Total Capital Risked:** $3,390.00
-- **Net Profit (PnL):** $2,011.68
-- **ROI:** 59.34%
+- **Total Trades Opened:** 46
+- **Positions Traded Out Early:** 38 (82% of trades were hedged or locked for profit before expiration)
+- **Total Capital Risked:** $460.00
+- **Net Profit (PnL):** $180.93
+- **ROI:** 39.33%
 
 ## Pipeline Structure
 
@@ -36,7 +40,7 @@ The codebase is split into three distinct phases: Data Processing, Modeling, and
 * `models/train_market_reaction_model.py`: Calculates the Log5 anchored `fair_prob`, builds the CatBoost `Pool` with the baseline log-odds, and trains a highly constrained Market Reaction Model to isolate market inefficiencies.
 
 ### 3. Backtesting
-* `backtesting/evaluate_strategy.py`: Simulates placing trades on the unseen `test_dataset.parquet` at a >15% edge threshold, dynamically evaluating Log5 probabilities, running the CatBoost residual inference, and outputting final ROI, win rates, and PnL.
+* `backtesting/evaluate_strategy.py`: Runs the chronological stateful portfolio simulation on the unseen `test_dataset.parquet`. It evaluates Log5 probabilities, runs the CatBoost residual inference, executes trades at a >15% edge threshold, and actively hedges/exits positions dynamically, outputting final ROI and PnL.
 
 ## Usage
 
