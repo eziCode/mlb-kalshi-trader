@@ -12,7 +12,13 @@ This system avoids the common trap of building an MLB probability model from scr
 2. **Market Reaction Model (The Trader)**
    The reaction model (CatBoost) does *not* try to predict baseball. It uses the `fair_prob` directly as a mathematical `baseline` (base margin in log-odds). The model is explicitly fed only market-level features (`market_error`, `kalshi_price`, `spread`, `volume`) to isolate and identify when the market diverges from the mathematical truth. By modeling just the residuals (the overreactions), it effectively spots when human traders panic or underreact, and corrects the probability.
 
-3. **Stateful Portfolio Manager (The Executioner)**
+3. **The Edge Calculation**
+   Once the CatBoost model outputs the `final_prob` (its ultimate prediction of the true win probability), the system compares it against the live Kalshi order book to find mathematical edges:
+   - `edge_yes = final_prob - ask`: The edge if we buy YES (predicting the team will win) at the current asking price.
+   - `edge_no = bid - final_prob`: The edge if we sell YES / buy NO (predicting the team will lose) to current buyers at the bid price.
+   If either edge exceeds the configured `EDGE_THRESHOLD` (e.g., >7%), the bot executes the trade.
+
+4. **Stateful Portfolio Manager (The Executioner)**
    Rather than placing static, hold-to-expiration bets, the system runs a chronological, stateful simulation. It prevents duplicate bets on the same game, manages inventory, and actively "trades out" of positions (hedging/selling early) when the mathematical edge vanishes, successfully locking in profits before the game ends.
 
 ## Performance
