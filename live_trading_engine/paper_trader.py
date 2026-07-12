@@ -12,10 +12,10 @@ from catboost import CatBoostClassifier, Pool
 # ---------------------------------------------------------
 # Configuration
 # ---------------------------------------------------------
-GAME_PK = 823358  # Brewers vs Pirates (July 12)
-MARKET_TICKER = "KXMLBGAME-26JUL121215MILPIT-PIT"
+GAME_PK = 824491
+MARKET_TICKER = "KXMLBGAME-26JUL121340CHCCIN-CIN"
 
-EDGE_THRESHOLD = 0.07
+EDGE_THRESHOLD = 0.065
 BET_SIZE = 10.0
 
 import os
@@ -139,7 +139,8 @@ async def get_pregame_anchors(game_pk, market_ticker):
         pregame_hwe = 0.50
     # 3. Get Historical Pregame Kalshi Price
     kalshi_url = f"https://api.elections.kalshi.com/trade-api/v2/series/KXMLBGAME/markets/{market_ticker}/candlesticks"
-    params = {"start_ts": start_ts - 120, "end_ts": start_ts, "period_interval": 1}
+    # Widen the window to 4 hours (14400 seconds) before start_ts to ensure we catch the last traded price
+    params = {"start_ts": start_ts - 14400, "end_ts": start_ts, "period_interval": 1}
     try:
         candles = requests.get(kalshi_url, params=params, timeout=5).json().get("candlesticks", [])
         if candles:
@@ -195,7 +196,7 @@ async def live_trading_loop():
     last_midpoint = 0.5
     
     # Setup CSV Logging
-    log_file = os.path.join(SCRIPT_DIR, "logs", f"paper_trade_log_{GAME_PK}_{int(time.time())}.csv")
+    log_file = os.path.join(SCRIPT_DIR, "logs", f"paper_trade_log_{MARKET_TICKER}_{int(time.time())}.csv")
     with open(log_file, "w", newline="") as f:
         writer = csv.writer(f)
         writer.writerow(["timestamp", "status", "inning", "kalshi_mid", "spread", "mlb_hwe", "fair_prob", "model_prob", "edge_yes", "edge_no", "portfolio_cash", "open_position"])
@@ -219,13 +220,13 @@ async def live_trading_loop():
         # 2. Fetch live MLB state
         inning, hwe, status, balls, strikes, outs = await fetch_mlb_live_state(GAME_PK)
         
-        print(f"[{time.strftime('%H:%M:%S')}] Status: {status} | Inn: {inning} | Outs: {outs} | Count: {balls}-{strikes} | Kalshi Mid: {midpoint} | MLB HWE: {hwe:.1%}")
-        
         if status == "Preview" or midpoint is None:
+            print(f"[{time.strftime('%H:%M:%S')}] Status: {status} | Inn: {inning} | Outs: {outs} | Count: {balls}-{strikes} | Kalshi Mid: {midpoint} | MLB HWE: {hwe:.1%}")
             await asyncio.sleep(5)
             continue
             
         if status == "Final":
+            print(f"[{time.strftime('%H:%M:%S')}] Status: {status} | Inn: {inning} | Outs: {outs} | Count: {balls}-{strikes} | Kalshi Mid: {midpoint} | MLB HWE: {hwe:.1%}")
             print("Game has ended. Settling portfolio...")
             # We would look at final score here to print final PnL
             break
@@ -260,6 +261,12 @@ async def live_trading_loop():
         
         edge_yes = final_prob - ask
         edge_no = bid - final_prob
+        
+        if edge_yes > edge_no:
+            edge_str = f"YES {edge_yes:+.1%}"
+        else:
+            edge_str = f"NO {edge_no:+.1%}"
+        print(f"[{time.strftime('%H:%M:%S')}] Status: {status} | Inn: {inning} | Outs: {outs} | Count: {balls}-{strikes} | Kalshi Mid: {midpoint} | MLB HWE: {hwe:.1%} | Edge: {edge_str}")
         
         # 5.5 Write Log
         with open(log_file, "a", newline="") as f:
