@@ -239,6 +239,20 @@ def load_pitches() -> pd.DataFrame:
               f"pitch_timestamp_utc and cannot be price-joined "
               f"(will appear in output with NaN Kalshi columns).")
 
+    # ------------------------------------------------------------------
+    # Calculate home_win using the final pitch of each game
+    # ------------------------------------------------------------------
+    # Sort by time, group by game, and grab the very last pitch
+    last_pitches = df.sort_values("pitch_timestamp_utc").groupby("game_pk").tail(1)
+    
+    # If the home team has a positive score differential at the end, they won
+    home_winners = last_pitches[last_pitches["score_diff"] > 0]["game_pk"]
+    
+    # Map this boolean back to every pitch in the game as an integer (1 or 0)
+    df["home_win"] = df["game_pk"].isin(home_winners).astype(int)
+    
+    print(f"  Calculated home_win for {df['game_pk'].nunique():,} games.")
+
     return df
 
 
