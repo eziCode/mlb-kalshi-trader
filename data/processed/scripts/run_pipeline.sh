@@ -1,6 +1,9 @@
 # Build the MLB hitter dataset
 python build_mlb_hitter_data.py
 
+# Build the MLB pitcher dataset
+python build_mlb_pitcher_data.py
+
 # Build the event state features
 python build_event_state_features.py
 

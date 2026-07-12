@@ -464,6 +464,14 @@ def join_prices(pitches: pd.DataFrame, game_market_map: pd.DataFrame,
           f"(zero-price candles / 2025 historical-tier data).")
     print(f"  Retained {len(merged):,} pitches with a valid kalshi_price.")
 
+    # Add pregame_prob and pregame_home_win_exp to capture team strength (Vegas odds proxy)
+    first_pitches = merged.sort_values(["game_pk", "pitch_number"]).groupby("game_pk").first().reset_index()
+    first_pitches = first_pitches[["game_pk", "kalshi_price", "home_win_exp"]].rename(columns={
+        "kalshi_price": "pregame_prob",
+        "home_win_exp": "pregame_home_win_exp"
+    })
+    merged = merged.merge(first_pitches, on="game_pk", how="left")
+
     return merged
 
 

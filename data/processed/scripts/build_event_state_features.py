@@ -37,6 +37,10 @@ HITTER_DIR = Path(
     "/Users/ezraakresh/Documents/mlb-kalshi-trader/data/processed/mlb_hitter_data"
 )
 
+PITCHER_DIR = Path(
+    "/Users/ezraakresh/Documents/mlb-kalshi-trader/data/processed/mlb_pitcher_data"
+)
+
 OUTPUT_DIR = Path(
     "/Users/ezraakresh/Documents/mlb-kalshi-trader/data/processed/mlb_game_state"
 )
@@ -56,6 +60,12 @@ def load_hitter_features():
     df = pd.read_parquet(path)
     df["game_date"] = pd.to_datetime(df["game_date"])
 
+    return df
+
+def load_pitcher_features():
+    path = PITCHER_DIR / "pitcher_game_logs.parquet"
+    print(f"Loading {path}")
+    df = pd.read_parquet(path)
     return df
 
 
@@ -338,6 +348,14 @@ def select_features(df):
         # pitch
         "pitch_number",
 
+        # pitcher
+        "pitcher_is_starter",
+        "pitcher_game_pitch_count",
+        "hist_entry_score_diff",
+
+        # MLB's pre-calculated Win Probability
+        "home_win_exp",
+
         # target
         "delta_home_win_exp",
     ]
@@ -362,6 +380,10 @@ def main():
     hitter = load_hitter_features()
     statcast = merge_hitter_rolling(statcast, hitter)
     statcast = create_hitter_form_metrics(statcast)
+    
+    pitcher = load_pitcher_features()
+    print("Merging pitcher features...")
+    statcast = statcast.merge(pitcher, on=["game_pk", "at_bat_number", "pitch_number"], how="left")
 
     statcast["hit"] = statcast["events"].isin(
         ["single", "double", "triple", "home_run"]
