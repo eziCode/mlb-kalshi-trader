@@ -1,2 +1,2 @@
-./mlb-kalshi-trader/data/raw/kalshi_market_logs/cache
-./mlb-kalshi-trader/data/raw/mlb_timestamps/cache
+data/raw/kalshi_market_logs/cache
+data/raw/mlb_timestamps/cache
