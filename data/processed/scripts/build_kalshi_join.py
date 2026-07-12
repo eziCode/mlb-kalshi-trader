@@ -59,9 +59,16 @@ KALSHI_DIR = Path(
     "data/raw/kalshi_market_logs"
 )
 
-OUTPUT_PATH = Path(
-    "data/processed/training_dataset.parquet"
+TRAIN_DIR = Path(
+    "data/processed/train"
 )
+
+TEST_DIR = Path(
+    "data/processed/test"
+)
+
+TRAIN_DIR.mkdir(parents=True, exist_ok=True)
+TEST_DIR.mkdir(parents=True, exist_ok=True)
 
 
 # --------------------------------------------------
@@ -475,6 +482,40 @@ def join_prices(pitches: pd.DataFrame, game_market_map: pd.DataFrame,
 
 
 # --------------------------------------------------
+# Chronological train / test split
+# --------------------------------------------------
+
+TRAIN_FRAC = 0.80
+
+
+def chronological_split(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
+    """
+    Splits df into train (first 80% of game dates) and test (last 20%).
+
+    Splitting is done at the GAME DATE level, not the row level, so every
+    pitch from a given game ends up entirely in one set.  A row-level
+    random split would mix pre- and post-event context from the same game
+    across the boundary, which is a subtle form of data leakage.
+    """
+    all_dates = sorted(df["game_date"].dropna().unique())
+    cutoff_idx = int(len(all_dates) * TRAIN_FRAC)
+    cutoff_date = all_dates[cutoff_idx]  # first date that goes into test
+
+    train = df[df["game_date"] < cutoff_date].copy()
+    test  = df[df["game_date"] >= cutoff_date].copy()
+
+    print(f"\nChronological 80/20 split ({TRAIN_FRAC:.0%} train):")
+    print(f"  Train: {len(all_dates[:cutoff_idx]):>3} dates  "
+          f"({all_dates[0]} → {all_dates[cutoff_idx - 1]})  "
+          f"{len(train):,} pitches")
+    print(f"  Test:  {len(all_dates[cutoff_idx:]):>3} dates  "
+          f"({cutoff_date} → {all_dates[-1]})  "
+          f"{len(test):,} pitches")
+
+    return train, test
+
+
+# --------------------------------------------------
 # Main
 # --------------------------------------------------
 
@@ -490,11 +531,18 @@ def main():
 
     final = join_prices(pitches, game_market_map, kalshi)
 
-    print(f"\nSaving {len(final):,} rows -> {OUTPUT_PATH}")
-    print(f"(Only pitches with an observed Kalshi price_close are included.)")
-    final.to_parquet(OUTPUT_PATH, index=False)
-    print("Done!")
+    train, test = chronological_split(final)
 
+    train_path = TRAIN_DIR / "training_dataset.parquet"
+    test_path  = TEST_DIR  / "test_dataset.parquet"
+
+    print(f"\nSaving train ({len(train):,} rows) -> {train_path}")
+    train.to_parquet(train_path, index=False)
+
+    print(f"Saving test  ({len(test):,} rows) -> {test_path}")
+    test.to_parquet(test_path, index=False)
+
+    print("Done!")
 
 
 if __name__ == "__main__":
