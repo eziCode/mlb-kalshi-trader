@@ -516,6 +516,27 @@ def chronological_split(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
 
 
 # --------------------------------------------------
+# Columns to drop from the final model dataset
+# --------------------------------------------------
+# These are identifiers, timestamps, and redundant fields that carry
+# no learnable signal for the model.
+DROP_COLS = [
+    "game_pk",
+    "game_date",
+    "home_team",
+    "away_team",
+    "pitch_timestamp_utc",
+    "home_team_canon",
+    "away_team_canon",
+    "event_ticker",
+    "market_ticker",
+    "period_end_time",
+    "price_close",
+    "delta_home_win_exp"
+]
+
+
+# --------------------------------------------------
 # Main
 # --------------------------------------------------
 
@@ -532,6 +553,14 @@ def main():
     final = join_prices(pitches, game_market_map, kalshi)
 
     train, test = chronological_split(final)
+
+    # Drop metadata / identifier columns before saving.
+    cols_to_drop = [c for c in DROP_COLS if c in train.columns]
+    train = train.drop(columns=cols_to_drop)
+    test = test.drop(columns=cols_to_drop)
+    
+    print(f"\nDropped {len(cols_to_drop)} metadata columns: {cols_to_drop}")
+    print(f"Remaining columns ({len(train.columns)}): {train.columns.tolist()}")
 
     train_path = TRAIN_DIR / "training_dataset.parquet"
     test_path  = TEST_DIR  / "test_dataset.parquet"
