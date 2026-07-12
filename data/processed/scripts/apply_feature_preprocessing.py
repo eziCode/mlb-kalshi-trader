@@ -55,15 +55,8 @@ def preprocess(df: pd.DataFrame, scaler: StandardScaler = None, is_train: bool =
     # We leave inning, outs_when_up, balls, strikes as is (ordinal).
     # We leave kalshi_price and spread as is (probabilities/cents 0-1).
     continuous_cols = [
-        "hitter_form_7d", 
-        "hitter_form_21d", 
-        "pitch_number", 
-        "delta_home_win_exp", 
         "volume", 
-        "open_interest", 
         "seconds_since_price_update",
-        "pitcher_game_pitch_count",
-        "hist_entry_score_diff",
     ]
     
     cols_to_scale = [c for c in continuous_cols if c in df.columns]
