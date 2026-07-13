@@ -410,69 +410,94 @@ KALSHI_PRICE_COLS = [
 
 def join_prices(pitches: pd.DataFrame, game_market_map: pd.DataFrame,
                  kalshi: pd.DataFrame) -> pd.DataFrame:
-    pitches = pitches.merge(game_market_map, on="game_pk", how="left")
+    """Create causal decision rows at candle-close observation times.
 
-    has_ts = pitches["pitch_timestamp_utc"].notna()
-    has_market = pitches["market_ticker"].notna()
-    joinable = pitches[has_ts & has_market].copy()
-    not_joinable = pitches[~(has_ts & has_market)].copy()
+    The old pitch-centric join combined a newly updated MLB state with an
+    earlier candle and then treated that stale candle as executable. Here the
+    market observation is the decision clock. It sees only a pitch state whose
+    pitch start is no later than the candle close, and it retains the candle's
+    actual closing bid and ask.
+    """
+    pitches = pitches.merge(game_market_map, on="game_pk", how="inner")
+    pitches = pitches.dropna(subset=["pitch_timestamp_utc", "market_ticker"])
+    pitches = pitches.sort_values(["game_pk", "pitch_timestamp_utc"])
+    windows = pitches.groupby(["game_pk", "market_ticker"], as_index=False).agg(
+        game_date=("game_date", "first"),
+        first_pitch_time=("pitch_timestamp_utc", "min"),
+        last_pitch_time=("pitch_timestamp_utc", "max"),
+        pregame_home_win_exp=("home_win_exp", "first"),
+    )
 
-    print(f"\nPrice join: {len(joinable):,} / {len(pitches):,} pitches "
-          f"have both a timestamp and a matched market "
-          f"({len(joinable) / len(pitches):.1%})")
+    candles = kalshi[KALSHI_PRICE_COLS].copy()
+    candles = candles.merge(
+        game_market_map[["game_pk", "market_ticker"]],
+        on="market_ticker",
+        how="inner",
+    ).merge(windows, on=["game_pk", "market_ticker"], how="inner")
+    numeric = [
+        "yes_bid_close", "yes_ask_close", "volume", "open_interest",
+    ]
+    for column in numeric:
+        candles[column] = pd.to_numeric(candles[column], errors="coerce")
+    candles = candles.dropna(subset=[
+        "period_end_time", "yes_bid_close", "yes_ask_close",
+    ])
+    valid = (
+        candles["yes_bid_close"].between(0.01, 0.99)
+        & candles["yes_ask_close"].between(0.01, 0.99)
+        & (candles["yes_ask_close"] > candles["yes_bid_close"])
+    )
+    candles = candles[valid].copy()
+    candles["kalshi_price"] = (
+        candles["yes_bid_close"] + candles["yes_ask_close"]
+    ) / 2.0
+    candles["spread"] = (
+        candles["yes_ask_close"] - candles["yes_bid_close"]
+    )
 
-    if joinable.empty:
-        return not_joinable
+    anchors = (
+        candles[candles["period_end_time"] < candles["first_pitch_time"]]
+        .sort_values(["game_pk", "period_end_time"])
+        .groupby("game_pk", as_index=False)
+        .tail(1)[["game_pk", "kalshi_price"]]
+        .rename(columns={"kalshi_price": "pregame_prob"})
+    )
+    decisions = candles[
+        (candles["period_end_time"] >= candles["first_pitch_time"])
+        & (candles["period_end_time"] <= candles["last_pitch_time"])
+    ].copy()
+    decisions = decisions.merge(anchors, on="game_pk", how="inner")
+    decisions["decision_time"] = decisions["period_end_time"]
+    decisions["game_pk"] = decisions["game_pk"].astype("int64")
 
-    kalshi_prices = kalshi[KALSHI_PRICE_COLS].dropna(subset=["period_end_time"])
-
-    joinable = joinable.sort_values("pitch_timestamp_utc")
-    kalshi_prices = kalshi_prices.sort_values("period_end_time")
-
+    state_drop = [
+        column for column in ["market_ticker", "game_date"]
+        if column in pitches.columns
+    ]
+    states = pitches.drop(columns=state_drop).sort_values("pitch_timestamp_utc")
+    states["game_pk"] = states["game_pk"].astype("int64")
+    decisions = decisions.sort_values("decision_time")
     merged = pd.merge_asof(
-        joinable,
-        kalshi_prices,
-        left_on="pitch_timestamp_utc",
-        right_on="period_end_time",
-        by="market_ticker",
+        decisions,
+        states,
+        left_on="decision_time",
+        right_on="pitch_timestamp_utc",
+        by="game_pk",
         direction="backward",
-        allow_exact_matches=False,
+        allow_exact_matches=True,
+        suffixes=("", "_state"),
     )
-
-    merged["seconds_since_price_update"] = (
-        (merged["pitch_timestamp_utc"] - merged["period_end_time"])
-        .dt.total_seconds()
+    merged = merged.dropna(subset=["home_win_exp"]).copy()
+    merged["state_age_seconds"] = (
+        merged["decision_time"] - merged["pitch_timestamp_utc"]
+    ).dt.total_seconds()
+    if (merged["state_age_seconds"] < 0).any():
+        raise AssertionError("A decision row contains a future MLB state")
+    print(
+        f"\nCausal market/state join: {len(merged):,} candle decisions across "
+        f"{merged['game_pk'].nunique():,} games using actual closing bid/ask."
     )
-
-    negative = (merged["seconds_since_price_update"] <= 0).sum()
-    if negative:
-        print(f"  WARNING: {negative:,} pitches have seconds_since_price_update <= 0 "
-              f"-- this indicates a data leakage bug. Investigate before training.")
-
-    stale = (merged["seconds_since_price_update"] > 1800).sum()
-    if stale:
-        print(f"  NOTE: {stale:,} pitches have a price that is >30 min old "
-              f"(market may have been inactive / pre-game). Consider filtering "
-              f"these in training.")
-
-    merged["kalshi_price"] = merged["price_close"]
-
-    n_before = len(merged)
-    merged = merged[merged["kalshi_price"].notna()].copy()
-    n_dropped = n_before - len(merged)
-    print(f"  Dropped {n_dropped:,} pitches with no Kalshi price "
-          f"(zero-price candles / 2025 historical-tier data).")
-    print(f"  Retained {len(merged):,} pitches with a valid kalshi_price.")
-
-    # Add pregame_prob and pregame_home_win_exp to capture team strength (Vegas odds proxy)
-    first_pitches = merged.sort_values(["game_pk", "pitch_number"]).groupby("game_pk").first().reset_index()
-    first_pitches = first_pitches[["game_pk", "kalshi_price", "home_win_exp"]].rename(columns={
-        "kalshi_price": "pregame_prob",
-        "home_win_exp": "pregame_home_win_exp"
-    })
-    merged = merged.merge(first_pitches, on="game_pk", how="left")
-
-    return merged
+    return merged.sort_values("decision_time").reset_index(drop=True)
 
 
 # --------------------------------------------------
@@ -506,15 +531,11 @@ def chronological_split(df: pd.DataFrame) -> tuple[pd.DataFrame, pd.DataFrame]:
 # --------------------------------------------------
 
 DROP_COLS = [
-    "game_date",
     "home_team",
     "away_team",
-    "pitch_timestamp_utc",
     "home_team_canon",
     "away_team_canon",
     "event_ticker",
-    "market_ticker",
-    "period_end_time",
     "price_close",
     "delta_home_win_exp",
 ]
@@ -552,7 +573,7 @@ def main():
     # assumes row order == time order. join_prices sorts the joinable
     # subset but appends the not-joinable subset afterward via concat,
     # so without this the saved file's row order isn't reliably temporal.
-    final = final.sort_values("pitch_timestamp_utc").reset_index(drop=True)
+    final = final.sort_values("decision_time").reset_index(drop=True)
 
     train, test = chronological_split(final)
 

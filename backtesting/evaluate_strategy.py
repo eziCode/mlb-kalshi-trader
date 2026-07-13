@@ -1,152 +1,159 @@
-import pandas as pd
+"""Causal next-observation backtest using the shared live feature contract."""
+
+from __future__ import annotations
+
+from dataclasses import dataclass
+from pathlib import Path
+import sys
+
 import numpy as np
+import pandas as pd
 from catboost import CatBoostClassifier, Pool
 
-TEST_DATA = "data/processed/test/test_dataset.parquet"
-REACTION_MODEL_PATH = "models/market_reaction_model/reaction_model.cbm"
 
-EDGE_THRESHOLD = 0.15  # Requires a 15% difference between our model and Kalshi to bet
-BET_SIZE = 10.0        # Risk $10 per bet
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-def main():
-    print(f"Loading test dataset from {TEST_DATA}...")
-    df = pd.read_parquet(TEST_DATA)
-    
-    print("Loading model...")
+from mlb_kalshi.strategy import (  # noqa: E402
+    CONFIG,
+    add_reaction_features,
+    reaction_feature_frame,
+    signal_side,
+    state_feature_frame,
+    taker_fee,
+    validate_market_prices,
+)
+
+
+TEST_DATA = PROJECT_ROOT / "data/processed/test/test_dataset.parquet"
+MODEL_DIR = PROJECT_ROOT / "models/market_reaction_model"
+
+
+@dataclass
+class Result:
+    trades: int = 0
+    early_exits: int = 0
+    settlements: int = 0
+    fees: float = 0.0
+    capital: float = 0.0
+    pnl: float = 0.0
+
+    @property
+    def roi(self) -> float:
+        return self.pnl / self.capital if self.capital else 0.0
+
+
+@dataclass
+class Position:
+    side: str
+    contracts: float
+    entry_price: float
+    entry_fee: float
+
+
+def add_predictions(frame: pd.DataFrame) -> pd.DataFrame:
+    state_model = CatBoostClassifier()
+    state_model.load_model(MODEL_DIR / "local_win_expectancy.cbm")
     reaction_model = CatBoostClassifier()
-    reaction_model.load_model(REACTION_MODEL_PATH)
-    
-    # ---------------------------------------------------------
-    # 1. State Model Inference (Fair Probabilities)
-    # ---------------------------------------------------------
-    print("Using Log5 anchored MLB home_win_exp as fair probabilities...")
-    we = df["home_win_exp"].clip(0.001, 0.999)
-    p = df["pregame_prob"].clip(0.001, 0.999)
-    we0 = df["pregame_home_win_exp"].clip(0.001, 0.999)
-    
-    odds_we = we / (1 - we)
-    odds_p = p / (1 - p)
-    odds_we0 = we0 / (1 - we0)
-    
-    odds_adj = odds_we * (odds_p / odds_we0)
-    df["fair_prob"] = odds_adj / (1 + odds_adj)
-    df["market_error"] = df["kalshi_price"] - df["fair_prob"]
-    
-    # ---------------------------------------------------------
-    # 2. Reaction Model Inference (Final Probabilities)
-    # ---------------------------------------------------------
-    reaction_features = [
-        "market_error", "kalshi_price", "pregame_prob", "volume", "spread",
-        "seconds_since_price_update", "inning"
-    ]
-    # Keep only features that exist in the dataframe
-    reaction_features = [f for f in reaction_features if f in df.columns]
-    
-    print("Computing final model probabilities using Reaction Model...")
-    # Calculate baseline in log-odds for CatBoost
-    fp = df["fair_prob"].clip(0.0001, 0.9999)
-    baseline = np.log(fp / (1 - fp))
-    
-    eval_pool = Pool(data=df[reaction_features], baseline=baseline)
-    df["final_prob"] = reaction_model.predict_proba(eval_pool)[:, 1]
-    
-    # ---------------------------------------------------------
-    # 3. Simulate Stateful Portfolio Trading
-    # ---------------------------------------------------------
-    print("Simulating stateful trading strategy...")
-    
-    # Pre-calculate prices and edges
-    df["ask_price"] = (df["kalshi_price"] + (df["spread"] / 2.0)).clip(0.01, 0.99)
-    df["bid_price"] = (df["kalshi_price"] - (df["spread"] / 2.0)).clip(0.01, 0.99)
-    df["edge_yes"] = df["final_prob"] - df["ask_price"]
-    df["edge_no"] = df["bid_price"] - df["final_prob"]
+    reaction_model.load_model(MODEL_DIR / "reaction_model.cbm")
+    fair = state_model.predict_proba(state_feature_frame(frame))[:, 1]
+    result = add_reaction_features(frame, fair)
+    baseline = np.log(result["fair_prob"] / (1 - result["fair_prob"]))
+    pool = Pool(reaction_feature_frame(result), baseline=baseline)
+    result["final_prob"] = reaction_model.predict_proba(pool)[:, 1]
+    return result
 
-    total_bets_placed = 0
-    yes_bets = 0
-    no_bets = 0
-    early_exits = 0
-    total_capital_risked = 0.0
-    cash = 0.0
-    
-    # We simulate chronologically per game
-    for game_pk, game_df in df.groupby("game_pk"):
-        position = 0.0  # Positive = YES contracts, Negative = NO contracts
-        
-        for row in game_df.itertuples():
-            ask = row.ask_price
-            bid = row.bid_price
-            f_prob = row.final_prob
-            
-            # --- 1. Exiting existing positions ---
-            if position > 0:
-                # We hold YES. If market is willing to pay more than true worth, sell!
-                # Holding YES is -EV if final_prob < bid
-                if f_prob < bid:
-                    cash += position * bid
-                    position = 0.0
-                    early_exits += 1
-            
-            elif position < 0:
-                # We hold NO. We bought at (1 - entry_bid). To exit, we buy YES at ask.
-                # Holding NO is -EV if final_prob > ask
-                if f_prob > ask:
-                    cash += abs(position) * (1 - ask)
-                    position = 0.0
-                    early_exits += 1
-                    
-            # --- 2. Opening new positions ---
-            if position == 0.0:
-                if row.edge_yes > EDGE_THRESHOLD:
-                    # Buy YES
-                    contracts = BET_SIZE / ask
-                    position = contracts
-                    cash -= BET_SIZE
-                    total_capital_risked += BET_SIZE
-                    total_bets_placed += 1
-                    yes_bets += 1
-                elif row.edge_no > EDGE_THRESHOLD:
-                    # Buy NO
-                    contracts = BET_SIZE / (1 - bid)
-                    position = -contracts
-                    cash -= BET_SIZE
-                    total_capital_risked += BET_SIZE
-                    total_bets_placed += 1
-                    no_bets += 1
 
-        # --- 3. End of game settlement ---
-        # Get the final result for this game from the last row
-        hw = game_df.iloc[-1]["home_win"]
-        if position > 0:
-            if hw == 1:
-                cash += position * 1.0
-        elif position < 0:
-            if hw == 0:
-                cash += abs(position) * 1.0
+def simulate(frame: pd.DataFrame) -> Result:
+    result = Result()
+    for _, game in frame.groupby("game_pk", sort=False):
+        game = game.sort_values("decision_time")
+        position: Position | None = None
+        pending_entry: tuple[str, float] | None = None
+        pending_exit = False
 
-    # ---------------------------------------------------------
-    # 4. Results & Metrics
-    # ---------------------------------------------------------
-    if total_bets_placed == 0:
-        print(f"\nNo bets placed at edge threshold {EDGE_THRESHOLD*100}%.")
-        return
-        
-    roi = cash / total_capital_risked if total_capital_risked > 0 else 0
-    
-    print("\n" + "="*50)
-    print("BACKTEST RESULTS (Test Set: June 28 - July 10)")
-    print("="*50)
-    print(f"Total Pitches Evaluated: {len(df):,}")
-    print(f"Total Trades Opened:     {total_bets_placed:,}")
-    print(f"  - YES Trades:          {yes_bets:,}")
-    print(f"  - NO Trades:           {no_bets:,}")
-    print(f"Positions Traded Out:    {early_exits:,} (Hedging / Early Profit/Loss)")
-    print("-" * 50)
-    print(f"Total Capital Risked:    ${total_capital_risked:,.2f}")
-    print(f"Net Profit (PnL):        ${cash:,.2f}")
-    print(f"ROI:                     {roi:.2%}")
-    print("="*50)
-    
-    # We no longer generate an error analysis table because trades span multiple rows 
-    # and aren't simple static 1-row bets anymore.
+        for row in game.itertuples():
+            bid = float(row.yes_bid_close)
+            ask = float(row.yes_ask_close)
+
+            # Decisions made on the prior observation can execute only now.
+            if pending_exit and position is not None:
+                exit_price = bid if position.side == "yes" else 1.0 - ask
+                exit_fee = taker_fee(position.contracts, exit_price)
+                proceeds = position.contracts * exit_price - exit_fee
+                result.pnl += (
+                    proceeds
+                    - position.contracts * position.entry_price
+                    - position.entry_fee
+                )
+                result.fees += exit_fee
+                result.early_exits += 1
+                position = None
+                pending_exit = False
+
+            if pending_entry is not None and position is None:
+                side, signal_probability = pending_entry
+                price = ask if side == "yes" else 1.0 - bid
+                still_valid = (
+                    ask <= signal_probability - CONFIG.edge_threshold
+                    if side == "yes"
+                    else bid >= signal_probability + CONFIG.edge_threshold
+                )
+                if still_valid and 0 < price < 1:
+                    contracts = CONFIG.bet_size / price
+                    entry_fee = taker_fee(contracts, price)
+                    position = Position(side, contracts, price, entry_fee)
+                    result.trades += 1
+                    result.capital += CONFIG.bet_size + entry_fee
+                    result.fees += entry_fee
+                pending_entry = None
+
+            if position is not None:
+                if (
+                    position.side == "yes" and row.final_prob < bid
+                ) or (
+                    position.side == "no" and row.final_prob > ask
+                ):
+                    pending_exit = True
+            elif pending_entry is None:
+                side, _ = signal_side(row.final_prob, bid, ask)
+                if side is not None:
+                    pending_entry = (side, float(row.final_prob))
+
+        if position is not None:
+            home_win = int(game.iloc[-1]["home_win"])
+            won = (
+                position.side == "yes" and home_win == 1
+            ) or (
+                position.side == "no" and home_win == 0
+            )
+            payout = position.contracts if won else 0.0
+            result.pnl += (
+                payout
+                - position.contracts * position.entry_price
+                - position.entry_fee
+            )
+            result.settlements += 1
+    return result
+
+
+def main() -> None:
+    frame = pd.read_parquet(TEST_DATA)
+    validate_market_prices(frame)
+    frame = add_predictions(frame)
+    result = simulate(frame)
+    print("CAUSAL MARKET-OBSERVATION BACKTEST")
+    print(f"Decision rows:       {len(frame):,}")
+    print(f"Games:               {frame['game_pk'].nunique():,}")
+    print(f"Trades:              {result.trades:,}")
+    print(f"Early exits:         {result.early_exits:,}")
+    print(f"Settlements:         {result.settlements:,}")
+    print(f"Fees:                ${result.fees:,.2f}")
+    print(f"Capital:             ${result.capital:,.2f}")
+    print(f"Net PnL:             ${result.pnl:,.2f}")
+    print(f"ROI:                 {result.roi:.2%}")
+
+
 if __name__ == "__main__":
     main()

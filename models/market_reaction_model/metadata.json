@@ -1,0 +1,25 @@
+{
+  "state_features": [
+    "pregame_prob",
+    "inning",
+    "inning_topbot",
+    "outs_when_up",
+    "score_diff",
+    "balls",
+    "strikes",
+    "runner_on_first",
+    "runner_on_second",
+    "runner_on_third"
+  ],
+  "reaction_features": [
+    "market_error",
+    "kalshi_price",
+    "pregame_prob",
+    "spread",
+    "inning"
+  ],
+  "edge_threshold": 0.15,
+  "state_iterations": 80,
+  "reaction_iterations": 1,
+  "scaled_features": []
+}

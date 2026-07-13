@@ -1,66 +1,65 @@
 # MLB Kalshi Trader
 
-An automated machine learning trading system designed to predict and exploit market overreactions in MLB live betting markets on [Kalshi](https://kalshi.com/).
+Research and paper-trading pipeline for testing MLB in-game Kalshi strategies
+with identical historical and live feature semantics.
 
-## Architecture
+## Corrected architecture
 
-This system avoids the common trap of building an MLB probability model from scratch. Instead, it relies on a two-step hybrid approach that combines classical baseball statistics with modern machine learning:
+1. `build_kalshi_join.py` creates one decision row per completed market candle.
+   Each row uses the candle's actual closing bid and ask and sees only an MLB
+   state whose timestamp is no later than the decision time.
+2. A local win-expectancy CatBoost model uses raw game state: inning half,
+   outs, score, count, bases, and the pregame Kalshi anchor. Live trading no
+   longer waits for MLB `contextMetrics`.
+3. The reaction model uses the same unscaled raw features in training,
+   backtesting, and live trading. There is no `StandardScaler`, hard-coded
+   volume, or mismatched price-age feature.
+4. Historical signals execute only at a later actual bid/ask observation and
+   only if the edge remains at least 15%. Entry/exit taker fees are included.
+5. Live snapshots are fetched concurrently, missing anchors and one-sided
+   books fail closed, and every decision logs market/state receipt timestamps.
 
-1. **The Log5 Mathematical Baseline**
-   We start with MLB Statcast's official live game state Markov probabilities (`home_win_exp`). Because this baseline ignores specific starting pitchers and pre-game Vegas odds, we apply a **Log5 Formula** transformation. This mathematically anchors the baseline curve so that it perfectly matches the Kalshi opening market price at the first pitch of the game. The result is a mathematically pure, perfectly anchored true win probability (`fair_prob`) that moves exactly according to game events.
+Shared definitions and validation live in `mlb_kalshi/strategy.py`.
 
-2. **Market Reaction Model (The Trader)**
-   The reaction model (CatBoost) does *not* try to predict baseball. It uses the `fair_prob` directly as a mathematical `baseline` (base margin in log-odds). The model is explicitly fed only market-level features (`market_error`, `kalshi_price`, `spread`, `volume`) to isolate and identify when the market diverges from the mathematical truth. By modeling just the residuals (the overreactions), it effectively spots when human traders panic or underreact, and corrects the probability.
+## Current causal result
 
-3. **The Edge Calculation**
-   Once the CatBoost model outputs the `final_prob` (its ultimate prediction of the true win probability), the system compares it against the live Kalshi order book to find mathematical edges:
-   - `edge_yes = final_prob - ask`: The edge if we buy YES (predicting the team will win) at the current asking price.
-   - `edge_no = bid - final_prob`: The edge if we sell YES / buy NO (predicting the team will lose) to current buyers at the bid price.
-   If either edge exceeds the configured `EDGE_THRESHOLD` (e.g., >7%), the bot executes the trade.
+On the chronological June 28–July 10 holdout:
 
-4. **Stateful Portfolio Manager (The Executioner)**
-   Rather than placing static, hold-to-expiration bets, the system runs a chronological, stateful simulation. It prevents duplicate bets on the same game, manages inventory, and actively "trades out" of positions (hedging/selling early) when the mathematical edge vanishes, successfully locking in profits before the game ends.
+- 27,450 market decision rows across 175 games
+- 349 later-observation fills
+- $280.82 in fees
+- −$523.09 net PnL
+- −14.32% ROI
 
-## Performance
+The earlier 39.33% result used a newly updated pitch state with an older
+one-minute candle and treated that historical candle as executable. It also
+used different feature definitions and thresholds in live trading. The result
+does not survive causal observation-time alignment.
 
-Backtesting on an unseen chronologically-split holdout dataset (June 28, 2026 - July 10, 2026) yielded the following per-pitch simulated performance. 
-
-*Assumption: Flat $10 bets on any pitch where the Market Reaction Model identifies a >15% edge against the Kalshi midpoint. The position is actively managed and sold early if the edge flips.*
-
-- **Total Trades Opened:** 46
-- **Positions Traded Out Early:** 38 (82% of trades were hedged or locked for profit before expiration)
-- **Total Capital Risked:** $460.00
-- **Net Profit (PnL):** $180.93
-- **ROI:** 39.33%
-
-## Pipeline Structure
-
-The codebase is split into three distinct phases: Data Processing, Modeling, and Backtesting.
-
-### 1. Data Processing
-* `data/processed/scripts/build_event_state_features.py`: Parses raw statcast pitches and extracts the baseline `home_win_exp`.
-* `data/processed/scripts/build_kalshi_join.py`: Chronologically joins the Statcast pitch data with Kalshi 1-minute candlestick order books using a backward ASOF join to prevent look-ahead bias. It also explicitly extracts the 1st-pitch `pregame_prob` to fuel the Log5 anchor.
-* `data/processed/scripts/apply_feature_preprocessing.py`: Normalizes and processes features, ensuring no look-ahead data leakage.
-
-### 2. Modeling
-* `models/train_market_reaction_model.py`: Calculates the Log5 anchored `fair_prob`, builds the CatBoost `Pool` with the baseline log-odds, and trains a highly constrained Market Reaction Model to isolate market inefficiencies.
-
-### 3. Backtesting
-* `backtesting/evaluate_strategy.py`: Runs the chronological stateful portfolio simulation on the unseen `test_dataset.parquet`. It evaluates Log5 probabilities, runs the CatBoost residual inference, executes trades at a >15% edge threshold, and actively hedges/exits positions dynamically, outputting final ROI and PnL.
-
-## Usage
-
-To rebuild the entire pipeline and evaluate the strategy from scratch, run the scripts in sequence:
+## Rebuild
 
 ```bash
-# 1. Process data and build datasets
-python data/processed/scripts/build_event_state_features.py
-python data/processed/scripts/build_kalshi_join.py
-python data/processed/scripts/apply_feature_preprocessing.py
-
-# 2. Train models
-python models/train_market_reaction_model.py
-
-# 3. Evaluate economic edge
-python backtesting/evaluate_strategy.py
+.venv/bin/python data/processed/scripts/build_kalshi_join.py
+.venv/bin/python data/processed/scripts/apply_feature_preprocessing.py
+.venv/bin/python models/train_market_reaction_model.py
+.venv/bin/python backtesting/evaluate_strategy.py
 ```
+
+Run tests with:
+
+```bash
+.venv/bin/python -m unittest discover -s tests -v
+```
+
+## Paper trader
+
+Set the game and home-team market before starting:
+
+```bash
+MLB_GAME_PK=824491 \
+KALSHI_MARKET_TICKER=KXMLBGAME-26JUL121340CHCCIN-CIN \
+.venv/bin/python live_trading_engine/paper_trader.py
+```
+
+The paper trader refuses invalid/missing pregame anchors and uses the local
+state model plus the current actual order book. It does not place real orders.

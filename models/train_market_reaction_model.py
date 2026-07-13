@@ -1,96 +1,156 @@
-"""
-train_market_reaction_model.py
-"""
+"""Train local win expectancy and market-reaction models without row leakage."""
 
-import os
-import pandas as pd
+from __future__ import annotations
+
+import json
+from pathlib import Path
+import sys
+
 import numpy as np
+import pandas as pd
 from catboost import CatBoostClassifier, Pool
-from sklearn.metrics import log_loss, accuracy_score, roc_auc_score
+from sklearn.metrics import log_loss
 
-TRAIN_DATA = "data/processed/train/training_dataset.parquet"
-OUTPUT_DIR = "models/market_reaction_model/reaction_model.cbm"
 
-def main():
-    print(f"Loading data from {TRAIN_DATA}...")
-    df = pd.read_parquet(TRAIN_DATA)
-    
-    # Apply Log5 Anchor to fair_prob
-    # Odds(Adj) = Odds(WE) * (Odds(P) / Odds(WE0))
-    we = df["home_win_exp"].clip(0.001, 0.999)
-    p = df["pregame_prob"].clip(0.001, 0.999)
-    we0 = df["pregame_home_win_exp"].clip(0.001, 0.999)
-    
-    odds_we = we / (1 - we)
-    odds_p = p / (1 - p)
-    odds_we0 = we0 / (1 - we0)
-    
-    odds_adj = odds_we * (odds_p / odds_we0)
-    df["fair_prob"] = odds_adj / (1 + odds_adj)
-    
-    df["market_error"] = df["kalshi_price"] - df["fair_prob"]
+PROJECT_ROOT = Path(__file__).resolve().parents[1]
+if str(PROJECT_ROOT) not in sys.path:
+    sys.path.insert(0, str(PROJECT_ROOT))
 
-    TARGET = "home_win"
+from mlb_kalshi.strategy import (  # noqa: E402
+    CONFIG,
+    REACTION_FEATURES,
+    STATE_FEATURES,
+    add_reaction_features,
+    reaction_feature_frame,
+    state_feature_frame,
+)
 
-    FEATURES = [
-        "market_error",
-        "kalshi_price",
-        "pregame_prob",
-        "volume",
-        "spread",
-        "seconds_since_price_update",
-        "inning",
-    ]
-    FEATURES = [f for f in FEATURES if f in df.columns]
 
-    X = df[FEATURES]
-    y = df[TARGET]
+TRAIN_DATA = PROJECT_ROOT / "data/processed/train/training_dataset.parquet"
+MODEL_DIR = PROJECT_ROOT / "models/market_reaction_model"
+STATE_MODEL_PATH = MODEL_DIR / "local_win_expectancy.cbm"
+REACTION_MODEL_PATH = MODEL_DIR / "reaction_model.cbm"
 
-    # Calculate baseline in log-odds for CatBoost
-    fp = df["fair_prob"].clip(0.0001, 0.9999)
-    baseline = np.log(fp / (1 - fp))
 
-    # Chronological time split
-    split = int(len(df) * 0.8)
+def weights(frame: pd.DataFrame) -> np.ndarray:
+    rows_per_game = frame.groupby("game_pk")["game_pk"].transform("size")
+    return (1.0 / rows_per_game).to_numpy()
 
-    X_train = X.iloc[:split]
-    X_test = X.iloc[split:]
-    y_train = y.iloc[:split]
-    y_test = y.iloc[split:]
-    
-    baseline_train = baseline.iloc[:split]
-    baseline_test = baseline.iloc[split:]
 
-    train_pool = Pool(data=X_train, label=y_train, baseline=baseline_train)
-    test_pool = Pool(data=X_test, label=y_test, baseline=baseline_test)
+def state_pool(frame: pd.DataFrame, label: bool = True) -> Pool:
+    kwargs = {"data": state_feature_frame(frame)}
+    if label:
+        kwargs.update(label=frame["home_win"], weight=weights(frame))
+    return Pool(**kwargs)
 
-    print("\nTraining Market Reaction Model...")
-    model = CatBoostClassifier(
-        iterations=1000,
-        learning_rate=0.03,
-        depth=3,
-        loss_function="Logloss",
-        eval_metric="Logloss",
-        verbose=100,
+
+def reaction_pool(frame: pd.DataFrame, label: bool = True) -> Pool:
+    fair = frame["fair_prob"].clip(1e-4, 1 - 1e-4)
+    kwargs = {
+        "data": reaction_feature_frame(frame),
+        "baseline": np.log(fair / (1 - fair)),
+    }
+    if label:
+        kwargs.update(label=frame["home_win"], weight=weights(frame))
+    return Pool(**kwargs)
+
+
+def params(iterations: int) -> dict:
+    return {
+        "iterations": iterations,
+        "learning_rate": 0.03,
+        "depth": 4,
+        "loss_function": "Logloss",
+        "eval_metric": "Logloss",
+        "l2_leaf_reg": 15.0,
+        "random_seed": 42,
+        "allow_writing_files": False,
+        "verbose": 100,
+    }
+
+
+def date_partition(frame: pd.DataFrame, first_fraction: float, second_fraction: float):
+    dates = pd.to_datetime(frame["game_date"]).dt.date
+    unique = sorted(dates.unique())
+    first_date = unique[int(len(unique) * first_fraction)]
+    second_date = unique[int(len(unique) * second_fraction)]
+    first = frame[dates < first_date].copy()
+    second = frame[(dates >= first_date) & (dates < second_date)].copy()
+    third = frame[dates >= second_date].copy()
+    return first, second, third
+
+
+def best_iterations(model: CatBoostClassifier) -> int:
+    best = model.get_best_iteration()
+    return int(best + 1 if best is not None and best >= 0 else model.tree_count_)
+
+
+def main() -> None:
+    raw = pd.read_parquet(TRAIN_DATA).sort_values("decision_time")
+    state_fit, state_tune, reaction_dates = date_partition(raw, 0.60, 0.75)
+    if min(len(state_fit), len(state_tune), len(reaction_dates)) == 0:
+        raise RuntimeError("Not enough chronological dates for model training")
+
+    print(
+        f"State fit/tune/reaction rows: {len(state_fit):,} / "
+        f"{len(state_tune):,} / {len(reaction_dates):,}"
     )
-
-    model.fit(
-        train_pool,
-        eval_set=test_pool,
+    provisional_state = CatBoostClassifier(**params(1000))
+    provisional_state.fit(
+        state_pool(state_fit),
+        eval_set=state_pool(state_tune),
         early_stopping_rounds=100,
     )
+    state_iterations = best_iterations(provisional_state)
 
-    pred_proba = model.predict_proba(test_pool)[:, 1]
-    pred_class = (pred_proba > 0.5).astype(int)
+    # Reaction labels see only local-state predictions from later games that
+    # were not used to fit or early-stop the state model.
+    fair_oos = provisional_state.predict_proba(
+        state_feature_frame(reaction_dates)
+    )[:, 1]
+    reaction_dates = add_reaction_features(reaction_dates, fair_oos)
+    reaction_fit, reaction_tune, _ = date_partition(
+        reaction_dates, 0.70, 0.85
+    )
+    # Use the final chronological slice as part of tuning because the outer
+    # test dataset remains completely untouched.
+    tune_dates = pd.to_datetime(reaction_dates["game_date"]).dt.date
+    cutoff = sorted(tune_dates.unique())[int(len(tune_dates.unique()) * 0.70)]
+    reaction_fit = reaction_dates[tune_dates < cutoff].copy()
+    reaction_tune = reaction_dates[tune_dates >= cutoff].copy()
 
-    print("\n--- Market Reaction Model Performance ---")
-    print(f"Log loss: {log_loss(y_test, pred_proba):.4f}")
-    print(f"Accuracy: {accuracy_score(y_test, pred_class):.1%}")
-    print(f"ROC AUC:  {roc_auc_score(y_test, pred_proba):.4f}")
+    provisional_reaction = CatBoostClassifier(**params(1000))
+    provisional_reaction.fit(
+        reaction_pool(reaction_fit),
+        eval_set=reaction_pool(reaction_tune),
+        early_stopping_rounds=100,
+    )
+    reaction_iterations = best_iterations(provisional_reaction)
+    prediction = provisional_reaction.predict_proba(
+        reaction_pool(reaction_tune, label=False)
+    )[:, 1]
+    print(f"Reaction chronological tune log loss: {log_loss(reaction_tune.home_win, prediction):.4f}")
 
-    os.makedirs(os.path.dirname(OUTPUT_DIR), exist_ok=True)
-    model.save_model(OUTPUT_DIR)
-    print(f"\nSaved Market Reaction Model to {OUTPUT_DIR}")
+    # Refit deployment models using the selected tree counts. The reaction
+    # model retains genuinely out-of-state-model-sample fair probabilities.
+    final_state = CatBoostClassifier(**params(state_iterations))
+    final_state.fit(state_pool(raw))
+    final_reaction = CatBoostClassifier(**params(reaction_iterations))
+    final_reaction.fit(reaction_pool(reaction_dates))
+
+    MODEL_DIR.mkdir(parents=True, exist_ok=True)
+    final_state.save_model(STATE_MODEL_PATH)
+    final_reaction.save_model(REACTION_MODEL_PATH)
+    metadata = {
+        "state_features": list(STATE_FEATURES),
+        "reaction_features": list(REACTION_FEATURES),
+        "edge_threshold": CONFIG.edge_threshold,
+        "state_iterations": state_iterations,
+        "reaction_iterations": reaction_iterations,
+        "scaled_features": [],
+    }
+    (MODEL_DIR / "metadata.json").write_text(json.dumps(metadata, indent=2))
+    print(f"Saved models and metadata to {MODEL_DIR}")
 
 
 if __name__ == "__main__":
