@@ -1,0 +1,23 @@
+{
+  "config": {
+    "enabled": false,
+    "minimum_edge": 0.04,
+    "max_hold_minutes": 8.0,
+    "max_event_gap_seconds": 120.0,
+    "live_confirmation_seconds": 2.0
+  },
+  "decision_rows": 27450,
+  "games": 175,
+  "isolated_hit_events": 2443,
+  "trades": 461,
+  "yes_trades": 229,
+  "no_trades": 232,
+  "reversion_exits": 178,
+  "timed_exits": 270,
+  "invalidated_exits": 0,
+  "settlements": 13,
+  "fees": 311.1299999999996,
+  "capital": 4774.499999999997,
+  "pnl": -473.87978662335837,
+  "roi": -0.09925223303452899
+}

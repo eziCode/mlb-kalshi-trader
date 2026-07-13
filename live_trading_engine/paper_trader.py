@@ -1,4 +1,4 @@
-"""Paper trader using the exact raw feature contract used in training."""
+"""Paper trader for the event-conditioned hybrid residual strategy."""
 
 from __future__ import annotations
 
@@ -11,21 +11,23 @@ from pathlib import Path
 import sys
 import time
 
-import numpy as np
 import pandas as pd
 import requests
-from catboost import CatBoostClassifier, Pool
+from catboost import CatBoostClassifier
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
+from mlb_kalshi.hybrid import (  # noqa: E402
+    HIT_EVENTS,
+    HybridConfig,
+    anchored_event_target,
+    hybrid_signal,
+)
 from mlb_kalshi.strategy import (  # noqa: E402
     CONFIG,
-    add_reaction_features,
-    reaction_feature_frame,
-    signal_side,
     state_feature_frame,
     taker_fee,
 )
@@ -37,6 +39,7 @@ MARKET_TICKER = os.getenv(
 )
 POLL_SECONDS = float(os.getenv("POLL_SECONDS", "1.0"))
 MODEL_DIR = PROJECT_ROOT / "models/market_reaction_model"
+HYBRID_CONFIG_PATH = MODEL_DIR / "hybrid_config.json"
 KALSHI_API = "https://external-api.kalshi.com/trade-api/v2"
 MLB_API = "https://statsapi.mlb.com/api"
 
@@ -63,6 +66,8 @@ class GameSnapshot:
     state: dict
     home_score: int
     away_score: int
+    completed_event_id: int | None
+    completed_event: str | None
 
 
 @dataclass
@@ -71,6 +76,22 @@ class Position:
     contracts: float
     entry_price: float
     entry_fee: float
+    entry_time: datetime
+    anchor_target: float
+    anchor_fair: float
+    event_id: int
+
+
+@dataclass
+class EventCandidate:
+    side: str
+    target: float
+    event_id: int
+    event_type: str
+    observed_at: datetime
+    pre_market: float
+    pre_fair: float
+    post_fair: float
 
 
 def fetch_market_snapshot() -> MarketSnapshot:
@@ -114,6 +135,21 @@ def fetch_game_snapshot() -> GameSnapshot:
     home_score = int(teams.get("home", {}).get("runs") or 0)
     away_score = int(teams.get("away", {}).get("runs") or 0)
     offense = linescore.get("offense") or {}
+    completed_plays = [
+        play for play in (live.get("plays", {}).get("allPlays") or [])
+        if play.get("about", {}).get("isComplete")
+    ]
+    latest_play = completed_plays[-1] if completed_plays else None
+    completed_event_id = (
+        int(latest_play.get("atBatIndex"))
+        if latest_play is not None and latest_play.get("atBatIndex") is not None
+        else None
+    )
+    completed_event = (
+        str(latest_play.get("result", {}).get("eventType") or "").lower()
+        if latest_play is not None
+        else None
+    )
     state = {
         "inning": int(linescore.get("currentInning") or 1),
         "inning_topbot": topbot,
@@ -126,7 +162,8 @@ def fetch_game_snapshot() -> GameSnapshot:
         "runner_on_third": int("third" in offense),
     }
     return GameSnapshot(
-        datetime.now(timezone.utc), status, state, home_score, away_score
+        datetime.now(timezone.utc), status, state, home_score, away_score,
+        completed_event_id, completed_event,
     )
 
 
@@ -173,10 +210,19 @@ def fetch_pregame_anchor() -> float:
 async def main() -> None:
     state_model = CatBoostClassifier()
     state_model.load_model(MODEL_DIR / "local_win_expectancy.cbm")
-    reaction_model = CatBoostClassifier()
-    reaction_model.load_model(MODEL_DIR / "reaction_model.cbm")
+    hybrid_config = HybridConfig.from_json(HYBRID_CONFIG_PATH)
+    allow_unvalidated = os.getenv("ALLOW_UNVALIDATED_HYBRID") == "1"
+    if not hybrid_config.enabled and not allow_unvalidated:
+        raise RuntimeError(
+            "Hybrid strategy failed training-period validation and is disabled. "
+            "Set ALLOW_UNVALIDATED_HYBRID=1 only to collect paper observations."
+        )
     pregame_prob = await asyncio.to_thread(fetch_pregame_anchor)
     print(f"Pregame Kalshi anchor: {pregame_prob:.1%}")
+    print(
+        f"Hybrid threshold={hybrid_config.minimum_edge:.1%}, "
+        f"maximum hold={hybrid_config.max_hold_minutes:g} minutes"
+    )
 
     log_dir = Path(__file__).resolve().parent / "logs"
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -185,11 +231,16 @@ async def main() -> None:
         csv.writer(handle).writerow([
             "decision_time", "market_received_at", "state_received_at",
             "bid", "ask", "inning", "outs", "score_diff", "fair_prob",
-            "final_prob", "edge", "action", "cash",
+            "completed_event_id", "completed_event", "target", "excess_move",
+            "edge", "action", "cash",
         ])
 
     cash = 1000.0
     position: Position | None = None
+    candidate: EventCandidate | None = None
+    previous_market: float | None = None
+    previous_fair: float | None = None
+    previous_event_id: int | None = None
     while True:
         try:
             market, game = await asyncio.gather(
@@ -225,52 +276,134 @@ async def main() -> None:
         values = {**game.state, "pregame_prob": pregame_prob}
         state_row = pd.DataFrame([values])
         fair_prob = state_model.predict_proba(state_feature_frame(state_row))[0, 1]
-        reaction_row = add_reaction_features(pd.DataFrame([{
-            "kalshi_price": market.midpoint,
-            "pregame_prob": pregame_prob,
-            "spread": market.spread,
-            "inning": game.state["inning"],
-        }]), [fair_prob])
-        baseline = [np.log(fair_prob / (1 - fair_prob))]
-        final_prob = reaction_model.predict_proba(Pool(
-            reaction_feature_frame(reaction_row), baseline=baseline
-        ))[0, 1]
-        side, edge = signal_side(final_prob, market.bid, market.ask)
         action = "HOLD"
+        edge = float("nan")
+        target = float("nan")
+
+        new_event = (
+            previous_event_id is not None
+            and game.completed_event_id is not None
+            and game.completed_event_id == previous_event_id + 1
+        )
 
         if position is not None:
-            should_exit = (
-                position.side == "yes" and final_prob < market.bid
+            target = float(anchored_event_target(
+                position.anchor_target, position.anchor_fair, fair_prob
+            ))
+            reverted = (
+                position.side == "yes" and market.bid >= target
             ) or (
-                position.side == "no" and final_prob > market.ask
+                position.side == "no" and market.ask <= target
             )
-            if should_exit:
+            timed_out = (
+                now - position.entry_time
+            ).total_seconds() >= hybrid_config.max_hold_minutes * 60.0
+            if reverted or timed_out:
                 price = market.bid if position.side == "yes" else 1.0 - market.ask
                 fee = taker_fee(position.contracts, price)
                 cash += position.contracts * price - fee
-                action = f"CLOSE_{position.side.upper()}"
+                reason = (
+                    "REVERSION" if reverted
+                    else "TIMEOUT"
+                )
+                action = f"CLOSE_{position.side.upper()}_{reason}"
                 position = None
-        elif side is not None:
-            price = market.ask if side == "yes" else 1.0 - market.bid
-            contracts = CONFIG.bet_size / price
-            fee = taker_fee(contracts, price)
-            cash -= CONFIG.bet_size + fee
-            position = Position(side, contracts, price, fee)
-            action = f"OPEN_{side.upper()}"
+                candidate = None
+
+        if position is None:
+            if (
+                candidate is not None
+                and game.completed_event_id != candidate.event_id
+            ):
+                candidate = None
+
+            if (
+                new_event
+                and game.completed_event in HIT_EVENTS
+                and previous_market is not None
+                and previous_fair is not None
+            ):
+                target = float(anchored_event_target(
+                    previous_market, previous_fair, fair_prob
+                ))
+                side, edge = hybrid_signal(
+                    target, market.bid, market.ask,
+                    hybrid_config.minimum_edge,
+                )
+                candidate = (
+                    EventCandidate(
+                        side=side,
+                        target=target,
+                        event_id=int(game.completed_event_id),
+                        event_type=str(game.completed_event),
+                        observed_at=now,
+                        pre_market=previous_market,
+                        pre_fair=previous_fair,
+                        post_fair=fair_prob,
+                    )
+                    if side is not None
+                    else None
+                )
+                if candidate is not None:
+                    action = f"WATCH_{side.upper()}_{game.completed_event.upper()}"
+
+            if candidate is not None and position is None:
+                target = float(anchored_event_target(
+                    candidate.target, candidate.post_fair, fair_prob
+                ))
+                confirmed_side, edge = hybrid_signal(
+                    target, market.bid, market.ask,
+                    hybrid_config.minimum_edge,
+                )
+                confirmation_age = (
+                    now - candidate.observed_at
+                ).total_seconds()
+                if (
+                    confirmation_age >= hybrid_config.live_confirmation_seconds
+                    and confirmed_side == candidate.side
+                    and game.completed_event_id == candidate.event_id
+                ):
+                    price = (
+                        market.ask if candidate.side == "yes"
+                        else 1.0 - market.bid
+                    )
+                    contracts = CONFIG.bet_size / price
+                    fee = taker_fee(contracts, price)
+                    cash -= CONFIG.bet_size + fee
+                    position = Position(
+                        side=candidate.side,
+                        contracts=contracts,
+                        entry_price=price,
+                        entry_fee=fee,
+                        entry_time=now,
+                        anchor_target=candidate.target,
+                        anchor_fair=candidate.post_fair,
+                        event_id=candidate.event_id,
+                    )
+                    action = f"OPEN_{candidate.side.upper()}_{candidate.event_type.upper()}"
+                    candidate = None
+
+        excess_move = (
+            market.midpoint - target if pd.notna(target) else float("nan")
+        )
 
         with log_path.open("a", newline="") as handle:
             csv.writer(handle).writerow([
                 now.isoformat(), market.received_at.isoformat(),
                 game.received_at.isoformat(), market.bid, market.ask,
                 game.state["inning"], game.state["outs_when_up"],
-                game.state["score_diff"], fair_prob, final_prob, edge,
-                action, cash,
+                game.state["score_diff"], fair_prob,
+                game.completed_event_id, game.completed_event, target,
+                excess_move, edge, action, cash,
             ])
         print(
             f"{now.time()} {market.bid:.2f}/{market.ask:.2f} "
-            f"fair={fair_prob:.1%} model={final_prob:.1%} "
+            f"fair={fair_prob:.1%} target={target:.1%} "
             f"edge={edge:+.1%} {action}"
         )
+        previous_market = market.midpoint
+        previous_fair = float(fair_prob)
+        previous_event_id = game.completed_event_id
         await asyncio.sleep(POLL_SECONDS)
 
 
@@ -279,3 +412,5 @@ if __name__ == "__main__":
         asyncio.run(main())
     except KeyboardInterrupt:
         print("Paper trader stopped")
+    except RuntimeError as error:
+        raise SystemExit(str(error)) from error

@@ -184,6 +184,53 @@ def merge_pitch_timestamps(df: pd.DataFrame, ts: pd.DataFrame) -> pd.DataFrame:
     return df
 
 
+def add_completed_event_availability(df: pd.DataFrame) -> pd.DataFrame:
+    """Expose plate-appearance results no earlier than the next pitch.
+
+    The historical MLB timestamp files contain pitch *start* times only.  A
+    Statcast ``events`` value belongs to the result of that pitch, so using it
+    at the pitch start would leak the future.  The next pitch start is the
+    first timestamp in this dataset at which the result is certainly known.
+    Final plate appearances with no subsequent pitch are intentionally absent.
+    """
+    df = df.sort_values(
+        ["game_pk", "at_bat_number", "pitch_number"]
+    ).copy()
+    grouped = df.groupby("game_pk", sort=False)
+    previous_event = grouped["events"].shift(1)
+    event_available = previous_event.notna()
+
+    df["completed_event"] = previous_event
+    df["completed_event_at_bat"] = grouped["at_bat_number"].shift(1).where(
+        event_available
+    )
+    df["completed_event_batting_home"] = (
+        grouped["inning_topbot"].shift(1).eq("Bot").where(event_available)
+    )
+    df["completed_event_time"] = df["pitch_timestamp_utc"].where(
+        event_available
+    )
+    df["completed_event_pitch_start"] = grouped[
+        "pitch_timestamp_utc"
+    ].shift(1).where(event_available)
+    df["completed_event_sequence"] = event_available.groupby(
+        df["game_pk"]
+    ).cumsum()
+
+    carry = [
+        "completed_event",
+        "completed_event_at_bat",
+        "completed_event_batting_home",
+        "completed_event_time",
+        "completed_event_pitch_start",
+    ]
+    df[carry] = df.groupby("game_pk", sort=False)[carry].ffill()
+    df["completed_event_sequence"] = (
+        df["completed_event_sequence"].fillna(0).astype("int64")
+    )
+    return df
+
+
 # --------------------------------------------------
 # Create game state features
 # --------------------------------------------------
@@ -322,6 +369,15 @@ def select_features(df):
         "home_team",
         "away_team",
 
+        # completed plate appearance, delayed to its first safe timestamp
+        "at_bat_number",
+        "completed_event",
+        "completed_event_at_bat",
+        "completed_event_batting_home",
+        "completed_event_time",
+        "completed_event_pitch_start",
+        "completed_event_sequence",
+
         # timestamp for the Kalshi join
         "pitch_timestamp_utc",
 
@@ -374,6 +430,8 @@ def main():
 
     mlb_ts = load_mlb_timestamps()
     statcast = merge_pitch_timestamps(statcast, mlb_ts)
+
+    statcast = add_completed_event_availability(statcast)
 
     statcast = build_game_state(statcast)
 

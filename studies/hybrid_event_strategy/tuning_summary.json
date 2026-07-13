@@ -1,0 +1,25 @@
+{
+  "calibration_cutoff": "2026-06-16",
+  "state_fit_rows": 70972,
+  "tuning_rows": 24888,
+  "selection_rule": "maximum net ROI among configurations with >=30 trades",
+  "selected_config": {
+    "enabled": false,
+    "minimum_edge": 0.04,
+    "max_hold_minutes": 8.0,
+    "max_event_gap_seconds": 120.0,
+    "live_confirmation_seconds": 2.0
+  },
+  "selected_tuning_result": {
+    "minimum_edge": 0.04,
+    "max_hold_minutes": 8.0,
+    "trades": 407.0,
+    "yes_trades": 178.0,
+    "no_trades": 229.0,
+    "fees": 276.45,
+    "capital": 4216.709999999997,
+    "pnl": -452.66300478394766,
+    "roi": -0.1073498070258443
+  },
+  "outer_test_used": false
+}

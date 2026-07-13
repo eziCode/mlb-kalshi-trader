@@ -1,0 +1,7 @@
+{
+  "enabled": false,
+  "minimum_edge": 0.04,
+  "max_hold_minutes": 8.0,
+  "max_event_gap_seconds": 120.0,
+  "live_confirmation_seconds": 2.0
+}
