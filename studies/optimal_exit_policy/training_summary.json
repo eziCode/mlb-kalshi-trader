@@ -1,0 +1,53 @@
+{
+  "fit_end_exclusive": "2026-06-17",
+  "validation_start": "2026-06-17",
+  "validation_end": "2026-06-27",
+  "fit_snapshots": 791632,
+  "fit_trajectories": 345,
+  "validation_snapshots": 279072,
+  "validation_trajectories": 114,
+  "features": [
+    "position_is_yes",
+    "residual",
+    "residual_change_1",
+    "residual_change_5",
+    "position_return",
+    "fair_position",
+    "target_position",
+    "market_position_price",
+    "price_momentum_1",
+    "price_momentum_5",
+    "price_volatility_30",
+    "proxy_spread",
+    "snapshot_gap_seconds",
+    "seconds_since_entry",
+    "inning",
+    "inning_topbot",
+    "outs",
+    "score_diff",
+    "balls",
+    "strikes",
+    "runner_on_first",
+    "runner_on_second",
+    "runner_on_third"
+  ],
+  "selection_rule": "maximum ROI with >=30 trades and >=20 learned model exits",
+  "selected_config": {
+    "enabled": true,
+    "continuation_margin": 0.03,
+    "confirmation_seconds": 5.0
+  },
+  "selected_validation_result": {
+    "continuation_margin": 0.03,
+    "confirmation_seconds": 5.0,
+    "trades": 88.0,
+    "model_exits": 20.0,
+    "settlements": 68.0,
+    "fees": 40.87,
+    "capital": 910.3100000000001,
+    "pnl": 356.8956726910295,
+    "roi": 0.3920594881864744
+  },
+  "time_based_exit": false,
+  "outer_holdout_used": false
+}

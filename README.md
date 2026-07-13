@@ -20,6 +20,35 @@ Historical hit results are not considered observable until the following
 pitch starts because the source data contains pitch-start—not pitch-end—times.
 Candles containing more than one completed plate appearance are skipped.
 
+## Exact-timestamp trade-tape implementation
+
+The primary high-frequency study uses downloaded Kalshi trades and exact MLB
+pitch end times. It requires one second of persistent residual movement and
+a strictly later compatible taker-side trade with sufficient reported size
+before recording a paper fill. Positions have **no predetermined time exit**:
+they close only on model-adjusted reversion or settle at game end.
+
+Unfilled hit signals are event-scoped: weak or directionally wrong fair-value
+updates are rejected, and the next completed plate appearance or material
+score/out/base change cancels the candidate. Exact trigger IDs and timestamps
+are retained for auditability.
+
+The selected training configuration returned +7.78%, but the fixed June 28–
+July 10 holdout returned **−7.77% ROI**: 130 fills, −$104.50 PnL, and $80.89
+in fees. Live deployment is therefore disabled. The trade tape does not
+contain standing order-book quotes, so these fills remain execution proxies.
+
+## Learned optimal exit policy
+
+Post-entry positions now support a fitted continuation-value model instead of
+a percentage stop or timeout. It sells only when executable liquidation value
+beats a conservative predicted continuation value by a tuned margin for five
+seconds. Elapsed time is a model feature but never directly triggers a sale.
+
+The learned exits earned +$72.75 on the holdout, but positions the model chose
+to continue lost −$128.29 at settlement. Total holdout ROI was **−5.32%**, so
+the exit policy also fails closed and is available only for paper observation.
+
 ## Corrected architecture
 
 1. `build_kalshi_join.py` creates one decision row per completed market candle.
@@ -69,6 +98,12 @@ not evidence of a tradable edge.
 .venv/bin/python models/tune_hybrid_strategy.py
 .venv/bin/python backtesting/evaluate_strategy.py
 .venv/bin/python backtesting/evaluate_hybrid_strategy.py
+.venv/bin/python data/processed/scripts/build_trade_tape_event_data.py
+.venv/bin/python models/tune_trade_tape_hybrid.py
+.venv/bin/python backtesting/evaluate_trade_tape_hybrid.py
+.venv/bin/python data/processed/scripts/build_optimal_exit_dataset.py
+.venv/bin/python models/train_optimal_exit_policy.py
+.venv/bin/python backtesting/evaluate_optimal_exit_policy.py
 ```
 
 Run tests with:

@@ -1,0 +1,35 @@
+{
+  "tuning_start": "2026-06-17",
+  "tuning_end": "2026-06-27",
+  "tuning_games": 144,
+  "selection_rule": "maximum net ROI among configurations with >=30 trades",
+  "selected_config": {
+    "enabled": true,
+    "minimum_edge": 0.075,
+    "confirmation_seconds": 1.0,
+    "maximum_pre_event_trade_age_seconds": 5.0,
+    "minimum_fair_move": 0.005
+  },
+  "selected_tuning_result": {
+    "minimum_edge": 0.075,
+    "confirmation_seconds": 1.0,
+    "observed_hits": 2404.0,
+    "eligible_hit_updates": 539.0,
+    "rejected_fair_updates": 1476.0,
+    "invalidated_candidates": 322.0,
+    "fresh_hit_anchors": 441.0,
+    "confirmed_signals": 198.0,
+    "trades": 114.0,
+    "yes_trades": 59.0,
+    "no_trades": 55.0,
+    "reversion_exits": 85.0,
+    "settlements": 29.0,
+    "fees": 77.42000000000006,
+    "capital": 1182.1300000000006,
+    "pnl": 92.02592987389332,
+    "roi": 0.07784755473077688
+  },
+  "outer_holdout_used": false,
+  "execution_model": "strictly later compatible taker-side trade with sufficient reported size",
+  "time_based_exit": false
+}

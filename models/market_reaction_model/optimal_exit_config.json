@@ -1,0 +1,5 @@
+{
+  "enabled": false,
+  "continuation_margin": 0.03,
+  "confirmation_seconds": 5.0
+}

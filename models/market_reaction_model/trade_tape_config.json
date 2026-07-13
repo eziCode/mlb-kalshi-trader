@@ -1,0 +1,7 @@
+{
+  "enabled": false,
+  "minimum_edge": 0.075,
+  "confirmation_seconds": 1.0,
+  "maximum_pre_event_trade_age_seconds": 5.0,
+  "minimum_fair_move": 0.005
+}

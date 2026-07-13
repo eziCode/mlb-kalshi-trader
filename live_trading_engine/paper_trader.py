@@ -6,14 +6,16 @@ import asyncio
 import csv
 from dataclasses import dataclass
 from datetime import datetime, timezone
+import json
 import os
 from pathlib import Path
 import sys
 import time
 
+import numpy as np
 import pandas as pd
 import requests
-from catboost import CatBoostClassifier
+from catboost import CatBoostClassifier, CatBoostRegressor
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -22,9 +24,13 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from mlb_kalshi.hybrid import (  # noqa: E402
     HIT_EVENTS,
-    HybridConfig,
     anchored_event_target,
     hybrid_signal,
+)
+from mlb_kalshi.trade_tape import TradeTapeConfig  # noqa: E402
+from mlb_kalshi.optimal_exit import (  # noqa: E402
+    ExitPolicyConfig,
+    make_live_exit_feature_row,
 )
 from mlb_kalshi.strategy import (  # noqa: E402
     CONFIG,
@@ -39,7 +45,9 @@ MARKET_TICKER = os.getenv(
 )
 POLL_SECONDS = float(os.getenv("POLL_SECONDS", "1.0"))
 MODEL_DIR = PROJECT_ROOT / "models/market_reaction_model"
-HYBRID_CONFIG_PATH = MODEL_DIR / "hybrid_config.json"
+HYBRID_CONFIG_PATH = MODEL_DIR / "trade_tape_config.json"
+EXIT_CONFIG_PATH = MODEL_DIR / "optimal_exit_config.json"
+EXIT_MODEL_PATH = MODEL_DIR / "optimal_exit_continuation.cbm"
 KALSHI_API = "https://external-api.kalshi.com/trade-api/v2"
 MLB_API = "https://statsapi.mlb.com/api"
 
@@ -68,6 +76,7 @@ class GameSnapshot:
     away_score: int
     completed_event_id: int | None
     completed_event: str | None
+    completed_event_batting_home: bool | None
 
 
 @dataclass
@@ -92,6 +101,17 @@ class EventCandidate:
     pre_market: float
     pre_fair: float
     post_fair: float
+    material_state: tuple
+
+
+def material_state(state: dict) -> tuple:
+    return (
+        int(state["score_diff"]),
+        int(state["outs_when_up"]),
+        int(state["runner_on_first"]),
+        int(state["runner_on_second"]),
+        int(state["runner_on_third"]),
+    )
 
 
 def fetch_market_snapshot() -> MarketSnapshot:
@@ -150,6 +170,11 @@ def fetch_game_snapshot() -> GameSnapshot:
         if latest_play is not None
         else None
     )
+    completed_event_batting_home = (
+        not bool(latest_play.get("about", {}).get("isTopInning"))
+        if latest_play is not None
+        else None
+    )
     state = {
         "inning": int(linescore.get("currentInning") or 1),
         "inning_topbot": topbot,
@@ -163,7 +188,7 @@ def fetch_game_snapshot() -> GameSnapshot:
     }
     return GameSnapshot(
         datetime.now(timezone.utc), status, state, home_score, away_score,
-        completed_event_id, completed_event,
+        completed_event_id, completed_event, completed_event_batting_home,
     )
 
 
@@ -210,18 +235,26 @@ def fetch_pregame_anchor() -> float:
 async def main() -> None:
     state_model = CatBoostClassifier()
     state_model.load_model(MODEL_DIR / "local_win_expectancy.cbm")
-    hybrid_config = HybridConfig.from_json(HYBRID_CONFIG_PATH)
+    hybrid_config = TradeTapeConfig(**json.loads(HYBRID_CONFIG_PATH.read_text()))
+    exit_config = ExitPolicyConfig(**json.loads(EXIT_CONFIG_PATH.read_text()))
+    exit_model = CatBoostRegressor()
+    exit_model.load_model(EXIT_MODEL_PATH)
     allow_unvalidated = os.getenv("ALLOW_UNVALIDATED_HYBRID") == "1"
-    if not hybrid_config.enabled and not allow_unvalidated:
+    if (not hybrid_config.enabled or not exit_config.enabled) and not allow_unvalidated:
         raise RuntimeError(
-            "Hybrid strategy failed training-period validation and is disabled. "
+            "Hybrid entry/exit policy failed chronological holdout validation and is disabled. "
             "Set ALLOW_UNVALIDATED_HYBRID=1 only to collect paper observations."
         )
     pregame_prob = await asyncio.to_thread(fetch_pregame_anchor)
     print(f"Pregame Kalshi anchor: {pregame_prob:.1%}")
     print(
         f"Hybrid threshold={hybrid_config.minimum_edge:.1%}, "
-        f"maximum hold={hybrid_config.max_hold_minutes:g} minutes"
+        f"confirmation={hybrid_config.confirmation_seconds:g} seconds, "
+        "no time-based exit"
+    )
+    print(
+        f"Exit continuation margin={exit_config.continuation_margin:.1%}, "
+        f"confirmation={exit_config.confirmation_seconds:g} seconds"
     )
 
     log_dir = Path(__file__).resolve().parent / "logs"
@@ -232,7 +265,7 @@ async def main() -> None:
             "decision_time", "market_received_at", "state_received_at",
             "bid", "ask", "inning", "outs", "score_diff", "fair_prob",
             "completed_event_id", "completed_event", "target", "excess_move",
-            "edge", "action", "cash",
+            "edge", "continuation_value", "exit_advantage", "action", "cash",
         ])
 
     cash = 1000.0
@@ -241,6 +274,8 @@ async def main() -> None:
     previous_market: float | None = None
     previous_fair: float | None = None
     previous_event_id: int | None = None
+    exit_history: list[dict] = []
+    exit_watch_started: datetime | None = None
     while True:
         try:
             market, game = await asyncio.gather(
@@ -279,6 +314,8 @@ async def main() -> None:
         action = "HOLD"
         edge = float("nan")
         target = float("nan")
+        continuation_value = float("nan")
+        exit_advantage = float("nan")
 
         new_event = (
             previous_event_id is not None
@@ -290,30 +327,63 @@ async def main() -> None:
             target = float(anchored_event_target(
                 position.anchor_target, position.anchor_fair, fair_prob
             ))
-            reverted = (
-                position.side == "yes" and market.bid >= target
-            ) or (
-                position.side == "no" and market.ask <= target
+            exit_features, history_point = make_live_exit_feature_row(
+                side=position.side,
+                entry_price=position.entry_price,
+                entry_fee=position.entry_fee,
+                contracts=position.contracts,
+                entry_time=pd.Timestamp(position.entry_time),
+                now=pd.Timestamp(now),
+                fair_probability=float(fair_prob),
+                target=target,
+                midpoint=market.midpoint,
+                bid=market.bid,
+                ask=market.ask,
+                state=game.state,
+                history=exit_history,
             )
-            timed_out = (
-                now - position.entry_time
-            ).total_seconds() >= hybrid_config.max_hold_minutes * 60.0
-            if reverted or timed_out:
+            exit_history.append(history_point)
+            exit_history = exit_history[-30:]
+            continuation_value = float(
+                np.clip(exit_model.predict(exit_features)[0], 0.0, 1.0)
+            )
+            liquidation_price = (
+                market.bid if position.side == "yes" else 1.0 - market.ask
+            )
+            liquidation_fee = taker_fee(position.contracts, liquidation_price)
+            liquidation_value = (
+                liquidation_price - liquidation_fee / position.contracts
+            )
+            exit_advantage = liquidation_value - continuation_value
+            should_exit = exit_advantage >= exit_config.continuation_margin
+            if should_exit and exit_watch_started is None:
+                exit_watch_started = now
+            elif not should_exit:
+                exit_watch_started = None
+            confirmed_exit = (
+                should_exit
+                and exit_watch_started is not None
+                and (now - exit_watch_started).total_seconds()
+                >= exit_config.confirmation_seconds
+            )
+            if confirmed_exit:
                 price = market.bid if position.side == "yes" else 1.0 - market.ask
                 fee = taker_fee(position.contracts, price)
                 cash += position.contracts * price - fee
-                reason = (
-                    "REVERSION" if reverted
-                    else "TIMEOUT"
-                )
+                reason = "CONTINUATION_VALUE"
                 action = f"CLOSE_{position.side.upper()}_{reason}"
                 position = None
                 candidate = None
+                exit_history = []
+                exit_watch_started = None
 
         if position is None:
             if (
                 candidate is not None
-                and game.completed_event_id != candidate.event_id
+                and (
+                    game.completed_event_id != candidate.event_id
+                    or material_state(game.state) != candidate.material_state
+                )
             ):
                 candidate = None
 
@@ -323,29 +393,39 @@ async def main() -> None:
                 and previous_market is not None
                 and previous_fair is not None
             ):
-                target = float(anchored_event_target(
-                    previous_market, previous_fair, fair_prob
-                ))
-                side, edge = hybrid_signal(
-                    target, market.bid, market.ask,
-                    hybrid_config.minimum_edge,
+                signed_fair_move = (
+                    float(fair_prob) - previous_fair
+                ) * (
+                    1.0 if game.completed_event_batting_home else -1.0
                 )
-                candidate = (
-                    EventCandidate(
-                        side=side,
-                        target=target,
-                        event_id=int(game.completed_event_id),
-                        event_type=str(game.completed_event),
-                        observed_at=now,
-                        pre_market=previous_market,
-                        pre_fair=previous_fair,
-                        post_fair=fair_prob,
+                if signed_fair_move >= hybrid_config.minimum_fair_move:
+                    target = float(anchored_event_target(
+                        previous_market, previous_fair, fair_prob
+                    ))
+                    side, edge = hybrid_signal(
+                        target, market.bid, market.ask,
+                        hybrid_config.minimum_edge,
                     )
-                    if side is not None
-                    else None
-                )
-                if candidate is not None:
-                    action = f"WATCH_{side.upper()}_{game.completed_event.upper()}"
+                    candidate = (
+                        EventCandidate(
+                            side=side,
+                            target=target,
+                            event_id=int(game.completed_event_id),
+                            event_type=str(game.completed_event),
+                            observed_at=now,
+                            pre_market=previous_market,
+                            pre_fair=previous_fair,
+                            post_fair=fair_prob,
+                            material_state=material_state(game.state),
+                        )
+                        if side is not None
+                        else None
+                    )
+                    if candidate is not None:
+                        action = (
+                            f"WATCH_{side.upper()}_"
+                            f"{game.completed_event.upper()}"
+                        )
 
             if candidate is not None and position is None:
                 target = float(anchored_event_target(
@@ -359,7 +439,7 @@ async def main() -> None:
                     now - candidate.observed_at
                 ).total_seconds()
                 if (
-                    confirmation_age >= hybrid_config.live_confirmation_seconds
+                    confirmation_age >= hybrid_config.confirmation_seconds
                     and confirmed_side == candidate.side
                     and game.completed_event_id == candidate.event_id
                 ):
@@ -382,6 +462,8 @@ async def main() -> None:
                     )
                     action = f"OPEN_{candidate.side.upper()}_{candidate.event_type.upper()}"
                     candidate = None
+                    exit_history = []
+                    exit_watch_started = None
 
         excess_move = (
             market.midpoint - target if pd.notna(target) else float("nan")
@@ -394,7 +476,8 @@ async def main() -> None:
                 game.state["inning"], game.state["outs_when_up"],
                 game.state["score_diff"], fair_prob,
                 game.completed_event_id, game.completed_event, target,
-                excess_move, edge, action, cash,
+                excess_move, edge, continuation_value, exit_advantage,
+                action, cash,
             ])
         print(
             f"{now.time()} {market.bid:.2f}/{market.ask:.2f} "

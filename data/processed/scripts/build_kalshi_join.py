@@ -73,7 +73,7 @@ import re
 # --------------------------------------------------
 
 GAME_STATE_DIR = Path("data/processed/mlb_game_state")
-KALSHI_DIR = Path("data/raw/kalshi_market_logs")
+KALSHI_DIR = Path("data/raw/kalshi_historical_market_logs")
 GAME_RESULTS_DIR = Path(
     "/Users/ezraakresh/Documents/mlb-kalshi-trader/data/raw/mlb_game_results"
 )

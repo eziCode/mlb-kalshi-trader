@@ -1,0 +1,24 @@
+{
+  "selected_config": {
+    "enabled": true,
+    "continuation_margin": 0.03,
+    "confirmation_seconds": 5.0
+  },
+  "deployment_config": {
+    "enabled": false,
+    "continuation_margin": 0.03,
+    "confirmation_seconds": 5.0
+  },
+  "holdout_start": "2026-06-28",
+  "snapshots": 385466,
+  "trajectories": 130,
+  "games": 98,
+  "trades": 101,
+  "model_exits": 10,
+  "settlements": 91,
+  "fees": 36.94999999999999,
+  "capital": 1043.8899999999999,
+  "pnl": -55.54507363477718,
+  "roi": -0.05320969990590693,
+  "time_based_exit": false
+}

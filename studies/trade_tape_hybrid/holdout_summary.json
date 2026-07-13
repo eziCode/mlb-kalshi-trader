@@ -1,0 +1,35 @@
+{
+  "selected_config": {
+    "enabled": true,
+    "minimum_edge": 0.075,
+    "confirmation_seconds": 1.0,
+    "maximum_pre_event_trade_age_seconds": 5.0,
+    "minimum_fair_move": 0.005
+  },
+  "deployment_config": {
+    "enabled": false,
+    "minimum_edge": 0.075,
+    "confirmation_seconds": 1.0,
+    "maximum_pre_event_trade_age_seconds": 5.0,
+    "minimum_fair_move": 0.005
+  },
+  "games": 175,
+  "trade_tape_rows": 1476998,
+  "state_updates": 51341,
+  "observed_hits": 2919,
+  "eligible_hit_updates": 675,
+  "rejected_fair_updates": 1884,
+  "invalidated_candidates": 414,
+  "fresh_hit_anchors": 549,
+  "confirmed_signals": 248,
+  "trades": 130,
+  "yes_trades": 61,
+  "no_trades": 69,
+  "reversion_exits": 113,
+  "settlements": 17,
+  "fees": 80.88999999999994,
+  "capital": 1344.82,
+  "pnl": -104.5036059363274,
+  "roi": -0.0777082478966162,
+  "time_based_exit": false
+}

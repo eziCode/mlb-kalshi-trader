@@ -1,7 +1,8 @@
-data/raw/kalshi_market_logs/cache
 data/raw/mlb_timestamps/cache
 data/raw/mlb_game_results/cache
 live_trading_engine/logs
+data/raw/kalshi_live_market_logs
+data/processed/trade_tape
 
 # Local interpreter and macOS artifacts
 __pycache__/
