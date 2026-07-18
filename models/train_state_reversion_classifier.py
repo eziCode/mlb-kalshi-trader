@@ -38,6 +38,13 @@ CONFIG_PATH = MODEL_DIR / "state_reversion_config.json"
 FIT_END = pd.Timestamp("2026-06-17").date()
 CALIBRATION_END = pd.Timestamp("2026-06-22").date()
 HOLDOUT_START = pd.Timestamp("2026-06-28").date()
+DATASET_CONFIG = OvershootConfig(
+    minimum_logit_residual=0.02,
+    minimum_target_profit=0.25,
+    observation_latency_buffer_seconds=2.0,
+    entry_execution="maker",
+    exit_execution="maker",
+)
 
 
 def calibrated_probabilities(model, frame, calibration: dict) -> np.ndarray:
@@ -92,12 +99,25 @@ def prediction_metrics(frame, probabilities, expected_pnl) -> dict:
 def load_or_build_examples() -> pd.DataFrame:
     if EXAMPLES_PATH.exists():
         cached = pd.read_parquet(EXAMPLES_PATH)
-        if "policy_version" in cached and cached["policy_version"].eq(2).all():
+        expected_variant = (
+            f"{DATASET_CONFIG.entry_execution}_{DATASET_CONFIG.exit_execution}"
+        )
+        if (
+            "policy_version" in cached and cached["policy_version"].eq(4).all()
+            and cached["execution_variant"].eq(expected_variant).all()
+            and cached["observation_latency_buffer_seconds"].eq(
+                DATASET_CONFIG.observation_latency_buffer_seconds
+            ).all()
+            and "candidate_minimum_target_profit" in cached
+            and cached["candidate_minimum_target_profit"].eq(
+                DATASET_CONFIG.minimum_target_profit
+            ).all()
+        ):
             return cached
     trades = pd.read_parquet(DATA_DIR / "home_market_trades.parquet")
     updates = pd.read_parquet(DATA_DIR / "state_updates.parquet")
     examples = build_state_overshoot_candidates(
-        trades, updates, OvershootConfig(minimum_logit_residual=0.02)
+        trades, updates, DATASET_CONFIG
     )
     STUDY_DIR.mkdir(parents=True, exist_ok=True)
     examples.to_parquet(EXAMPLES_PATH, index=False)
@@ -188,6 +208,8 @@ def main() -> None:
     tune_probability, _, _, tune_ev = two_stage_predictions(
         classifier, win_model, loss_model, tune, calibration
     )
+    tune_dates = sorted(tune["game_date"].unique())
+    fold_dates = [set(values) for values in np.array_split(tune_dates, 3)]
 
     rows = []
     for residual in [0.04, 0.06, 0.08, 0.10, 0.12, 0.16, 0.20, 0.30]:
@@ -204,38 +226,87 @@ def main() -> None:
                     minimum_logit_residual=residual,
                     minimum_reversion_probability=probability,
                     minimum_expected_pnl=minimum_ev,
+                    observation_latency_buffer_seconds=(
+                        DATASET_CONFIG.observation_latency_buffer_seconds
+                    ),
+                    minimum_fair_logit_move=(
+                        DATASET_CONFIG.minimum_fair_logit_move
+                    ),
+                    minimum_target_profit=DATASET_CONFIG.minimum_target_profit,
+                    entry_execution=DATASET_CONFIG.entry_execution,
+                    exit_execution=DATASET_CONFIG.exit_execution,
+                    maker_fee_rate=DATASET_CONFIG.maker_fee_rate,
                 )
                 result = simulate_state_reversion(
                     tune, tune_probability, config, expected_pnls=tune_ev
                 )
-                rows.append({
+                row = {
                     "minimum_logit_residual": residual,
                     "minimum_reversion_probability": probability,
                     "minimum_expected_pnl": minimum_ev,
                     "trades": result.accepted, "rejected": result.rejected,
                     "reversion_exits": result.reversion_exits,
                     "adverse_stop_exits": result.adverse_stop_exits,
+                    "thesis_invalidations": result.thesis_invalidations,
                     "timeout_exits": result.timeout_exits,
                     "settlements": result.settlements, "fees": result.fees,
                     "capital": result.capital, "pnl": result.pnl, "roi": result.roi,
-                })
+                }
+                fold_rois = []
+                fold_pnls = []
+                fold_trades = []
+                for fold_index, dates in enumerate(fold_dates, start=1):
+                    mask = tune["game_date"].isin(dates).to_numpy()
+                    fold_result = simulate_state_reversion(
+                        tune.loc[mask], tune_probability[mask], config,
+                        expected_pnls=tune_ev[mask],
+                    )
+                    row[f"fold_{fold_index}_trades"] = fold_result.accepted
+                    row[f"fold_{fold_index}_pnl"] = fold_result.pnl
+                    row[f"fold_{fold_index}_roi"] = fold_result.roi
+                    fold_trades.append(fold_result.accepted)
+                    fold_pnls.append(fold_result.pnl)
+                    fold_rois.append(fold_result.roi)
+                row["profitable_folds"] = sum(value > 0 for value in fold_pnls)
+                row["minimum_fold_trades"] = min(fold_trades)
+                row["worst_fold_roi"] = min(fold_rois)
+                rows.append(row)
     grid = pd.DataFrame(rows).sort_values(
         ["roi", "pnl", "trades"], ascending=False
     )
     frontier = make_frontier(grid)
-    eligible = grid[grid["trades"] >= 20]
+    stable = grid[
+        (grid["trades"] >= 20)
+        & (grid["minimum_fold_trades"] >= 3)
+        & (grid["profitable_folds"] == 3)
+    ].sort_values(
+        ["worst_fold_roi", "roi", "pnl"], ascending=False
+    )
+    aggregate_eligible = grid[grid["trades"] >= 20].sort_values(
+        ["roi", "pnl", "trades"], ascending=False
+    )
     selected = (
-        eligible.iloc[0] if not eligible.empty
+        stable.iloc[0] if not stable.empty
+        else aggregate_eligible.iloc[0]
+        if not aggregate_eligible.empty
         else grid.sort_values("trades", ascending=False).iloc[0]
     )
     tuning_passed = bool(
-        not eligible.empty and selected.pnl > 0 and selected.roi > 0
+        not stable.empty and selected.pnl > 0 and selected.roi > 0
     )
     config = OvershootConfig(
         enabled=False,
         minimum_logit_residual=float(selected.minimum_logit_residual),
         minimum_reversion_probability=float(selected.minimum_reversion_probability),
         minimum_expected_pnl=float(selected.minimum_expected_pnl),
+        observation_latency_buffer_seconds=(
+            DATASET_CONFIG.observation_latency_buffer_seconds
+        ),
+        minimum_fair_logit_move=DATASET_CONFIG.minimum_fair_logit_move,
+        minimum_target_profit=DATASET_CONFIG.minimum_target_profit,
+        entry_execution=DATASET_CONFIG.entry_execution,
+        exit_execution=DATASET_CONFIG.exit_execution,
+        maker_fee_rate=DATASET_CONFIG.maker_fee_rate,
     )
 
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
@@ -274,6 +345,10 @@ def main() -> None:
         "tuning_metrics": prediction_metrics(tune, tune_probability, tune_ev),
         "selected_config": asdict(config),
         "selected_tuning_result": selected.to_dict(),
+        "selection_rule": (
+            "at least 20 total trades, at least 3 per chronological fold, "
+            "positive PnL in all three folds; maximize worst-fold ROI"
+        ),
         "minimum_tuning_trades": 20, "outer_holdout_used": False,
         "frontier_path": "trade_count_roi_frontier.csv",
     }

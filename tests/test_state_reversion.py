@@ -6,6 +6,8 @@ import pandas as pd
 
 from mlb_kalshi.state_overshoot import (
     OvershootConfig,
+    _entry_fill_compatible,
+    _exit_fill_compatible,
     build_state_overshoot_candidates,
     signed_logit_residual,
     simulate_state_reversion,
@@ -69,12 +71,18 @@ class StateReversionTests(unittest.TestCase):
         self.assertGreater(signed_logit_residual(0.70, 0.50), 0)
         self.assertLess(signed_logit_residual(0.30, 0.50), 0)
 
+    def test_maker_fill_requires_the_opposite_entry_taker(self):
+        self.assertTrue(_entry_fill_compatible("yes", "no", "maker"))
+        self.assertFalse(_entry_fill_compatible("yes", "yes", "maker"))
+        self.assertTrue(_exit_fill_compatible("yes", "yes", "maker"))
+        self.assertFalse(_exit_fill_compatible("yes", "no", "maker"))
+
     def test_candidate_requires_persistence_and_later_exit_fill(self):
         updates = pd.DataFrame({
             "game_pk": [1], "game_date": ["2026-06-01"],
             "pitch_start_time": pd.to_datetime(["2026-06-01T12:00:00Z"]),
             "pitch_end_time": pd.to_datetime(["2026-06-01T12:00:10Z"]),
-            "fair_before": [0.50], "fair_after": [0.50],
+            "fair_before": [0.50], "fair_after": [0.55],
             "at_bat_number": [1], "pitch_number": [1],
             "inning_after": [1], "inning_topbot_after": [1],
             "outs_when_up_after": [0], "score_diff_after": [0],
@@ -91,8 +99,8 @@ class StateReversionTests(unittest.TestCase):
         ])
         trades = pd.DataFrame({
             "game_pk": [1] * 5, "created_time": times,
-            "trade_id": range(5), "yes_price_dollars": [0.50, 0.70, 0.70, 0.50, 0.49],
-            "no_price_dollars": [0.50, 0.30, 0.30, 0.50, 0.51],
+            "trade_id": range(5), "yes_price_dollars": [0.50, 0.75, 0.75, 0.55, 0.54],
+            "no_price_dollars": [0.50, 0.25, 0.25, 0.45, 0.46],
             "count_fp": [100.0] * 5,
             "taker_outcome_side": ["yes", "no", "no", "yes", "yes"],
             "home_win": [0] * 5,
@@ -103,6 +111,9 @@ class StateReversionTests(unittest.TestCase):
                 minimum_logit_residual=0.20,
                 confirmation_seconds=1,
                 maximum_entry_latency_seconds=5,
+                observation_latency_buffer_seconds=10.9,
+                minimum_fair_logit_move=0.01,
+                minimum_target_profit=0.0,
             ),
         )
         self.assertEqual(len(examples), 1)
@@ -111,6 +122,45 @@ class StateReversionTests(unittest.TestCase):
         self.assertEqual(row["entry_time"], times[2])
         self.assertEqual(row["exit_time"], times[4])
         self.assertEqual(row["exit_reason"], "reversion")
+        self.assertAlmostEqual(row["failure_pnl"], -10.0 - row["entry_fee"])
+
+    def test_underreaction_is_not_an_overreaction_candidate(self):
+        updates = pd.DataFrame({
+            "game_pk": [1], "game_date": ["2026-06-01"],
+            "pitch_start_time": pd.to_datetime(["2026-06-01T12:00:00Z"]),
+            "pitch_end_time": pd.to_datetime(["2026-06-01T12:00:10Z"]),
+            "fair_before": [0.50], "fair_after": [0.60],
+            "at_bat_number": [1], "pitch_number": [1],
+            "inning_after": [1], "inning_topbot_after": [1],
+            "outs_when_up_after": [0], "score_diff_after": [0],
+            "balls_after": [0], "strikes_after": [0],
+            "runner_on_first_after": [1], "runner_on_second_after": [0],
+            "runner_on_third_after": [0],
+        })
+        trades = pd.DataFrame({
+            "game_pk": [1] * 4,
+            "created_time": pd.to_datetime([
+                "2026-06-01T12:00:07Z", "2026-06-01T12:00:11Z",
+                "2026-06-01T12:00:12Z", "2026-06-01T12:00:13Z",
+            ]),
+            "trade_id": range(4),
+            # The market rises, but less than fair value: underreaction.
+            "yes_price_dollars": [0.50, 0.54, 0.54, 0.55],
+            "no_price_dollars": [0.50, 0.46, 0.46, 0.45],
+            "count_fp": [100.0] * 4,
+            "taker_outcome_side": ["yes", "no", "no", "yes"],
+            "home_win": [1] * 4,
+        })
+        examples = build_state_overshoot_candidates(
+            trades, updates,
+            OvershootConfig(
+                observation_latency_buffer_seconds=2,
+                minimum_fair_logit_move=0.01,
+                minimum_logit_residual=0.01,
+                minimum_target_profit=0,
+            ),
+        )
+        self.assertTrue(examples.empty)
 
     def test_rejected_entry_releases_game_occupancy(self):
         frame = pd.DataFrame({

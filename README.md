@@ -110,6 +110,7 @@ not evidence of a tradable edge.
 .venv/bin/python models/train_empirical_reversion_strategy.py
 .venv/bin/python models/tune_empirical_runner.py
 .venv/bin/python models/train_state_reversion_classifier.py
+.venv/bin/python models/analyze_state_reversion_execution.py
 .venv/bin/python backtesting/evaluate_state_reversion.py
 ```
 
