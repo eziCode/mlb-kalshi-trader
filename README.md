@@ -117,6 +117,8 @@ not evidence of a tradable edge.
 .venv/bin/python backtesting/evaluate_state_reversion.py
 .venv/bin/python models/train_residual_path_policy.py
 .venv/bin/python backtesting/evaluate_residual_path_policy.py
+.venv/bin/python models/train_mispricing_model.py
+.venv/bin/python backtesting/evaluate_mispricing_model.py
 ```
 
 Run tests with:

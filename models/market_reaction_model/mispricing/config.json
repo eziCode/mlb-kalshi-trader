@@ -1,0 +1,13 @@
+{
+  "enabled": false,
+  "observation_delay_seconds": 1.0,
+  "anchor_buffer_seconds": 2.0,
+  "maximum_anchor_age_seconds": 5.0,
+  "maximum_fill_delay_seconds": 5.0,
+  "minimum_expected_pnl": 2.0,
+  "minimum_probability_edge": 0.1,
+  "bet_size": 10.0,
+  "side_filter": "no",
+  "tuning_passed": true,
+  "validation_passed": true
+}
