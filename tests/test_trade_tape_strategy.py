@@ -39,6 +39,34 @@ class TradeTapeStrategyTests(unittest.TestCase):
         self.assertEqual(result.trades, 0)
         self.assertEqual(result.rejected_fair_updates, 1)
 
+    def test_walk_can_create_a_general_event_signal(self):
+        trades, updates = self._frames(include_reversion=True)
+        updates["completed_event"] = "walk"
+        updates["is_hit"] = False
+        result = simulate_trade_tape(
+            trades, updates, TradeTapeConfig(minimum_edge=0.05)
+        )
+        self.assertEqual(result.observed_events, 1)
+        self.assertEqual(result.trades, 1)
+        self.assertEqual(result.records[0].event_category, "walk")
+
+    def test_event_agnostic_mode_uses_absolute_state_move(self):
+        trades, updates = self._frames(include_reversion=True)
+        updates["completed_event"] = "field_out"
+        updates["completed_event_batting_home"] = True
+        result = simulate_trade_tape(
+            trades,
+            updates,
+            TradeTapeConfig(
+                minimum_edge=0.05,
+                event_agnostic=True,
+                enabled_event_categories=(),
+            ),
+        )
+        self.assertEqual(result.observed_events, 1)
+        self.assertEqual(result.trades, 1)
+        self.assertEqual(result.records[0].event_category, "ordinary_out")
+
     def test_next_completed_plate_appearance_invalidates_candidate(self):
         trades, updates = self._frames(include_reversion=False)
         next_pa = updates.iloc[0].copy()

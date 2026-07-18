@@ -1,0 +1,10 @@
+{
+  "transitions": 233477,
+  "games": 803,
+  "comparable_direction_transitions": 48336,
+  "direction_violations": 129,
+  "direction_violation_rate": 0.0026688182720953327,
+  "count_reset_transitions": 52717,
+  "median_absolute_fair_move": 0.0,
+  "p95_absolute_fair_move": 0.02326794898060136
+}

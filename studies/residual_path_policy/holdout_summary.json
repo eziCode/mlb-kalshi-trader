@@ -1,0 +1,18 @@
+{
+  "holdout_start": "2026-06-28",
+  "signals": 1008,
+  "config": {
+    "enabled": false,
+    "horizon_seconds": 10,
+    "minimum_fill_probability": 0.6,
+    "minimum_expected_pnl": -0.25,
+    "tuning_passed": false,
+    "validation_passed": false
+  },
+  "attempts": 213,
+  "trades": 165,
+  "pnl": -22.937583468756966,
+  "capital": 1650.0,
+  "roi": -0.013901565738640586,
+  "validation_passed": false
+}

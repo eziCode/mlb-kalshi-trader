@@ -20,7 +20,10 @@ from mlb_kalshi.hybrid import (  # noqa: E402
     add_event_targets,
     simulate_hybrid,
 )
-from mlb_kalshi.strategy import state_feature_frame, validate_market_prices  # noqa: E402
+from mlb_kalshi.strategy import (  # noqa: E402
+    predict_home_probability,
+    validate_market_prices,
+)
 
 
 TEST_DATA = PROJECT_ROOT / "data/processed/test/test_dataset.parquet"
@@ -33,9 +36,7 @@ def add_fair_probabilities(frame: pd.DataFrame) -> pd.DataFrame:
     model = CatBoostClassifier()
     model.load_model(MODEL_DIR / "local_win_expectancy.cbm")
     result = frame.copy()
-    result["fair_prob"] = model.predict_proba(
-        state_feature_frame(result)
-    )[:, 1]
+    result["fair_prob"] = predict_home_probability(model, result)
     return result
 
 

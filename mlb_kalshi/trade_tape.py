@@ -13,7 +13,11 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 
-from mlb_kalshi.hybrid import anchored_event_target
+from mlb_kalshi.hybrid import (
+    anchored_event_target,
+    directional_event_fair_move,
+    event_category,
+)
 from mlb_kalshi.strategy import CONFIG, taker_fee
 
 
@@ -26,6 +30,23 @@ class TradeTapeConfig:
     maximum_event_to_entry_seconds: float = 10.0
     invalidate_on_next_pitch: bool = True
     minimum_fair_move: float = 0.005
+    event_agnostic: bool = False
+    enabled_event_categories: tuple[str, ...] = (
+        "hit", "walk", "hit_by_pitch", "error", "double_play",
+        "sacrifice", "force_out",
+    )
+    minimum_fair_move_by_category: dict[str, float] = field(default_factory=lambda: {
+        "error": 0.01,
+        "double_play": 0.01,
+        "sacrifice": 0.01,
+        "force_out": 0.01,
+    })
+    minimum_edge_by_category: dict[str, float] = field(default_factory=lambda: {
+        "error": 0.10,
+        "double_play": 0.10,
+        "sacrifice": 0.10,
+        "force_out": 0.10,
+    })
     momentum_exit_enabled: bool = False
     momentum_window_seconds: float = 2.0
     minimum_favorable_velocity: float = 0.01
@@ -40,6 +61,7 @@ class Candidate:
     anchor_fair: float
     event_time_ns: int
     event_type: str
+    event_category: str
     trigger_at_bat: int
     trigger_pitch: int
     material_state: tuple
@@ -64,6 +86,7 @@ class TapePosition:
     anchor_target: float
     anchor_fair: float
     event_type: str
+    event_category: str
     trigger_at_bat: int
     trigger_pitch: int
     trigger_event_time_ns: int
@@ -74,6 +97,7 @@ class TapeTradeRecord:
     game_pk: int
     side: str
     event_type: str
+    event_category: str
     entry_time: pd.Timestamp
     exit_time: pd.Timestamp | None
     exit_reason: str
@@ -91,9 +115,9 @@ class TapeTradeRecord:
 
 @dataclass
 class TradeTapeResult:
-    observed_hits: int = 0
-    fresh_hit_anchors: int = 0
-    eligible_hit_updates: int = 0
+    observed_events: int = 0
+    fresh_event_anchors: int = 0
+    eligible_event_updates: int = 0
     rejected_fair_updates: int = 0
     invalidated_candidates: int = 0
     expired_candidates: int = 0
@@ -182,7 +206,7 @@ def simulate_trade_tape(
         "count_fp", "taker_outcome_side", "home_win",
     }
     required_updates = {
-        "game_pk", "pitch_start_time", "pitch_end_time", "is_hit",
+        "game_pk", "pitch_start_time", "pitch_end_time",
         "completed_event", "completed_event_batting_home", "fair_before",
         "fair_after", "at_bat_number", "pitch_number", "score_diff_after",
         "outs_when_up_after", "runner_on_first_after",
@@ -265,17 +289,39 @@ def simulate_trade_tape(
                         candidate = None
                         pending_entry = None
                 current_fair = float(update.fair_after)
-                if bool(update.is_hit):
-                    result.observed_hits += 1
+                mapped_category = event_category(update.completed_event)
+                category = mapped_category or "other"
+                eligible_event = (
+                    pd.notna(update.completed_event)
+                    and (
+                        config.event_agnostic
+                        or mapped_category in config.enabled_event_categories
+                    )
+                )
+                if eligible_event:
+                    result.observed_events += 1
                     if position is None:
-                        batting_home = bool(update.completed_event_batting_home)
-                        signed_fair_move = (
-                            float(update.fair_after) - float(update.fair_before)
-                        ) * (1.0 if batting_home else -1.0)
-                        if signed_fair_move < config.minimum_fair_move:
+                        fair_move = (
+                            abs(float(update.fair_after) - float(update.fair_before))
+                            if config.event_agnostic
+                            else directional_event_fair_move(
+                                update.completed_event,
+                                bool(update.completed_event_batting_home),
+                                float(update.fair_before),
+                                float(update.fair_after),
+                            )
+                        )
+                        minimum_fair_move = (
+                            config.minimum_fair_move
+                            if config.event_agnostic
+                            else config.minimum_fair_move_by_category.get(
+                                category, config.minimum_fair_move
+                            )
+                        )
+                        if fair_move < minimum_fair_move:
                             result.rejected_fair_updates += 1
                         else:
-                            result.eligible_hit_updates += 1
+                            result.eligible_event_updates += 1
                             pitch_start_ns = pd.Timestamp(
                                 update.pitch_start_time
                             ).value
@@ -289,7 +335,7 @@ def simulate_trade_tape(
                                 and pitch_start_ns - times[anchor_index]
                                 <= maximum_anchor_age_ns
                             ):
-                                result.fresh_hit_anchors += 1
+                                result.fresh_event_anchors += 1
                                 target = float(anchored_event_target(
                                     yes_prices[anchor_index],
                                     float(update.fair_before),
@@ -302,6 +348,7 @@ def simulate_trade_tape(
                                         update.pitch_end_time
                                     ).value,
                                     event_type=str(update.completed_event),
+                                    event_category=category,
                                     trigger_at_bat=int(update.at_bat_number),
                                     trigger_pitch=int(update.pitch_number),
                                     material_state=_material_state(update),
@@ -378,6 +425,7 @@ def simulate_trade_tape(
                             game_pk=game_pk,
                             side=position.side,
                             event_type=position.event_type,
+                            event_category=position.event_category,
                             entry_time=_ns_to_timestamp(position.entry_ns),
                             exit_time=_ns_to_timestamp(trade_ns),
                             exit_reason=pending_exit_reason or "reversion",
@@ -434,7 +482,15 @@ def simulate_trade_tape(
 
             if pending_entry is not None:
                 target = _dynamic_target(pending_entry.candidate, current_fair)
-                side, _ = trade_signal(target, yes_price, config.minimum_edge)
+                minimum_edge = (
+                    config.minimum_edge
+                    if config.event_agnostic
+                    else config.minimum_edge_by_category.get(
+                        pending_entry.candidate.event_category,
+                        config.minimum_edge,
+                    )
+                )
+                side, _ = trade_signal(target, yes_price, minimum_edge)
                 if side != pending_entry.side:
                     candidate = pending_entry.candidate
                     candidate.watch_side = None
@@ -457,6 +513,7 @@ def simulate_trade_tape(
                             anchor_target=pending_entry.candidate.anchor_target,
                             anchor_fair=pending_entry.candidate.anchor_fair,
                             event_type=pending_entry.candidate.event_type,
+                            event_category=pending_entry.candidate.event_category,
                             trigger_at_bat=(
                                 pending_entry.candidate.trigger_at_bat
                             ),
@@ -479,7 +536,14 @@ def simulate_trade_tape(
 
             if candidate is not None and pending_entry is None:
                 target = _dynamic_target(candidate, current_fair)
-                side, _ = trade_signal(target, yes_price, config.minimum_edge)
+                minimum_edge = (
+                    config.minimum_edge
+                    if config.event_agnostic
+                    else config.minimum_edge_by_category.get(
+                        candidate.event_category, config.minimum_edge
+                    )
+                )
+                side, _ = trade_signal(target, yes_price, minimum_edge)
                 if side is None:
                     candidate.watch_side = None
                     candidate.watch_started_ns = None
@@ -511,6 +575,7 @@ def simulate_trade_tape(
                 game_pk=game_pk,
                 side=position.side,
                 event_type=position.event_type,
+                event_category=position.event_category,
                 entry_time=_ns_to_timestamp(position.entry_ns),
                 exit_time=None,
                 exit_reason="settlement",

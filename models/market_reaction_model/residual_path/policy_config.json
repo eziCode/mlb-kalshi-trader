@@ -1,0 +1,8 @@
+{
+  "enabled": false,
+  "horizon_seconds": 10,
+  "minimum_fill_probability": 0.6,
+  "minimum_expected_pnl": -0.25,
+  "tuning_passed": false,
+  "validation_passed": false
+}

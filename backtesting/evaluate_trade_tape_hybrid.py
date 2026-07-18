@@ -49,6 +49,10 @@ def main() -> None:
         maximum_event_to_entry_seconds=config.maximum_event_to_entry_seconds,
         invalidate_on_next_pitch=config.invalidate_on_next_pitch,
         minimum_fair_move=config.minimum_fair_move,
+        event_agnostic=config.event_agnostic,
+        enabled_event_categories=tuple(config.enabled_event_categories),
+        minimum_fair_move_by_category=config.minimum_fair_move_by_category,
+        minimum_edge_by_category=config.minimum_edge_by_category,
     )
     CONFIG_PATH.write_text(json.dumps(asdict(deployment_config), indent=2))
     summary = {
@@ -57,12 +61,12 @@ def main() -> None:
         "games": len(test_games),
         "trade_tape_rows": len(test_trades),
         "state_updates": len(test_updates),
-        "observed_hits": result.observed_hits,
-        "eligible_hit_updates": result.eligible_hit_updates,
+        "observed_events": result.observed_events,
+        "eligible_event_updates": result.eligible_event_updates,
         "rejected_fair_updates": result.rejected_fair_updates,
         "invalidated_candidates": result.invalidated_candidates,
         "expired_candidates": result.expired_candidates,
-        "fresh_hit_anchors": result.fresh_hit_anchors,
+        "fresh_event_anchors": result.fresh_event_anchors,
         "confirmed_signals": result.confirmed_signals,
         "trades": result.trades,
         "yes_trades": result.yes_trades,
@@ -91,12 +95,12 @@ def main() -> None:
     print("Time-based exit:       none")
     print(f"Games:                 {len(test_games):,}")
     print(f"Observed trades:       {len(test_trades):,}")
-    print(f"Observed hits:         {result.observed_hits:,}")
-    print(f"Eligible fair moves:   {result.eligible_hit_updates:,}")
+    print(f"Observed events:       {result.observed_events:,}")
+    print(f"Eligible fair moves:   {result.eligible_event_updates:,}")
     print(f"Rejected fair moves:   {result.rejected_fair_updates:,}")
     print(f"Invalidated signals:   {result.invalidated_candidates:,}")
     print(f"Expired signals:       {result.expired_candidates:,}")
-    print(f"Fresh hit anchors:     {result.fresh_hit_anchors:,}")
+    print(f"Fresh event anchors:   {result.fresh_event_anchors:,}")
     print(f"Confirmed signals:     {result.confirmed_signals:,}")
     print(f"Filled trades:         {result.trades:,}")
     print(f"YES / NO:              {result.yes_trades:,} / {result.no_trades:,}")

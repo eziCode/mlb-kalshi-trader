@@ -16,7 +16,10 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from mlb_kalshi.hybrid import HybridConfig, simulate_hybrid  # noqa: E402
-from mlb_kalshi.strategy import state_feature_frame, validate_market_prices  # noqa: E402
+from mlb_kalshi.strategy import (  # noqa: E402
+    predict_home_probability,
+    validate_market_prices,
+)
 from models.train_market_reaction_model import params, state_pool  # noqa: E402
 
 
@@ -40,11 +43,9 @@ def main() -> None:
 
     metadata = json.loads((MODEL_DIR / "metadata.json").read_text())
     iterations = int(metadata["state_iterations"])
-    state_model = CatBoostClassifier(**params(iterations))
+    state_model = CatBoostClassifier(**params(iterations, state=True))
     state_model.fit(state_pool(state_fit))
-    tune["fair_prob"] = state_model.predict_proba(
-        state_feature_frame(tune)
-    )[:, 1]
+    tune["fair_prob"] = predict_home_probability(state_model, tune)
 
     rows = []
     for minimum_edge in [

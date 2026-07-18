@@ -1,0 +1,20 @@
+{
+  "state_alignment": {
+    "updates": 234280,
+    "terminal_events": 59710,
+    "directional_terminal_events": 59070,
+    "direction_violations": 894,
+    "direction_violation_rate": 0.015134586084306755,
+    "fair_transition_continuity_max_error": 0.1455529955681686,
+    "fair_transition_continuity_errors": 53
+  },
+  "candidate_arithmetic": {
+    "candidates": 372,
+    "no_candidates": 169,
+    "maximum_entry_home_error": 0.0,
+    "maximum_target_contract_error": 0.0,
+    "maximum_pnl_error": 0.0,
+    "violations": 0
+  },
+  "representative_replay_cases": 2
+}

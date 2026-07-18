@@ -14,6 +14,57 @@ from mlb_kalshi.strategy import CONFIG, taker_fee
 
 HIT_EVENTS = frozenset({"single", "double", "triple", "home_run"})
 
+EVENT_CATEGORIES = {
+    **{event: "hit" for event in HIT_EVENTS},
+    "walk": "walk",
+    "intent_walk": "walk",
+    "hit_by_pitch": "hit_by_pitch",
+    "field_error": "error",
+    "catcher_interf": "error",
+    "grounded_into_double_play": "double_play",
+    "double_play": "double_play",
+    "strikeout_double_play": "double_play",
+    "sac_fly_double_play": "double_play",
+    "sac_fly": "sacrifice",
+    "sac_bunt": "sacrifice",
+    "force_out": "force_out",
+    "fielders_choice_out": "force_out",
+    "field_out": "ordinary_out",
+    "strikeout": "ordinary_out",
+    "other_out": "ordinary_out",
+}
+
+EVENT_BATTING_DIRECTIONS = {
+    "hit": 1.0,
+    "walk": 1.0,
+    "hit_by_pitch": 1.0,
+    "error": 1.0,
+    "double_play": -1.0,
+    "force_out": -1.0,
+    "ordinary_out": -1.0,
+    "sacrifice": 0.0,
+}
+
+
+def event_category(event_type: str | None) -> str | None:
+    return EVENT_CATEGORIES.get(str(event_type or "").lower())
+
+
+def directional_event_fair_move(
+    event_type: str | None,
+    batting_home: bool,
+    fair_before: float,
+    fair_after: float,
+) -> float:
+    """Return fair movement in the event's economically expected direction."""
+    category = event_category(event_type)
+    expected_direction = EVENT_BATTING_DIRECTIONS.get(category, 0.0)
+    home_move = float(fair_after) - float(fair_before)
+    batting_move = home_move * (1.0 if batting_home else -1.0)
+    if expected_direction == 0:
+        return abs(batting_move)
+    return batting_move * expected_direction
+
 
 @dataclass(frozen=True)
 class HybridConfig:

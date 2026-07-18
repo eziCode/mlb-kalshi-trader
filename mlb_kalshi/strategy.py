@@ -9,12 +9,25 @@ import numpy as np
 import pandas as pd
 
 
-STATE_FEATURES = (
+RAW_STATE_FEATURES = (
     "pregame_prob",
     "inning",
     "inning_topbot",
     "outs_when_up",
     "score_diff",
+    "balls",
+    "strikes",
+    "runner_on_first",
+    "runner_on_second",
+    "runner_on_third",
+)
+
+STATE_FEATURES = (
+    "pregame_batting_prob",
+    "inning",
+    "batting_team_is_home",
+    "outs_when_up",
+    "batting_score_diff",
     "balls",
     "strikes",
     "runner_on_first",
@@ -57,19 +70,58 @@ def _numeric_frame(df: pd.DataFrame, columns: tuple[str, ...]) -> pd.DataFrame:
 
 
 def state_feature_frame(df: pd.DataFrame) -> pd.DataFrame:
-    frame = _numeric_frame(df, STATE_FEATURES)
+    raw = _numeric_frame(df, RAW_STATE_FEATURES)
     checks = {
-        "pregame_prob": frame["pregame_prob"].between(0.01, 0.99),
-        "inning": frame["inning"].between(1, 30),
-        "inning_topbot": frame["inning_topbot"].isin([0, 1]),
-        "outs_when_up": frame["outs_when_up"].between(0, 2),
-        "balls": frame["balls"].between(0, 4),
-        "strikes": frame["strikes"].between(0, 3),
+        "pregame_prob": raw["pregame_prob"].between(0.01, 0.99),
+        "inning": raw["inning"].between(1, 30),
+        "inning_topbot": raw["inning_topbot"].isin([0, 1]),
+        "outs_when_up": raw["outs_when_up"].between(0, 2),
+        "balls": raw["balls"].between(0, 4),
+        "strikes": raw["strikes"].between(0, 3),
     }
     invalid = [name for name, valid in checks.items() if not valid.all()]
     if invalid:
         raise ValueError(f"State features outside expected ranges: {invalid}")
-    return frame
+    batting_home = raw["inning_topbot"]
+    frame = pd.DataFrame(index=raw.index)
+    frame["pregame_batting_prob"] = np.where(
+        batting_home.eq(1), raw["pregame_prob"], 1.0 - raw["pregame_prob"]
+    )
+    frame["inning"] = raw["inning"]
+    frame["batting_team_is_home"] = batting_home
+    frame["outs_when_up"] = raw["outs_when_up"]
+    frame["batting_score_diff"] = np.where(
+        batting_home.eq(1), raw["score_diff"], -raw["score_diff"]
+    )
+    for column in (
+        "balls", "strikes", "runner_on_first", "runner_on_second",
+        "runner_on_third",
+    ):
+        frame[column] = raw[column]
+    return frame.loc[:, STATE_FEATURES].astype(float)
+
+
+def batting_win_label(df: pd.DataFrame) -> np.ndarray:
+    raw = _numeric_frame(df, ("inning_topbot", "home_win"))
+    return np.where(
+        raw["inning_topbot"].eq(1), raw["home_win"], 1.0 - raw["home_win"]
+    ).astype(float)
+
+
+def home_probability_from_batting(
+    batting_probability,
+    frame: pd.DataFrame,
+) -> np.ndarray:
+    topbot = _numeric_frame(frame, ("inning_topbot",))["inning_topbot"]
+    batting = np.asarray(batting_probability, dtype=float)
+    if len(batting) != len(topbot):
+        raise ValueError("Prediction length does not match state rows")
+    return np.where(topbot.eq(1), batting, 1.0 - batting)
+
+
+def predict_home_probability(model, frame: pd.DataFrame) -> np.ndarray:
+    batting = model.predict_proba(state_feature_frame(frame))[:, 1]
+    return home_probability_from_batting(batting, frame)
 
 
 def add_reaction_features(df: pd.DataFrame, fair_probability) -> pd.DataFrame:

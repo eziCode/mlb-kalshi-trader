@@ -3,6 +3,10 @@
 Research and paper-trading pipeline for testing MLB in-game Kalshi strategies
 with identical historical and live feature semantics.
 
+Strategy-specific training, custom data entrypoints, studies, paper runners,
+and Dockerfiles are cataloged under [`approaches/`](approaches/README.md).
+Legacy top-level commands remain available for compatibility.
+
 ## Hybrid event-residual strategy
 
 The hybrid does not trade the local model's absolute disagreement with
@@ -54,8 +58,10 @@ the exit policy also fails closed and is available only for paper observation.
 1. `build_kalshi_join.py` creates one decision row per completed market candle.
    Each row uses the candle's actual closing bid and ask and sees only an MLB
    state whose timestamp is no later than the decision time.
-2. A local win-expectancy CatBoost model uses raw game state: inning half,
-   outs, score, count, bases, and the pregame Kalshi anchor. Live trading no
+2. A local win-expectancy CatBoost model transforms raw state into the batting
+   team's perspective: batting-team pregame strength and score differential,
+   inning, outs, count, and bases. Its batting-team probability is converted
+   back to HOME orientation at every prediction surface. Live trading no
    longer waits for MLB `contextMetrics`.
 3. The reaction model uses the same unscaled raw features in training,
    backtesting, and live trading. There is no `StandardScaler`, hard-coded
@@ -107,6 +113,16 @@ not evidence of a tradable edge.
 .venv/bin/python data/processed/scripts/build_empirical_reaction_events.py
 .venv/bin/python models/train_empirical_reversion_strategy.py
 .venv/bin/python models/tune_empirical_runner.py
+.venv/bin/python models/train_state_reversion_classifier.py
+.venv/bin/python models/analyze_state_reversion_execution.py
+.venv/bin/python models/tune_state_reversion_baseline.py
+.venv/bin/python backtesting/evaluate_state_reversion_baseline.py
+.venv/bin/python backtesting/audit_state_reversion_mechanics.py
+.venv/bin/python backtesting/evaluate_state_reversion.py
+.venv/bin/python models/train_residual_path_policy.py
+.venv/bin/python backtesting/evaluate_residual_path_policy.py
+.venv/bin/python models/train_mispricing_model.py
+.venv/bin/python backtesting/evaluate_mispricing_model.py
 ```
 
 Run tests with:

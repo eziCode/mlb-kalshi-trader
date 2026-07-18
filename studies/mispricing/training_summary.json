@@ -1,0 +1,61 @@
+{
+  "event_labels_used": false,
+  "target": "home team settlement outcome",
+  "fit_metrics": {
+    "rows": 84542,
+    "games": 437,
+    "roc_auc": 0.8517642132406742,
+    "log_loss": 0.4770857231629525,
+    "brier": 0.15810268156962617
+  },
+  "calibration_metrics": {
+    "rows": 13553,
+    "games": 64,
+    "roc_auc": 0.8461258996589414,
+    "log_loss": 0.48329437954879095,
+    "brier": 0.16115078685910897
+  },
+  "tuning_metrics": {
+    "rows": 16166,
+    "games": 80,
+    "roc_auc": 0.7923549798032271,
+    "log_loss": 0.5591202691821661,
+    "brier": 0.18906554668106082
+  },
+  "selected_config": {
+    "enabled": false,
+    "observation_delay_seconds": 1.0,
+    "anchor_buffer_seconds": 2.0,
+    "maximum_anchor_age_seconds": 5.0,
+    "maximum_fill_delay_seconds": 5.0,
+    "minimum_expected_pnl": 2.0,
+    "minimum_probability_edge": 0.1,
+    "bet_size": 10.0,
+    "side_filter": "no"
+  },
+  "selected_tuning_result": {
+    "minimum_expected_pnl": 2.0,
+    "minimum_probability_edge": 0.1,
+    "side_filter": "no",
+    "trades": 20,
+    "yes_trades": 0,
+    "no_trades": 20,
+    "pnl": 171.1637460222321,
+    "fees": 7.809999999999999,
+    "capital": 207.80999999999997,
+    "roi": 0.8236550022724225,
+    "fold_1_trades": 6,
+    "fold_1_pnl": 69.36015007446443,
+    "fold_1_roi": 1.1142192783046494,
+    "fold_2_trades": 9,
+    "fold_2_pnl": 52.465533016909724,
+    "fold_2_roi": 0.5610086935084444,
+    "fold_3_trades": 5,
+    "fold_3_pnl": 49.33806293085796,
+    "fold_3_roi": 0.9480796105084158,
+    "minimum_fold_trades": 5,
+    "profitable_folds": 3,
+    "worst_fold_roi": 0.5610086935084444
+  },
+  "outer_holdout_used": false
+}

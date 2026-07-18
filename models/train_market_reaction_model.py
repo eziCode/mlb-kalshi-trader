@@ -21,6 +21,8 @@ from mlb_kalshi.strategy import (  # noqa: E402
     REACTION_FEATURES,
     STATE_FEATURES,
     add_reaction_features,
+    batting_win_label,
+    predict_home_probability,
     reaction_feature_frame,
     state_feature_frame,
 )
@@ -40,7 +42,7 @@ def weights(frame: pd.DataFrame) -> np.ndarray:
 def state_pool(frame: pd.DataFrame, label: bool = True) -> Pool:
     kwargs = {"data": state_feature_frame(frame)}
     if label:
-        kwargs.update(label=frame["home_win"], weight=weights(frame))
+        kwargs.update(label=batting_win_label(frame), weight=weights(frame))
     return Pool(**kwargs)
 
 
@@ -55,8 +57,8 @@ def reaction_pool(frame: pd.DataFrame, label: bool = True) -> Pool:
     return Pool(**kwargs)
 
 
-def params(iterations: int) -> dict:
-    return {
+def params(iterations: int, *, state: bool = False) -> dict:
+    result = {
         "iterations": iterations,
         "learning_rate": 0.03,
         "depth": 4,
@@ -67,6 +69,18 @@ def params(iterations: int) -> dict:
         "allow_writing_files": False,
         "verbose": 100,
     }
+    if state:
+        result["monotone_constraints"] = {
+            "pregame_batting_prob": 1,
+            "outs_when_up": -1,
+            "batting_score_diff": 1,
+            "balls": 1,
+            "strikes": -1,
+            "runner_on_first": 1,
+            "runner_on_second": 1,
+            "runner_on_third": 1,
+        }
+    return result
 
 
 def date_partition(frame: pd.DataFrame, first_fraction: float, second_fraction: float):
@@ -95,7 +109,7 @@ def main() -> None:
         f"State fit/tune/reaction rows: {len(state_fit):,} / "
         f"{len(state_tune):,} / {len(reaction_dates):,}"
     )
-    provisional_state = CatBoostClassifier(**params(1000))
+    provisional_state = CatBoostClassifier(**params(1000, state=True))
     provisional_state.fit(
         state_pool(state_fit),
         eval_set=state_pool(state_tune),
@@ -105,9 +119,7 @@ def main() -> None:
 
     # Reaction labels see only local-state predictions from later games that
     # were not used to fit or early-stop the state model.
-    fair_oos = provisional_state.predict_proba(
-        state_feature_frame(reaction_dates)
-    )[:, 1]
+    fair_oos = predict_home_probability(provisional_state, reaction_dates)
     reaction_dates = add_reaction_features(reaction_dates, fair_oos)
     reaction_fit, reaction_tune, _ = date_partition(
         reaction_dates, 0.70, 0.85
@@ -133,7 +145,7 @@ def main() -> None:
 
     # Refit deployment models using the selected tree counts. The reaction
     # model retains genuinely out-of-state-model-sample fair probabilities.
-    final_state = CatBoostClassifier(**params(state_iterations))
+    final_state = CatBoostClassifier(**params(state_iterations, state=True))
     final_state.fit(state_pool(raw))
     final_reaction = CatBoostClassifier(**params(reaction_iterations))
     final_reaction.fit(reaction_pool(reaction_dates))
@@ -148,6 +160,8 @@ def main() -> None:
         "state_iterations": state_iterations,
         "reaction_iterations": reaction_iterations,
         "scaled_features": [],
+        "state_probability_orientation": "batting_team_converted_to_home",
+        "monotone_constraints": params(1, state=True)["monotone_constraints"],
     }
     (MODEL_DIR / "metadata.json").write_text(json.dumps(metadata, indent=2))
     print(f"Saved models and metadata to {MODEL_DIR}")

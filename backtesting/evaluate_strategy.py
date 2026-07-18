@@ -17,12 +17,12 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from mlb_kalshi.strategy import (  # noqa: E402
     CONFIG,
-    STATE_FEATURES,
+    RAW_STATE_FEATURES,
     add_reaction_features,
     fee_aware_signal_side,
     reaction_feature_frame,
+    predict_home_probability,
     signal_side,
-    state_feature_frame,
     taker_fee,
     validate_market_prices,
 )
@@ -55,7 +55,7 @@ class Position:
 
 
 ENTRY_STATE_FIELDS = tuple(
-    feature for feature in STATE_FEATURES if feature != "pregame_prob"
+    feature for feature in RAW_STATE_FEATURES if feature != "pregame_prob"
 )
 
 
@@ -76,7 +76,7 @@ def add_predictions(frame: pd.DataFrame) -> pd.DataFrame:
     state_model.load_model(MODEL_DIR / "local_win_expectancy.cbm")
     reaction_model = CatBoostClassifier()
     reaction_model.load_model(MODEL_DIR / "reaction_model.cbm")
-    fair = state_model.predict_proba(state_feature_frame(frame))[:, 1]
+    fair = predict_home_probability(state_model, frame)
     result = add_reaction_features(frame, fair)
     baseline = np.log(result["fair_prob"] / (1 - result["fair_prob"]))
     pool = Pool(reaction_feature_frame(result), baseline=baseline)

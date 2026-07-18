@@ -5,7 +5,9 @@ import unittest
 import pandas as pd
 
 from mlb_kalshi.strategy import (
+    batting_win_label,
     fee_aware_signal_side,
+    home_probability_from_batting,
     reaction_feature_frame,
     signal_side,
     state_feature_frame,
@@ -23,6 +25,25 @@ class StrategyContractTests(unittest.TestCase):
             "runner_on_second": [0], "runner_on_third": [0],
         })
         self.assertEqual(state_feature_frame(state).shape, (1, 10))
+        transformed = state_feature_frame(state)
+        self.assertEqual(transformed.iloc[0]["batting_team_is_home"], 1)
+        self.assertEqual(transformed.iloc[0]["batting_score_diff"], -2)
+        self.assertEqual(batting_win_label(state.assign(home_win=1))[0], 1)
+        self.assertAlmostEqual(
+            home_probability_from_batting([0.7], state)[0], 0.7
+        )
+
+        away_batting = state.assign(inning_topbot=0, score_diff=2)
+        transformed_away = state_feature_frame(away_batting)
+        self.assertAlmostEqual(
+            transformed_away.iloc[0]["pregame_batting_prob"], 0.55
+        )
+        self.assertEqual(
+            transformed_away.iloc[0]["batting_score_diff"], -2
+        )
+        self.assertAlmostEqual(
+            home_probability_from_batting([0.7], away_batting)[0], 0.3
+        )
         reaction = pd.DataFrame({
             "market_error": [0.03], "kalshi_price": [0.48],
             "pregame_prob": [0.45], "spread": [0.02], "inning": [5],
