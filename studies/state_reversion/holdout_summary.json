@@ -1,0 +1,41 @@
+{
+  "holdout_start": "2026-06-28",
+  "games": 175,
+  "candidates": 7570,
+  "selected_config": {
+    "enabled": false,
+    "minimum_logit_residual": 0.3,
+    "confirmation_seconds": 1.0,
+    "maximum_pre_event_trade_age_seconds": 5.0,
+    "maximum_entry_latency_seconds": 10.0,
+    "maximum_outcome_seconds": 120.0,
+    "maximum_adverse_logit_move": 0.12,
+    "minimum_reversion_probability": 0.3,
+    "minimum_expected_pnl": -1.0,
+    "model_path": "state_reversion.cbm"
+  },
+  "deployment_config": {
+    "enabled": false,
+    "minimum_logit_residual": 0.3,
+    "confirmation_seconds": 1.0,
+    "maximum_pre_event_trade_age_seconds": 5.0,
+    "maximum_entry_latency_seconds": 10.0,
+    "maximum_outcome_seconds": 120.0,
+    "maximum_adverse_logit_move": 0.12,
+    "minimum_reversion_probability": 0.3,
+    "minimum_expected_pnl": -1.0,
+    "model_path": "state_reversion.cbm"
+  },
+  "trades": 58,
+  "rejected": 7489,
+  "reversion_exits": 6,
+  "adverse_stop_exits": 38,
+  "timeout_exits": 14,
+  "settlements": 0,
+  "fees": 24.9,
+  "capital": 592.5700000000002,
+  "pnl": -21.620696607355967,
+  "roi": -0.03648631656573225,
+  "mean_predicted_pnl": -0.9234424841816647,
+  "validation_passed": false
+}

@@ -1,0 +1,71 @@
+{
+  "strategy": "two-stage event-agnostic policy-level expected PnL",
+  "target": "positive net PnL under the complete exit policy",
+  "fit_dates": "before 2026-06-17",
+  "calibration_dates": "2026-06-17 through 2026-06-21",
+  "tuning_dates": "2026-06-22 through 2026-06-27",
+  "holdout_dates": "2026-06-28 onward (unused)",
+  "fit_metrics": {
+    "examples": 17846,
+    "positive_rate": 0.13767791101647428,
+    "roc_auc": 0.6805059235366597,
+    "log_loss": 0.3766469564268945,
+    "brier_score": 0.11284572644124104,
+    "actual_mean_pnl": -0.9750530423983874,
+    "predicted_mean_pnl": -0.8977377204837225,
+    "pnl_mae": 0.7739490303833696,
+    "pnl_correlation": 0.41898509944920587
+  },
+  "calibration_metrics": {
+    "examples": 2876,
+    "positive_rate": 0.14464534075104313,
+    "roc_auc": 0.6597653807066917,
+    "log_loss": 0.3927922205095977,
+    "brier_score": 0.11901391946711151,
+    "actual_mean_pnl": -0.8772547386085771,
+    "predicted_mean_pnl": -0.8772547386085768,
+    "pnl_mae": 0.7027600410272553,
+    "pnl_correlation": 0.3825506783612535
+  },
+  "tuning_metrics": {
+    "examples": 3578,
+    "positive_rate": 0.15176076020122975,
+    "roc_auc": 0.6716454136971672,
+    "log_loss": 0.4019152929196179,
+    "brier_score": 0.1230054428651073,
+    "actual_mean_pnl": -1.0072386646467473,
+    "predicted_mean_pnl": -0.9433205402430467,
+    "pnl_mae": 0.862081252058909,
+    "pnl_correlation": 0.4270661345014404
+  },
+  "selected_config": {
+    "enabled": false,
+    "minimum_logit_residual": 0.3,
+    "confirmation_seconds": 1.0,
+    "maximum_pre_event_trade_age_seconds": 5.0,
+    "maximum_entry_latency_seconds": 10.0,
+    "maximum_outcome_seconds": 120.0,
+    "maximum_adverse_logit_move": 0.12,
+    "minimum_reversion_probability": 0.3,
+    "minimum_expected_pnl": -1.0,
+    "model_path": "state_reversion.cbm"
+  },
+  "selected_tuning_result": {
+    "minimum_logit_residual": 0.3,
+    "minimum_reversion_probability": 0.3,
+    "minimum_expected_pnl": -1.0,
+    "trades": 24.0,
+    "rejected": 3539.0,
+    "reversion_exits": 1.0,
+    "adverse_stop_exits": 9.0,
+    "timeout_exits": 13.0,
+    "settlements": 1.0,
+    "fees": 10.820000000000002,
+    "capital": 245.51999999999998,
+    "pnl": -0.36917166830033893,
+    "roi": -0.001503631754237288
+  },
+  "minimum_tuning_trades": 20,
+  "outer_holdout_used": false,
+  "frontier_path": "trade_count_roi_frontier.csv"
+}

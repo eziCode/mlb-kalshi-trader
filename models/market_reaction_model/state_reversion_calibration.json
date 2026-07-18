@@ -1,0 +1,10 @@
+{
+  "method": "platt_logit",
+  "coefficient": 1.5358497983511716,
+  "intercept": 1.0342031043373998,
+  "fit_start": "2026-06-17",
+  "fit_end_exclusive": "2026-06-22",
+  "ev_method": "linear",
+  "ev_coefficient": 1.0863043091320208,
+  "ev_intercept": 0.13752604184277029
+}
