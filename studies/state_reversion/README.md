@@ -33,17 +33,30 @@ Selection requires at least 20 tuning trades, at least three trades in each of
 three chronological tuning folds, and positive PnL in all folds. It maximizes
 the worst fold ROI without using the outer holdout.
 
-## Current result
+## Mechanical audit and current result
 
-After removing a leaked feature that had incorporated realized future PnL, no
-configuration passed the three-fold stability rule. The best aggregate tuning
-configuration produced 25 trades, +$4.49 PnL, and 1.80% ROI, but one of its
-three folds lost 4.46%.
+The audit found and fixed a maker-price accounting error: the feature frame had
+stored the observed trade price instead of the simulated resting limit for 58
+of 170 candidates. Version five now has zero YES/NO entry, target, or PnL
+arithmetic violations across 311 deterministic candidates.
 
-On the untouched holdout that frozen fallback produced 40 trades, -$5.21 PnL,
-and -1.30% ROI before any maker fees. The strict strategy is a substantial
-improvement over the earlier mixed-disagreement implementation, but it has not
-validated positive returns. Deployment remains disabled.
+Across 59,070 directionally comparable completed plate appearances, 894 local
+fair moves (1.51%) oppose the event heuristic. There are 53 fair-transition
+continuity gaps among 233,477 adjacent observed updates; these are retained in
+the audit report for timestamp/cache investigation.
+
+The transparent baseline tests 25%, 50%, 75%, and full residual contraction,
+next-pitch and next-plate-appearance exits, entry-latency caps, inning caps,
+residual thresholds, and separate YES/NO policies. Its selected tuning rule is
+NO-only with 25% contraction or an exit at the next plate appearance. It earns
++$27.59 and 11.50% ROI across 24 trades; all three tuning folds are positive at
+15.71%, 6.56%, and 11.08%. On the already-used development holdout, however, it
+returns 30 trades, -$53.74, and -17.91% ROI.
+
+After the deterministic audit, the leak-free ML policy is rebuilt on full
+reversion outcomes. It returns 28 tuning trades, +$8.89, and 3.17% ROI, with
+one fold at -4.43%. On holdout it returns 32 trades, -$9.53, and -2.98% ROI.
+Neither policy validates, and deployment remains disabled.
 
 The historical tape also cannot establish maker queue position or the actual
 fee schedule for each traded series, so maker fills remain optimistic proxies.
@@ -52,6 +65,9 @@ fee schedule for each traded series, so maker fills remain optimistic proxies.
 
 ```bash
 .venv/bin/python models/analyze_state_reversion_execution.py
+.venv/bin/python models/tune_state_reversion_baseline.py
+.venv/bin/python backtesting/evaluate_state_reversion_baseline.py
+.venv/bin/python backtesting/audit_state_reversion_mechanics.py
 .venv/bin/python models/train_state_reversion_classifier.py
 .venv/bin/python backtesting/evaluate_state_reversion.py
 ```
@@ -61,3 +77,10 @@ fee schedule for each traded series, so maker fills remain optimistic proxies.
 - `holdout_segments.csv`
 - `holdout_maker_fee_sensitivity.csv`
 - `holdout_trades.csv`
+- `mechanics_audit_summary.json`
+- `state_alignment_audit.csv`
+- `arithmetic_violations.csv`
+- `representative_tick_replays.csv`
+- `entry_latency_diagnostics.csv`
+- `deterministic_tuning_grid.csv`
+- `deterministic_holdout_summary.json`

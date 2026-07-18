@@ -103,7 +103,7 @@ def load_or_build_examples() -> pd.DataFrame:
             f"{DATASET_CONFIG.entry_execution}_{DATASET_CONFIG.exit_execution}"
         )
         if (
-            "policy_version" in cached and cached["policy_version"].eq(4).all()
+            "policy_version" in cached and cached["policy_version"].eq(5).all()
             and cached["execution_variant"].eq(expected_variant).all()
             and cached["observation_latency_buffer_seconds"].eq(
                 DATASET_CONFIG.observation_latency_buffer_seconds

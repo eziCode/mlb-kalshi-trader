@@ -26,6 +26,8 @@ class OvershootConfig:
     observation_latency_buffer_seconds: float = 2.0
     maximum_entry_latency_seconds: float = 10.0
     maximum_outcome_seconds: float = 120.0
+    reversion_fraction: float = 1.0
+    state_exit: str = "none"
     minimum_fair_logit_move: float = 0.02
     minimum_target_profit: float = 0.25
     thesis_invalidation_logit_move: float = 0.12
@@ -69,6 +71,21 @@ def _expit(value: float) -> float:
 def signed_logit_residual(yes_price: float, target: float) -> float:
     """Positive means YES is rich; negative means YES is cheap."""
     return _logit(yes_price) - _logit(target)
+
+
+def residual_has_reverted(
+    side: str,
+    entry_residual: float,
+    current_residual: float,
+    fraction: float,
+) -> bool:
+    if not 0 < fraction <= 1:
+        raise ValueError("Reversion fraction must be in (0, 1]")
+    trigger = float(entry_residual) * (1.0 - fraction)
+    return (
+        float(current_residual) >= trigger
+        if side == "yes" else float(current_residual) <= trigger
+    )
 
 
 def _dynamic_target(anchor_target: float, anchor_fair: float, fair: float) -> float:
@@ -152,6 +169,10 @@ def build_state_overshoot_candidates(
     reversion; otherwise the position is valued at actual settlement.  These
     independent outcomes are labels, not a portfolio backtest.
     """
+    if not 0 < config.reversion_fraction <= 1:
+        raise ValueError("Reversion fraction must be in (0, 1]")
+    if config.state_exit not in {"none", "next_pitch", "next_plate_appearance"}:
+        raise ValueError(f"Unsupported state exit: {config.state_exit}")
     required_trades = {
         "game_pk", "created_time", "trade_id", "yes_price_dollars",
         "no_price_dollars", "count_fp", "taker_outcome_side", "home_win",
@@ -256,6 +277,12 @@ def build_state_overshoot_candidates(
                         held if config.entry_execution == "taker"
                         else float(entry_limit)
                     )
+                    execution_home_price = (
+                        price if side == "yes" else 1.0 - price
+                    )
+                    execution_residual = signed_logit_residual(
+                        execution_home_price, target
+                    )
                     price_reached = (
                         config.entry_execution == "taker" or held <= price
                     )
@@ -268,7 +295,15 @@ def build_state_overshoot_candidates(
                         contracts, price, config.entry_execution,
                         config.maker_fee_rate,
                     )
-                    target_contract = target if side == "yes" else 1.0 - target
+                    partial_home_target = _expit(
+                        _logit(target)
+                        + execution_residual
+                        * (1.0 - config.reversion_fraction)
+                    )
+                    target_contract = (
+                        partial_home_target
+                        if side == "yes" else 1.0 - partial_home_target
+                    )
                     target_fee = _fee(
                         contracts, target_contract, config.exit_execution,
                         config.maker_fee_rate,
@@ -282,7 +317,7 @@ def build_state_overshoot_candidates(
                         and sizes[i] >= contracts
                         and target_pnl >= config.minimum_target_profit
                     ):
-                        entry_i, residual_at_entry = i, residual
+                        entry_i, residual_at_entry = i, execution_residual
                         entry_limit = price
                         break
             if entry_i is None:
@@ -306,7 +341,12 @@ def build_state_overshoot_candidates(
             max_favorable = -np.inf
             max_adverse = -np.inf
             for i in range(entry_i + 1, len(times)):
+                new_pitch_seen = False
+                new_plate_appearance_seen = False
                 while next_update < len(update_rows) and update_end_times[next_update] <= times[i]:
+                    new_pitch_seen = True
+                    if pd.notna(getattr(update_rows[next_update], "completed_event", None)):
+                        new_plate_appearance_seen = True
                     current_fair = float(update_rows[next_update].fair_after)
                     next_update += 1
                 dynamic_target = _dynamic_target(target, float(update.fair_after), current_fair)
@@ -320,7 +360,13 @@ def build_state_overshoot_candidates(
                 )
                 max_favorable = max(max_favorable, liquidation)
                 max_adverse = max(max_adverse, -liquidation)
-                reverted = yes[i] >= dynamic_target if side == "yes" else yes[i] <= dynamic_target
+                current_residual = signed_logit_residual(
+                    float(yes[i]), dynamic_target
+                )
+                reverted = residual_has_reverted(
+                    side, float(residual_at_entry), current_residual,
+                    config.reversion_fraction,
+                )
                 if pending_exit_ns is not None:
                     if pending_exit_reason == "reversion" and not reverted:
                         pending_exit_ns = None
@@ -355,6 +401,15 @@ def build_state_overshoot_candidates(
                     pending_exit_ns = int(times[i])
                     pending_exit_reason = "thesis_invalidated"
                     pending_exit_limit = held
+                elif (
+                    config.state_exit == "next_pitch" and new_pitch_seen
+                ) or (
+                    config.state_exit == "next_plate_appearance"
+                    and new_plate_appearance_seen
+                ):
+                    pending_exit_ns = int(times[i])
+                    pending_exit_reason = config.state_exit
+                    pending_exit_limit = held
                 elif times[i] >= deadline_ns:
                     pending_exit_ns = int(times[i])
                     pending_exit_reason = "opportunity_timeout"
@@ -382,7 +437,13 @@ def build_state_overshoot_candidates(
                 exit_time = pd.NaT
                 exit_target = np.nan
 
-            target_contract = target if side == "yes" else 1.0 - target
+            partial_home_target = _expit(
+                _logit(target)
+                + float(residual_at_entry) * (1.0 - config.reversion_fraction)
+            )
+            target_contract = (
+                partial_home_target if side == "yes" else 1.0 - partial_home_target
+            )
             target_fee = _fee(
                 contracts, target_contract, config.exit_execution,
                 config.maker_fee_rate,
@@ -392,7 +453,7 @@ def build_state_overshoot_candidates(
             # is a model feature and using future PnL would leak the label.
             failure_pnl = float(-CONFIG.bet_size - entry_fee)
             row = {
-                "policy_version": 4,
+                "policy_version": 5,
                 "game_pk": int(game_pk), "game_date": update.game_date,
                 "trigger_at_bat": int(update.at_bat_number),
                 "trigger_pitch": int(update.pitch_number),
@@ -407,12 +468,15 @@ def build_state_overshoot_candidates(
                 "fair_after": float(update.fair_after), "target_home_price": target,
                 "anchor_cutoff_time": pd.Timestamp(anchor_cutoff_ns, tz="UTC"),
                 "anchor_age_seconds": (anchor_cutoff_ns - times[anchor_i]) / 1e9,
-                "entry_home_price": float(yes[entry_i]),
+                "entry_home_price": (
+                    entry_price if side == "yes" else 1.0 - entry_price
+                ),
                 "signed_logit_residual": float(residual_at_entry),
                 "absolute_logit_residual": abs(float(residual_at_entry)),
                 "fair_logit_move": fair_logit_move,
                 "market_logit_move": (
-                    _logit(float(yes[entry_i])) - _logit(anchor_market)
+                    _logit(entry_price if side == "yes" else 1.0 - entry_price)
+                    - _logit(anchor_market)
                 ),
                 "execution_variant": (
                     f"{config.entry_execution}_{config.exit_execution}"
@@ -421,6 +485,7 @@ def build_state_overshoot_candidates(
                     config.observation_latency_buffer_seconds
                 ),
                 "candidate_minimum_target_profit": config.minimum_target_profit,
+                "reversion_fraction": config.reversion_fraction,
                 "entry_price": entry_price, "target_contract_price": target_contract,
                 "contracts": contracts, "entry_fee": entry_fee,
                 "target_reversion_pnl": target_pnl,

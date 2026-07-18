@@ -10,6 +10,7 @@ from mlb_kalshi.state_overshoot import (
     _exit_fill_compatible,
     build_state_overshoot_candidates,
     signed_logit_residual,
+    residual_has_reverted,
     simulate_state_reversion,
 )
 from mlb_kalshi.state_reversion import (
@@ -76,6 +77,12 @@ class StateReversionTests(unittest.TestCase):
         self.assertFalse(_entry_fill_compatible("yes", "yes", "maker"))
         self.assertTrue(_exit_fill_compatible("yes", "yes", "maker"))
         self.assertFalse(_exit_fill_compatible("yes", "no", "maker"))
+
+    def test_partial_reversion_triggers_before_full_reversion(self):
+        self.assertTrue(residual_has_reverted("no", 0.40, 0.19, 0.50))
+        self.assertFalse(residual_has_reverted("no", 0.40, 0.21, 0.50))
+        self.assertFalse(residual_has_reverted("no", 0.40, 0.01, 1.00))
+        self.assertTrue(residual_has_reverted("no", 0.40, -0.01, 1.00))
 
     def test_candidate_requires_persistence_and_later_exit_fill(self):
         updates = pd.DataFrame({

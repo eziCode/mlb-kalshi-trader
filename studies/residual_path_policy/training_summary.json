@@ -1,0 +1,73 @@
+{
+  "data_counts": {
+    "fit": 2239,
+    "calibration": 381,
+    "tune": 475
+  },
+  "event_labels_used": false,
+  "fill_auc_calibration": 0.6969768401202192,
+  "fill_auc_tuning": 0.7534545454545454,
+  "alpha_metrics": {
+    "2": {
+      "examples": 475,
+      "correlation": 0.12016838317216298,
+      "actual_mean": 0.02368918605042742,
+      "predicted_mean": -0.05374671415915871
+    },
+    "5": {
+      "examples": 475,
+      "correlation": 0.06016587784354582,
+      "actual_mean": -0.011763001942250231,
+      "predicted_mean": -0.09970461280699301
+    },
+    "10": {
+      "examples": 475,
+      "correlation": 0.09599927938003977,
+      "actual_mean": -0.02724255523813136,
+      "predicted_mean": -0.13509571547146845
+    },
+    "30": {
+      "examples": 473,
+      "correlation": -0.04592178544263812,
+      "actual_mean": -0.03090164129216209,
+      "predicted_mean": -0.20267933537625726
+    },
+    "60": {
+      "examples": 467,
+      "correlation": 0.08279937803073674,
+      "actual_mean": -0.09620207962220494,
+      "predicted_mean": -0.20899546237957406
+    }
+  },
+  "selected_config": {
+    "enabled": false,
+    "horizon_seconds": 10,
+    "minimum_fill_probability": 0.6,
+    "minimum_expected_pnl": -0.25,
+    "tuning_passed": false,
+    "validation_passed": false
+  },
+  "selected_tuning_result": {
+    "horizon_seconds": 10.0,
+    "minimum_fill_probability": 0.6,
+    "minimum_expected_pnl": -0.25,
+    "attempts": 89.0,
+    "trades": 70.0,
+    "pnl": -11.263996603388026,
+    "capital": 700.0,
+    "roi": -0.016091423719125753,
+    "fold_1_trades": 18.0,
+    "fold_1_pnl": -3.1687721646468825,
+    "fold_1_roi": -0.01760428980359379,
+    "fold_2_trades": 27.0,
+    "fold_2_pnl": -4.0645903992382655,
+    "fold_2_roi": -0.015054038515697279,
+    "fold_3_trades": 25.0,
+    "fold_3_pnl": -4.030634039502878,
+    "fold_3_roi": -0.016122536158011513,
+    "profitable_folds": 0.0,
+    "minimum_fold_trades": 18.0,
+    "worst_fold_roi": -0.01760428980359379
+  },
+  "outer_holdout_used": false
+}

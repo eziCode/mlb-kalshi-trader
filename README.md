@@ -111,7 +111,12 @@ not evidence of a tradable edge.
 .venv/bin/python models/tune_empirical_runner.py
 .venv/bin/python models/train_state_reversion_classifier.py
 .venv/bin/python models/analyze_state_reversion_execution.py
+.venv/bin/python models/tune_state_reversion_baseline.py
+.venv/bin/python backtesting/evaluate_state_reversion_baseline.py
+.venv/bin/python backtesting/audit_state_reversion_mechanics.py
 .venv/bin/python backtesting/evaluate_state_reversion.py
+.venv/bin/python models/train_residual_path_policy.py
+.venv/bin/python backtesting/evaluate_residual_path_policy.py
 ```
 
 Run tests with:
