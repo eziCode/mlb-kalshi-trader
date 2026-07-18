@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import asyncio
+import argparse
 import csv
 from dataclasses import dataclass
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 import json
 import os
 from pathlib import Path
+import subprocess
 import sys
 import time
 
@@ -42,6 +44,22 @@ MODEL_DIR = PROJECT_ROOT / "models/market_reaction_model"
 HYBRID_CONFIG_PATH = MODEL_DIR / "trade_tape_config.json"
 KALSHI_API = "https://external-api.kalshi.com/trade-api/v2"
 MLB_API = "https://statsapi.mlb.com/api"
+
+MLB_TEAM_CODES = {
+    108: "LAA", 109: "ARI", 110: "BAL", 111: "BOS", 112: "CHC",
+    113: "CIN", 114: "CLE", 115: "COL", 116: "DET", 117: "HOU",
+    118: "KC", 119: "LAD", 120: "WSH", 121: "NYM", 133: "ATH",
+    134: "PIT", 135: "SD", 136: "SEA", 137: "SF", 138: "STL",
+    139: "TB", 140: "TEX", 141: "TOR", 142: "MIN", 143: "PHI",
+    144: "ATL", 145: "CHW", 146: "MIA", 147: "NYY", 158: "MIL",
+}
+
+KALSHI_TEAM_CODES = {
+    "AZ": "ARI", "ARI": "ARI", "CWS": "CHW", "CHW": "CHW",
+    "KC": "KC", "KCR": "KC", "OAK": "ATH", "ATH": "ATH",
+    "SD": "SD", "SDP": "SD", "SF": "SF", "SFG": "SF",
+    "TB": "TB", "TBR": "TB", "WAS": "WSH", "WSH": "WSH",
+}
 
 
 @dataclass
@@ -97,6 +115,190 @@ class EventCandidate:
     post_fair: float
     material_state: tuple
     pitch_token: tuple | None
+
+
+@dataclass(frozen=True)
+class DiscoveredGame:
+    game_pk: int
+    scheduled_time: datetime
+    away_code: str
+    home_code: str
+    market_ticker: str
+
+
+def canonical_kalshi_code(value: str) -> str:
+    code = str(value).strip().upper()
+    return KALSHI_TEAM_CODES.get(code, code)
+
+
+def market_team_code(market: dict) -> str | None:
+    ticker = str(market.get("ticker") or "")
+    if "-" not in ticker:
+        return None
+    return canonical_kalshi_code(ticker.rsplit("-", 1)[-1])
+
+
+def match_games_to_home_markets(
+    games: list[dict],
+    events: list[dict],
+) -> tuple[list[DiscoveredGame], list[str]]:
+    """Match same-day games and Kalshi events, including doubleheaders."""
+    event_groups: dict[frozenset[str], list[tuple[str, dict[str, dict]]]] = {}
+    for event in events:
+        markets = event.get("markets") or []
+        by_team = {
+            code: market
+            for market in markets
+            if (code := market_team_code(market)) is not None
+        }
+        if len(by_team) != 2:
+            continue
+        matchup = frozenset(by_team)
+        event_groups.setdefault(matchup, []).append((
+            str(event.get("event_ticker") or ""), by_team,
+        ))
+    for group in event_groups.values():
+        group.sort(key=lambda item: item[0])
+
+    game_groups: dict[frozenset[str], list[tuple[datetime, dict]]] = {}
+    warnings: list[str] = []
+    for game in games:
+        teams = game.get("teams") or {}
+        away_id = teams.get("away", {}).get("team", {}).get("id")
+        home_id = teams.get("home", {}).get("team", {}).get("id")
+        away = MLB_TEAM_CODES.get(int(away_id)) if away_id is not None else None
+        home = MLB_TEAM_CODES.get(int(home_id)) if home_id is not None else None
+        if away is None or home is None:
+            warnings.append(f"Game {game.get('gamePk')} has unknown MLB team IDs")
+            continue
+        scheduled = pd.to_datetime(game.get("gameDate"), utc=True).to_pydatetime()
+        game_groups.setdefault(frozenset({away, home}), []).append((
+            scheduled, {"row": game, "away": away, "home": home},
+        ))
+    for group in game_groups.values():
+        group.sort(key=lambda item: item[0])
+
+    matched: list[DiscoveredGame] = []
+    for matchup, scheduled_games in game_groups.items():
+        market_events = event_groups.get(matchup, [])
+        if len(market_events) != len(scheduled_games):
+            warnings.append(
+                f"{sorted(matchup)}: {len(scheduled_games)} MLB games but "
+                f"{len(market_events)} Kalshi events; skipping ambiguous matchup"
+            )
+            continue
+        for (scheduled, info), (_, markets) in zip(
+            scheduled_games, market_events
+        ):
+            home_market = markets.get(info["home"])
+            if home_market is None:
+                warnings.append(
+                    f"Game {info['row'].get('gamePk')} has no home-team market"
+                )
+                continue
+            matched.append(DiscoveredGame(
+                game_pk=int(info["row"]["gamePk"]),
+                scheduled_time=scheduled,
+                away_code=info["away"],
+                home_code=info["home"],
+                market_ticker=str(home_market["ticker"]),
+            ))
+    return sorted(matched, key=lambda game: game.scheduled_time), warnings
+
+
+def discover_daily_games(game_date: date) -> tuple[list[DiscoveredGame], list[str]]:
+    schedule = requests.get(
+        f"{MLB_API}/v1/schedule",
+        params={"sportId": 1, "date": game_date.isoformat()},
+        timeout=30,
+    )
+    schedule.raise_for_status()
+    games = [
+        game
+        for day in schedule.json().get("dates") or []
+        for game in day.get("games") or []
+    ]
+
+    from data.raw.scripts.download_live_kalshi_market_logs import (
+        discover_events,
+        fetch_event_markets,
+    )
+
+    events = discover_events(game_date, game_date, verbose=False)
+    hydrated = []
+    for event in events:
+        hydrated.append({
+            **event,
+            "markets": fetch_event_markets(event, verbose=False),
+        })
+    return match_games_to_home_markets(games, hydrated)
+
+
+def run_daily_coordinator(game_date: date, max_games: int | None) -> int:
+    if os.getenv("ALLOW_UNVALIDATED_HYBRID") != "1":
+        raise RuntimeError(
+            "Set ALLOW_UNVALIDATED_HYBRID=1 to run multi-game paper mode."
+        )
+    games, warnings = discover_daily_games(game_date)
+    for warning in warnings:
+        print(f"WARNING: {warning}")
+    if max_games is not None:
+        games = games[:max_games]
+    if not games:
+        raise RuntimeError(f"No matched MLB/Kalshi games for {game_date}")
+
+    log_dir = Path(__file__).resolve().parent / "logs"
+    log_dir.mkdir(parents=True, exist_ok=True)
+    run_id = int(time.time())
+    children: list[tuple[DiscoveredGame, subprocess.Popen, object]] = []
+    try:
+        for game in games:
+            console_path = log_dir / (
+                f"paper_console_{game.market_ticker}_{run_id}.log"
+            )
+            handle = console_path.open("w")
+            env = os.environ.copy()
+            env["MLB_GAME_PK"] = str(game.game_pk)
+            env["KALSHI_MARKET_TICKER"] = game.market_ticker
+            process = subprocess.Popen(
+                [sys.executable, str(Path(__file__).resolve())],
+                cwd=PROJECT_ROOT,
+                env=env,
+                stdout=handle,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+            children.append((game, process, handle))
+            print(
+                f"Started {game.away_code}@{game.home_code} "
+                f"game_pk={game.game_pk} ticker={game.market_ticker} "
+                f"console={console_path}"
+            )
+        print(
+            f"Running {len(children)} isolated paper traders; maximum "
+            f"simultaneous modeled exposure=${len(children) * CONFIG.bet_size:.2f}."
+        )
+        return_code = 0
+        for game, process, _ in children:
+            code = process.wait()
+            if code:
+                return_code = code
+                print(f"Game {game.game_pk} exited with status {code}")
+        return return_code
+    except KeyboardInterrupt:
+        print("Stopping all paper traders...")
+        for _, process, _ in children:
+            if process.poll() is None:
+                process.terminate()
+        for _, process, _ in children:
+            try:
+                process.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                process.kill()
+        return 130
+    finally:
+        for _, _, handle in children:
+            handle.close()
 
 
 def material_state(state: dict) -> tuple:
@@ -500,9 +702,51 @@ async def main() -> None:
         await asyncio.sleep(POLL_SECONDS)
 
 
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--all-games",
+        action="store_true",
+        help="Discover and run every matched MLB/Kalshi game for a date.",
+    )
+    parser.add_argument(
+        "--date",
+        type=date.fromisoformat,
+        default=datetime.now().astimezone().date(),
+        help="Local schedule date for --all-games (YYYY-MM-DD).",
+    )
+    parser.add_argument(
+        "--max-games",
+        type=int,
+        help="Optional cap on concurrently launched games.",
+    )
+    parser.add_argument(
+        "--discover-only",
+        action="store_true",
+        help="Print discovered mappings without launching paper traders.",
+    )
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
     try:
-        asyncio.run(main())
+        args = parse_args()
+        if args.max_games is not None and args.max_games <= 0:
+            raise RuntimeError("--max-games must be positive")
+        if args.discover_only:
+            games, warnings = discover_daily_games(args.date)
+            for warning in warnings:
+                print(f"WARNING: {warning}")
+            for game in games:
+                print(
+                    f"{game.scheduled_time.isoformat()} "
+                    f"{game.away_code}@{game.home_code} "
+                    f"game_pk={game.game_pk} ticker={game.market_ticker}"
+                )
+        elif args.all_games:
+            raise SystemExit(run_daily_coordinator(args.date, args.max_games))
+        else:
+            asyncio.run(main())
     except KeyboardInterrupt:
         print("Paper trader stopped")
     except RuntimeError as error:

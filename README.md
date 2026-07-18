@@ -125,6 +125,18 @@ KALSHI_MARKET_TICKER=KXMLBGAME-26JUL121340CHCCIN-CIN \
 .venv/bin/python live_trading_engine/paper_trader.py
 ```
 
+Or discover and run every matched game on a schedule date concurrently:
+
+```bash
+ALLOW_UNVALIDATED_HYBRID=1 \
+.venv/bin/python live_trading_engine/paper_trader.py \
+  --all-games --date 2026-07-18
+```
+
+Each child process writes a separate market-specific CSV and console log under
+`live_trading_engine/logs/`. Use `--max-games N` to cap the number of concurrent
+games and the resulting maximum modeled exposure (`N × $10`).
+
 The paper trader refuses invalid/missing pregame anchors and uses the local
 state model plus the current actual order book. It does not place real orders.
 Because validation was negative, it currently refuses to start. To collect
