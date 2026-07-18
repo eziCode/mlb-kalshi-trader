@@ -1,0 +1,17 @@
+services:
+  paper-trader:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      ALLOW_UNVALIDATED_HYBRID: "1"
+      PAPER_LOG_DIR: /app/logs
+      PAPER_PORTFOLIO_DB: /app/logs/paper_portfolio.sqlite3
+      PAPER_STARTING_CASH: "1000"
+      POLL_SECONDS: "1.0"
+      TZ: America/Chicago
+    volumes:
+      - ./live_trading_engine/logs:/app/logs
+    init: true
+    restart: "on-failure:5"
+    stop_grace_period: 20s

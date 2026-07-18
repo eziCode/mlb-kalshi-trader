@@ -10,6 +10,7 @@ from datetime import date, datetime, timezone
 import json
 import os
 from pathlib import Path
+import sqlite3
 import subprocess
 import sys
 import time
@@ -40,6 +41,10 @@ GAME_PK_TEXT = os.getenv("MLB_GAME_PK")
 MARKET_TICKER = os.getenv("KALSHI_MARKET_TICKER")
 GAME_PK = int(GAME_PK_TEXT) if GAME_PK_TEXT else None
 POLL_SECONDS = float(os.getenv("POLL_SECONDS", "1.0"))
+LOG_DIR = Path(os.getenv(
+    "PAPER_LOG_DIR",
+    str(Path(__file__).resolve().parent / "logs"),
+))
 MODEL_DIR = PROJECT_ROOT / "models/market_reaction_model"
 HYBRID_CONFIG_PATH = MODEL_DIR / "trade_tape_config.json"
 KALSHI_API = "https://external-api.kalshi.com/trade-api/v2"
@@ -115,6 +120,149 @@ class EventCandidate:
     post_fair: float
     material_state: tuple
     pitch_token: tuple | None
+
+
+@dataclass(frozen=True)
+class PortfolioMetrics:
+    cash: float
+    equity: float
+    pnl: float
+    open_positions: int
+
+
+class SharedPaperPortfolio:
+    """SQLite-backed cash and positions shared by every game process."""
+
+    def __init__(self, path: Path, starting_cash: float = 1000.0):
+        self.path = Path(path)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self._connect() as connection:
+            connection.execute("PRAGMA journal_mode=WAL")
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS portfolio (
+                    id INTEGER PRIMARY KEY CHECK (id = 1),
+                    starting_cash REAL NOT NULL,
+                    cash REAL NOT NULL
+                )"""
+            )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS positions (
+                    game_pk INTEGER PRIMARY KEY,
+                    market_ticker TEXT NOT NULL,
+                    side TEXT NOT NULL,
+                    contracts REAL NOT NULL,
+                    entry_price REAL NOT NULL,
+                    entry_fee REAL NOT NULL,
+                    entry_time TEXT NOT NULL,
+                    anchor_target REAL NOT NULL,
+                    anchor_fair REAL NOT NULL,
+                    event_id INTEGER NOT NULL,
+                    mark_price REAL NOT NULL,
+                    updated_at TEXT NOT NULL
+                )"""
+            )
+            connection.execute(
+                "INSERT OR IGNORE INTO portfolio(id, starting_cash, cash) "
+                "VALUES (1, ?, ?)",
+                (starting_cash, starting_cash),
+            )
+
+    def _connect(self) -> sqlite3.Connection:
+        return sqlite3.connect(self.path, timeout=30)
+
+    def open_position(self, game_pk: int, ticker: str, position: Position) -> bool:
+        cost = position.contracts * position.entry_price + position.entry_fee
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            cash = float(connection.execute(
+                "SELECT cash FROM portfolio WHERE id = 1"
+            ).fetchone()[0])
+            exists = connection.execute(
+                "SELECT 1 FROM positions WHERE game_pk = ?", (game_pk,)
+            ).fetchone()
+            if exists or cash + 1e-9 < cost:
+                connection.rollback()
+                return False
+            now = datetime.now(timezone.utc).isoformat()
+            connection.execute(
+                "UPDATE portfolio SET cash = cash - ? WHERE id = 1", (cost,)
+            )
+            connection.execute(
+                """INSERT INTO positions VALUES (
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                )""",
+                (
+                    game_pk, ticker, position.side, position.contracts,
+                    position.entry_price, position.entry_fee,
+                    position.entry_time.isoformat(), position.anchor_target,
+                    position.anchor_fair, position.event_id,
+                    position.entry_price, now,
+                ),
+            )
+        return True
+
+    def update_mark(self, game_pk: int, mark_price: float) -> None:
+        with self._connect() as connection:
+            connection.execute(
+                "UPDATE positions SET mark_price = ?, updated_at = ? "
+                "WHERE game_pk = ?",
+                (mark_price, datetime.now(timezone.utc).isoformat(), game_pk),
+            )
+
+    def close_position(self, game_pk: int, proceeds: float) -> bool:
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            exists = connection.execute(
+                "SELECT 1 FROM positions WHERE game_pk = ?", (game_pk,)
+            ).fetchone()
+            if not exists:
+                connection.rollback()
+                return False
+            connection.execute(
+                "UPDATE portfolio SET cash = cash + ? WHERE id = 1",
+                (proceeds,),
+            )
+            connection.execute(
+                "DELETE FROM positions WHERE game_pk = ?", (game_pk,)
+            )
+        return True
+
+    def load_position(self, game_pk: int) -> Position | None:
+        with self._connect() as connection:
+            row = connection.execute(
+                """SELECT side, contracts, entry_price, entry_fee, entry_time,
+                          anchor_target, anchor_fair, event_id
+                   FROM positions WHERE game_pk = ?""",
+                (game_pk,),
+            ).fetchone()
+        if row is None:
+            return None
+        return Position(
+            side=str(row[0]), contracts=float(row[1]), entry_price=float(row[2]),
+            entry_fee=float(row[3]),
+            entry_time=pd.to_datetime(row[4], utc=True).to_pydatetime(),
+            anchor_target=float(row[5]), anchor_fair=float(row[6]),
+            event_id=int(row[7]),
+        )
+
+    def metrics(self) -> PortfolioMetrics:
+        with self._connect() as connection:
+            starting_cash, cash = connection.execute(
+                "SELECT starting_cash, cash FROM portfolio WHERE id = 1"
+            ).fetchone()
+            rows = connection.execute(
+                "SELECT contracts, mark_price FROM positions"
+            ).fetchall()
+        liquidation = sum(
+            float(contracts) * float(price)
+            - taker_fee(float(contracts), float(price))
+            for contracts, price in rows
+        )
+        equity = float(cash) + liquidation
+        return PortfolioMetrics(
+            cash=float(cash), equity=equity,
+            pnl=equity - float(starting_cash), open_positions=len(rows),
+        )
 
 
 @dataclass(frozen=True)
@@ -217,6 +365,9 @@ def discover_daily_games(game_date: date) -> tuple[list[DiscoveredGame], list[st
         game
         for day in schedule.json().get("dates") or []
         for game in day.get("games") or []
+        if game.get("status", {}).get("abstractGameState") != "Final"
+        and str(game.get("status", {}).get("detailedState") or "").lower()
+        not in {"postponed", "cancelled", "canceled"}
     ]
 
     from data.raw.scripts.download_live_kalshi_market_logs import (
@@ -234,7 +385,7 @@ def discover_daily_games(game_date: date) -> tuple[list[DiscoveredGame], list[st
     return match_games_to_home_markets(games, hydrated)
 
 
-def run_daily_coordinator(game_date: date, max_games: int | None) -> int:
+def run_daily_coordinator(game_date: date) -> int:
     if os.getenv("ALLOW_UNVALIDATED_HYBRID") != "1":
         raise RuntimeError(
             "Set ALLOW_UNVALIDATED_HYBRID=1 to run multi-game paper mode."
@@ -242,13 +393,19 @@ def run_daily_coordinator(game_date: date, max_games: int | None) -> int:
     games, warnings = discover_daily_games(game_date)
     for warning in warnings:
         print(f"WARNING: {warning}")
-    if max_games is not None:
-        games = games[:max_games]
     if not games:
         raise RuntimeError(f"No matched MLB/Kalshi games for {game_date}")
 
-    log_dir = Path(__file__).resolve().parent / "logs"
+    log_dir = LOG_DIR
     log_dir.mkdir(parents=True, exist_ok=True)
+    portfolio_path = Path(os.getenv(
+        "PAPER_PORTFOLIO_DB",
+        str(log_dir / f"paper_portfolio_{game_date.isoformat()}.sqlite3"),
+    ))
+    portfolio = SharedPaperPortfolio(
+        portfolio_path,
+        float(os.getenv("PAPER_STARTING_CASH", "1000")),
+    )
     run_id = int(time.time())
     children: list[tuple[DiscoveredGame, subprocess.Popen, object]] = []
     try:
@@ -260,6 +417,7 @@ def run_daily_coordinator(game_date: date, max_games: int | None) -> int:
             env = os.environ.copy()
             env["MLB_GAME_PK"] = str(game.game_pk)
             env["KALSHI_MARKET_TICKER"] = game.market_ticker
+            env["PAPER_PORTFOLIO_DB"] = str(portfolio_path)
             process = subprocess.Popen(
                 [sys.executable, str(Path(__file__).resolve())],
                 cwd=PROJECT_ROOT,
@@ -274,9 +432,10 @@ def run_daily_coordinator(game_date: date, max_games: int | None) -> int:
                 f"game_pk={game.game_pk} ticker={game.market_ticker} "
                 f"console={console_path}"
             )
+        opening = portfolio.metrics()
         print(
-            f"Running {len(children)} isolated paper traders; maximum "
-            f"simultaneous modeled exposure=${len(children) * CONFIG.bet_size:.2f}."
+            f"Running {len(children)} isolated paper traders with shared "
+            f"cash=${opening.cash:.2f}."
         )
         return_code = 0
         for game, process, _ in children:
@@ -284,6 +443,12 @@ def run_daily_coordinator(game_date: date, max_games: int | None) -> int:
             if code:
                 return_code = code
                 print(f"Game {game.game_pk} exited with status {code}")
+        final = portfolio.metrics()
+        print(
+            f"Shared portfolio: cash=${final.cash:.2f} "
+            f"equity=${final.equity:.2f} PnL=${final.pnl:+.2f} "
+            f"open_positions={final.open_positions}"
+        )
         return return_code
     except KeyboardInterrupt:
         print("Stopping all paper traders...")
@@ -309,6 +474,17 @@ def material_state(state: dict) -> tuple:
         int(state["runner_on_second"]),
         int(state["runner_on_third"]),
     )
+
+
+def is_next_completed_event(
+    previous_event_id: int | None,
+    current_event_id: int | None,
+) -> bool:
+    if current_event_id is None:
+        return False
+    if previous_event_id is None:
+        return current_event_id == 0
+    return current_event_id == previous_event_id + 1
 
 
 def fetch_market_snapshot() -> MarketSnapshot:
@@ -423,11 +599,21 @@ def first_pitch_time(payload: dict) -> datetime | None:
 
 
 def fetch_pregame_anchor() -> float:
-    feed = requests.get(
+    feed_response = requests.get(
         f"{MLB_API}/v1.1/game/{GAME_PK}/feed/live", timeout=5
-    ).json()
+    )
+    feed_response.raise_for_status()
+    feed = feed_response.json()
     first_pitch = first_pitch_time(feed)
     if first_pitch is None:
+        status = feed.get("gameData", {}).get("status", {}).get(
+            "abstractGameState", "Preview"
+        )
+        if status == "Live":
+            raise RuntimeError(
+                "Game is live but first-pitch time is unavailable; "
+                "refusing to substitute an in-game price for the pregame anchor"
+            )
         snapshot = fetch_market_snapshot()
         return snapshot.midpoint
     params = {
@@ -468,6 +654,17 @@ async def main() -> None:
             "Hybrid policy has not passed a fresh forward test and is disabled. "
             "Set ALLOW_UNVALIDATED_HYBRID=1 only to collect paper observations."
         )
+    portfolio_path = Path(os.getenv(
+        "PAPER_PORTFOLIO_DB",
+        str(LOG_DIR / (
+            f"paper_portfolio_{datetime.now().astimezone().date()}_"
+            f"game_{GAME_PK}.sqlite3"
+        )),
+    ))
+    portfolio = SharedPaperPortfolio(
+        portfolio_path,
+        float(os.getenv("PAPER_STARTING_CASH", "1000")),
+    )
     pregame_prob = await asyncio.to_thread(fetch_pregame_anchor)
     print(f"Pregame Kalshi anchor: {pregame_prob:.1%}")
     print(
@@ -477,7 +674,7 @@ async def main() -> None:
         "target-reversion exit"
     )
 
-    log_dir = Path(__file__).resolve().parent / "logs"
+    log_dir = LOG_DIR
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"paper_trade_log_{MARKET_TICKER}_{int(time.time())}.csv"
     with log_path.open("w", newline="") as handle:
@@ -485,11 +682,17 @@ async def main() -> None:
             "decision_time", "market_received_at", "state_received_at",
             "bid", "ask", "inning", "outs", "score_diff", "fair_prob",
             "completed_event_id", "completed_event", "target", "excess_move",
-            "edge", "continuation_value", "exit_advantage", "action", "cash",
+            "edge", "continuation_value", "exit_advantage", "action",
+            "portfolio_cash", "portfolio_equity", "portfolio_pnl",
+            "portfolio_open_positions",
         ])
 
-    cash = 1000.0
-    position: Position | None = None
+    position = portfolio.load_position(int(GAME_PK))
+    if position is not None:
+        print(
+            f"Recovered open {position.side.upper()} position for game "
+            f"{GAME_PK} from {portfolio_path}"
+        )
     candidate: EventCandidate | None = None
     previous_market: float | None = None
     previous_fair: float | None = None
@@ -513,9 +716,15 @@ async def main() -> None:
                 ) or (
                     position.side == "no" and game.home_score < game.away_score
                 )
-                if won:
-                    cash += position.contracts
-            print(f"Final paper cash: ${cash:.2f}")
+                portfolio.close_position(
+                    int(GAME_PK), position.contracts if won else 0.0
+                )
+                position = None
+            final = portfolio.metrics()
+            print(
+                f"Shared portfolio: cash=${final.cash:.2f} "
+                f"equity=${final.equity:.2f} PnL=${final.pnl:+.2f}"
+            )
             break
         if game.status != "Live":
             await asyncio.sleep(POLL_SECONDS)
@@ -536,11 +745,20 @@ async def main() -> None:
         continuation_value = float("nan")
         exit_advantage = float("nan")
 
+        initializing_live_baseline = previous_market is None or previous_fair is None
         new_event = (
-            previous_event_id is not None
-            and game.completed_event_id is not None
-            and game.completed_event_id == previous_event_id + 1
+            not initializing_live_baseline
+            and is_next_completed_event(
+                previous_event_id, game.completed_event_id
+            )
         )
+        if initializing_live_baseline:
+            action = "INITIALIZE_LIVE_BASELINE"
+            print(
+                f"Initialized {'midgame' if game.completed_event_id is not None else 'pregame'} "
+                f"baseline at inning {game.state['inning']}; "
+                "events already visible at startup will not be traded."
+            )
 
         if position is not None:
             target = float(anchored_event_target(
@@ -551,6 +769,10 @@ async def main() -> None:
             ) or (
                 position.side == "no" and market.ask <= target
             )
+            liquidation_price = (
+                market.bid if position.side == "yes" else 1.0 - market.ask
+            )
+            portfolio.update_mark(int(GAME_PK), liquidation_price)
             if should_exit and exit_watch_started is None:
                 exit_watch_started = now
             elif not should_exit:
@@ -564,7 +786,9 @@ async def main() -> None:
             if confirmed_exit:
                 price = market.bid if position.side == "yes" else 1.0 - market.ask
                 fee = taker_fee(position.contracts, price)
-                cash += position.contracts * price - fee
+                portfolio.close_position(
+                    int(GAME_PK), position.contracts * price - fee
+                )
                 reason = "TARGET_REVERSION"
                 action = f"CLOSE_{position.side.upper()}_{reason}"
                 position = None
@@ -662,8 +886,7 @@ async def main() -> None:
                     )
                     contracts = CONFIG.bet_size / price
                     fee = taker_fee(contracts, price)
-                    cash -= CONFIG.bet_size + fee
-                    position = Position(
+                    proposed_position = Position(
                         side=candidate.side,
                         contracts=contracts,
                         entry_price=price,
@@ -673,14 +896,24 @@ async def main() -> None:
                         anchor_fair=candidate.post_fair,
                         event_id=candidate.event_id,
                     )
-                    action = f"OPEN_{candidate.side.upper()}_{candidate.event_type.upper()}"
-                    candidate = None
-                    exit_watch_started = None
+                    if portfolio.open_position(
+                        int(GAME_PK), str(MARKET_TICKER), proposed_position
+                    ):
+                        position = proposed_position
+                        action = (
+                            f"OPEN_{candidate.side.upper()}_"
+                            f"{candidate.event_type.upper()}"
+                        )
+                        candidate = None
+                        exit_watch_started = None
+                    else:
+                        action = "SKIP_INSUFFICIENT_SHARED_CASH"
 
         excess_move = (
             market.midpoint - target if pd.notna(target) else float("nan")
         )
 
+        metrics = portfolio.metrics()
         with log_path.open("a", newline="") as handle:
             csv.writer(handle).writerow([
                 now.isoformat(), market.received_at.isoformat(),
@@ -689,12 +922,14 @@ async def main() -> None:
                 game.state["score_diff"], fair_prob,
                 game.completed_event_id, game.completed_event, target,
                 excess_move, edge, continuation_value, exit_advantage,
-                action, cash,
+                action, metrics.cash, metrics.equity, metrics.pnl,
+                metrics.open_positions,
             ])
         print(
             f"{now.time()} {market.bid:.2f}/{market.ask:.2f} "
             f"fair={fair_prob:.1%} target={target:.1%} "
-            f"edge={edge:+.1%} {action}"
+            f"edge={edge:+.1%} {action} "
+            f"portfolio=${metrics.equity:.2f} pnl=${metrics.pnl:+.2f}"
         )
         previous_market = market.midpoint
         previous_fair = float(fair_prob)
@@ -716,14 +951,14 @@ def parse_args() -> argparse.Namespace:
         help="Local schedule date for --all-games (YYYY-MM-DD).",
     )
     parser.add_argument(
-        "--max-games",
-        type=int,
-        help="Optional cap on concurrently launched games.",
-    )
-    parser.add_argument(
         "--discover-only",
         action="store_true",
         help="Print discovered mappings without launching paper traders.",
+    )
+    parser.add_argument(
+        "--portfolio-status",
+        action="store_true",
+        help="Print the shared paper portfolio and exit.",
     )
     return parser.parse_args()
 
@@ -731,9 +966,21 @@ def parse_args() -> argparse.Namespace:
 if __name__ == "__main__":
     try:
         args = parse_args()
-        if args.max_games is not None and args.max_games <= 0:
-            raise RuntimeError("--max-games must be positive")
-        if args.discover_only:
+        if args.portfolio_status:
+            path = Path(os.getenv(
+                "PAPER_PORTFOLIO_DB",
+                str(LOG_DIR / "paper_portfolio.sqlite3"),
+            ))
+            portfolio = SharedPaperPortfolio(
+                path, float(os.getenv("PAPER_STARTING_CASH", "1000"))
+            )
+            metrics = portfolio.metrics()
+            print(
+                f"cash=${metrics.cash:.2f} equity=${metrics.equity:.2f} "
+                f"pnl=${metrics.pnl:+.2f} "
+                f"open_positions={metrics.open_positions} db={path}"
+            )
+        elif args.discover_only:
             games, warnings = discover_daily_games(args.date)
             for warning in warnings:
                 print(f"WARNING: {warning}")
@@ -744,7 +991,7 @@ if __name__ == "__main__":
                     f"game_pk={game.game_pk} ticker={game.market_ticker}"
                 )
         elif args.all_games:
-            raise SystemExit(run_daily_coordinator(args.date, args.max_games))
+            raise SystemExit(run_daily_coordinator(args.date))
         else:
             asyncio.run(main())
     except KeyboardInterrupt:
