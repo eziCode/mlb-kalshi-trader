@@ -29,6 +29,9 @@ class PaperTraderTests(unittest.TestCase):
         self.assertFalse(should_surface_worker_line(
             "18:52:31 0.80/0.81 HOLD portfolio=$999.60"
         ))
+        self.assertFalse(should_surface_worker_line(
+            "Snapshot rejected: No active inning half: 'Middle'"
+        ))
 
     def test_workers_share_one_atomic_cash_pool(self):
         with tempfile.TemporaryDirectory() as directory:

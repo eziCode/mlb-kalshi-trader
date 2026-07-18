@@ -277,7 +277,7 @@ class DiscoveredGame:
 
 MAIN_LOG_ACTIONS = (
     "WATCH_", "OPEN_", "CLOSE_", "EXPIRE_", "SKIP_",
-    "INITIALIZE_", "Recovered open", "Snapshot rejected",
+    "INITIALIZE_", "Recovered open",
     "Shared portfolio:",
 )
 
