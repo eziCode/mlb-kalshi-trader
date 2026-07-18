@@ -54,8 +54,10 @@ the exit policy also fails closed and is available only for paper observation.
 1. `build_kalshi_join.py` creates one decision row per completed market candle.
    Each row uses the candle's actual closing bid and ask and sees only an MLB
    state whose timestamp is no later than the decision time.
-2. A local win-expectancy CatBoost model uses raw game state: inning half,
-   outs, score, count, bases, and the pregame Kalshi anchor. Live trading no
+2. A local win-expectancy CatBoost model transforms raw state into the batting
+   team's perspective: batting-team pregame strength and score differential,
+   inning, outs, count, and bases. Its batting-team probability is converted
+   back to HOME orientation at every prediction surface. Live trading no
    longer waits for MLB `contextMetrics`.
 3. The reaction model uses the same unscaled raw features in training,
    backtesting, and live trading. There is no `StandardScaler`, hard-coded
