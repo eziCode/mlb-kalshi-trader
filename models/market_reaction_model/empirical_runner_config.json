@@ -1,0 +1,10 @@
+{
+  "enabled": false,
+  "minimum_probability_residual": 0.01,
+  "minimum_reversion_probability": 0.9,
+  "trailing_giveback_fraction": 0.35,
+  "trailing_activation_multiple": 0.25,
+  "second_target_multiple": 2.0,
+  "adverse_state_probability_move": 0.02,
+  "minimum_runner_contracts": 0.1
+}

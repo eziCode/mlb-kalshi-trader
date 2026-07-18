@@ -1,0 +1,90 @@
+{
+  "classifier_fit_dates": "2026-06-01 through 2026-06-16",
+  "tuning_dates": "2026-06-17 through 2026-06-27",
+  "outer_holdout_dates": "2026-06-28 through 2026-07-10",
+  "features": [
+    "pre_batting_price",
+    "inning",
+    "batting_score_diff",
+    "outs_after",
+    "runner_on_first_after",
+    "runner_on_second_after",
+    "runner_on_third_after",
+    "pre_trade_count_5s",
+    "pre_volume_5s",
+    "pre_flow_imbalance_5s",
+    "pre_volatility_5s",
+    "pitch_duration_seconds",
+    "predicted_batting_logit_move",
+    "actual_batting_logit_move",
+    "excess_logit_move",
+    "probability_residual",
+    "entry_price",
+    "target_reversion_pnl",
+    "breakeven_reversion_probability",
+    "event_to_entry_seconds",
+    "post_trade_count_5s",
+    "post_volume_5s",
+    "post_flow_imbalance_5s",
+    "post_volatility_5s",
+    "event_type",
+    "entry_side"
+  ],
+  "label": "observed executable cross of empirical expected price before settlement with positive round-trip PnL after fees",
+  "classifier_fit": {
+    "candidates": 1344,
+    "games": 204,
+    "positive_rate": 0.8110119047619048,
+    "roc_auc": 0.7677418189698765,
+    "log_loss": 0.41273227737797785,
+    "brier_score": 0.12732306842396982
+  },
+  "tuning": {
+    "candidates": 974,
+    "games": 144,
+    "positive_rate": 0.7720739219712526,
+    "roc_auc": 0.7476399271612038,
+    "log_loss": 0.4642694545049315,
+    "brier_score": 0.14851274281520216
+  },
+  "holdout": {
+    "candidates": 1074,
+    "games": 172,
+    "positive_rate": 0.7411545623836127,
+    "roc_auc": 0.7224341130110987,
+    "log_loss": 0.5233844418115655,
+    "brier_score": 0.1724743593926279
+  },
+  "selection_rule": "maximum tuning ROI among fee-adjusted probability margins with >=20 trades; if none qualify, retain the most permissive margin and disable the strategy",
+  "minimum_trade_requirement_met": false,
+  "selected_config": {
+    "enabled": false,
+    "minimum_probability_residual": 0.01,
+    "minimum_reversion_probability": 0.5,
+    "minimum_reversion_probability_margin": 0.0,
+    "reaction_window_seconds": 5.0
+  },
+  "selected_tuning_result": {
+    "minimum_probability_residual": 0.01,
+    "minimum_reversion_probability": 0.5,
+    "minimum_reversion_probability_margin": 0.0,
+    "trades": 3.0,
+    "reversion_exits": 0.0,
+    "settlements": 3.0,
+    "fees": 1.17,
+    "capital": 31.169999999999995,
+    "pnl": 9.663333333333338,
+    "roi": 0.310020318682494
+  },
+  "selected_holdout_result": {
+    "trades": 0,
+    "reversion_exits": 0,
+    "settlements": 0,
+    "fees": 0.0,
+    "capital": 0.0,
+    "pnl": 0.0,
+    "roi": 0.0
+  },
+  "execution_model": "strictly later compatible taker-side trade with sufficient reported size",
+  "time_based_exit": false
+}

@@ -59,6 +59,49 @@ class TradeTapeStrategyTests(unittest.TestCase):
         self.assertEqual(result.trades, 0)
         self.assertEqual(result.invalidated_candidates, 1)
 
+    def test_next_pitch_invalidates_candidate_before_entry(self):
+        trades, updates = self._frames(include_reversion=False)
+        later_pitch = updates.iloc[0].copy()
+        later_pitch["pitch_start_time"] = pd.Timestamp(
+            "2026-07-01T12:00:01.5Z"
+        )
+        later_pitch["pitch_end_time"] = pd.Timestamp(
+            "2026-07-01T12:00:03.25Z"
+        )
+        later_pitch["is_hit"] = False
+        later_pitch["completed_event"] = None
+        later_pitch["at_bat_number"] = 2
+        later_pitch["pitch_number"] = 1
+        updates = pd.concat(
+            [updates, later_pitch.to_frame().T], ignore_index=True
+        )
+
+        result = simulate_trade_tape(
+            trades,
+            updates,
+            TradeTapeConfig(minimum_edge=0.05),
+        )
+        self.assertEqual(result.trades, 0)
+        self.assertEqual(result.invalidated_candidates, 1)
+
+    def test_event_candidate_expires_before_late_fill(self):
+        trades, updates = self._frames(include_reversion=False)
+        trades.loc[
+            trades["created_time"] > pd.Timestamp("2026-07-01T12:00:01Z"),
+            "created_time",
+        ] += pd.Timedelta(seconds=20)
+
+        result = simulate_trade_tape(
+            trades,
+            updates,
+            TradeTapeConfig(
+                minimum_edge=0.05,
+                maximum_event_to_entry_seconds=10.0,
+            ),
+        )
+        self.assertEqual(result.trades, 0)
+        self.assertEqual(result.expired_candidates, 1)
+
     def test_reversion_requires_a_later_compatible_trade(self):
         trades, updates = self._frames(include_reversion=True)
         result = simulate_trade_tape(
@@ -68,6 +111,39 @@ class TradeTapeStrategyTests(unittest.TestCase):
         self.assertEqual(result.reversion_exits, 1)
         self.assertEqual(result.settlements, 0)
         self.assertEqual(result.records[0].exit_reason, "reversion")
+
+    def test_favorable_velocity_delays_exit_until_trailing_giveback(self):
+        trades, updates = self._frames(include_reversion=False)
+        momentum = pd.DataFrame({
+            "game_pk": 1,
+            "trade_id": ["m1", "m2", "m3", "m4", "m5"],
+            "created_time": pd.to_datetime([
+                "2026-07-01T12:00:03.8Z",
+                "2026-07-01T12:00:04.2Z",
+                "2026-07-01T12:00:04.6Z",
+                "2026-07-01T12:00:05.0Z",
+                "2026-07-01T12:00:05.1Z",
+            ], utc=True),
+            "yes_price_dollars": [0.47, 0.50, 0.54, 0.52, 0.52],
+            "no_price_dollars": [0.53, 0.50, 0.46, 0.48, 0.48],
+            "count_fp": 100.0,
+            "taker_outcome_side": ["no", "no", "no", "no", "no"],
+            "home_win": 1,
+        })
+        trades = pd.concat([trades, momentum], ignore_index=True)
+        config = TradeTapeConfig(
+            minimum_edge=0.05,
+            momentum_exit_enabled=True,
+            momentum_window_seconds=2.0,
+            minimum_favorable_velocity=0.01,
+            momentum_trailing_giveback=0.01,
+            momentum_max_hold_seconds=2.0,
+            minimum_momentum_trades=3,
+        )
+        result = simulate_trade_tape(trades, updates, config)
+        self.assertEqual(result.momentum_exits, 1)
+        self.assertEqual(result.records[0].exit_reason, "momentum_reversion")
+        self.assertEqual(result.records[0].exit_price, 0.52)
 
     @staticmethod
     def _frames(include_reversion: bool):

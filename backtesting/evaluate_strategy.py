@@ -17,7 +17,9 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from mlb_kalshi.strategy import (  # noqa: E402
     CONFIG,
+    STATE_FEATURES,
     add_reaction_features,
+    fee_aware_signal_side,
     reaction_feature_frame,
     signal_side,
     state_feature_frame,
@@ -52,6 +54,23 @@ class Position:
     entry_fee: float
 
 
+ENTRY_STATE_FIELDS = tuple(
+    feature for feature in STATE_FEATURES if feature != "pregame_prob"
+)
+
+
+@dataclass(frozen=True)
+class PendingEntry:
+    side: str
+    signal_probability: float
+    state_key: tuple
+
+
+def entry_state_key(row) -> tuple:
+    """Identify the complete live state that authorized an entry signal."""
+    return tuple(getattr(row, field) for field in ENTRY_STATE_FIELDS)
+
+
 def add_predictions(frame: pd.DataFrame) -> pd.DataFrame:
     state_model = CatBoostClassifier()
     state_model.load_model(MODEL_DIR / "local_win_expectancy.cbm")
@@ -65,12 +84,24 @@ def add_predictions(frame: pd.DataFrame) -> pd.DataFrame:
     return result
 
 
-def simulate(frame: pd.DataFrame) -> Result:
+def simulate(
+    frame: pd.DataFrame,
+    exit_hysteresis: float = CONFIG.exit_hysteresis,
+    hold_to_settlement: bool = False,
+) -> Result:
+    if exit_hysteresis < 0:
+        raise ValueError("exit_hysteresis cannot be negative")
+    missing_state = set(ENTRY_STATE_FIELDS) - set(frame.columns)
+    if missing_state:
+        raise ValueError(
+            "Missing fields required to bind entries to game state: "
+            f"{sorted(missing_state)}"
+        )
     result = Result()
     for _, game in frame.groupby("game_pk", sort=False):
         game = game.sort_values("decision_time")
         position: Position | None = None
-        pending_entry: tuple[str, float] | None = None
+        pending_entry: PendingEntry | None = None
         pending_exit = False
 
         for row in game.itertuples():
@@ -93,33 +124,42 @@ def simulate(frame: pd.DataFrame) -> Result:
                 pending_exit = False
 
             if pending_entry is not None and position is None:
-                side, signal_probability = pending_entry
-                price = ask if side == "yes" else 1.0 - bid
-                still_valid = (
-                    ask <= signal_probability - CONFIG.edge_threshold
-                    if side == "yes"
-                    else bid >= signal_probability + CONFIG.edge_threshold
-                )
-                if still_valid and 0 < price < 1:
-                    contracts = CONFIG.bet_size / price
-                    entry_fee = taker_fee(contracts, price)
-                    position = Position(side, contracts, price, entry_fee)
-                    result.trades += 1
-                    result.capital += CONFIG.bet_size + entry_fee
-                    result.fees += entry_fee
+                state_unchanged = entry_state_key(row) == pending_entry.state_key
+                if state_unchanged:
+                    side = pending_entry.side
+                    price = ask if side == "yes" else 1.0 - bid
+                    confirmed_side, _ = fee_aware_signal_side(
+                        pending_entry.signal_probability,
+                        bid,
+                        ask,
+                        CONFIG.edge_threshold,
+                    )
+                    if confirmed_side == side and 0 < price < 1:
+                        contracts = CONFIG.bet_size / price
+                        entry_fee = taker_fee(contracts, price)
+                        position = Position(side, contracts, price, entry_fee)
+                        result.trades += 1
+                        result.capital += CONFIG.bet_size + entry_fee
+                        result.fees += entry_fee
                 pending_entry = None
 
-            if position is not None:
+            if position is not None and not hold_to_settlement:
                 if (
-                    position.side == "yes" and row.final_prob < bid
+                    position.side == "yes"
+                    and row.final_prob < bid - exit_hysteresis
                 ) or (
-                    position.side == "no" and row.final_prob > ask
+                    position.side == "no"
+                    and row.final_prob > ask + exit_hysteresis
                 ):
                     pending_exit = True
             elif pending_entry is None:
                 side, _ = signal_side(row.final_prob, bid, ask)
                 if side is not None:
-                    pending_entry = (side, float(row.final_prob))
+                    pending_entry = PendingEntry(
+                        side=side,
+                        signal_probability=float(row.final_prob),
+                        state_key=entry_state_key(row),
+                    )
 
         if position is not None:
             home_win = int(game.iloc[-1]["home_win"])
@@ -143,7 +183,8 @@ def main() -> None:
     validate_market_prices(frame)
     frame = add_predictions(frame)
     result = simulate(frame)
-    print("CAUSAL MARKET-OBSERVATION BACKTEST")
+    settlement_result = simulate(frame, hold_to_settlement=True)
+    print("CAUSAL MARKET-OBSERVATION BACKTEST (EXIT HYSTERESIS)")
     print(f"Decision rows:       {len(frame):,}")
     print(f"Games:               {frame['game_pk'].nunique():,}")
     print(f"Trades:              {result.trades:,}")
@@ -153,6 +194,13 @@ def main() -> None:
     print(f"Capital:             ${result.capital:,.2f}")
     print(f"Net PnL:             ${result.pnl:,.2f}")
     print(f"ROI:                 {result.roi:.2%}")
+    print(f"Exit hysteresis:     {CONFIG.exit_hysteresis:.1%}")
+    print("\nHOLD-TO-SETTLEMENT COUNTERFACTUAL")
+    print(f"Trades:              {settlement_result.trades:,}")
+    print(f"Fees:                ${settlement_result.fees:,.2f}")
+    print(f"Capital:             ${settlement_result.capital:,.2f}")
+    print(f"Net PnL:             ${settlement_result.pnl:,.2f}")
+    print(f"ROI:                 {settlement_result.roi:.2%}")
 
 
 if __name__ == "__main__":

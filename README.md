@@ -104,6 +104,9 @@ not evidence of a tradable edge.
 .venv/bin/python data/processed/scripts/build_optimal_exit_dataset.py
 .venv/bin/python models/train_optimal_exit_policy.py
 .venv/bin/python backtesting/evaluate_optimal_exit_policy.py
+.venv/bin/python data/processed/scripts/build_empirical_reaction_events.py
+.venv/bin/python models/train_empirical_reversion_strategy.py
+.venv/bin/python models/tune_empirical_runner.py
 ```
 
 Run tests with:
@@ -126,4 +129,7 @@ The paper trader refuses invalid/missing pregame anchors and uses the local
 state model plus the current actual order book. It does not place real orders.
 Because validation was negative, it currently refuses to start. To collect
 paper observations without enabling any real trading, explicitly set
-`ALLOW_UNVALIDATED_HYBRID=1`.
+`ALLOW_UNVALIDATED_HYBRID=1`. There are no default game or market identifiers;
+both environment variables are required. Paper entries expire ten seconds
+after the triggering hit and are cancelled by the next completed pitch. Open
+positions exit on confirmed target reversion.

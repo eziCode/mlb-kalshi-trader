@@ -36,6 +36,7 @@ TAKER_FEE_RATE = 0.07
 @dataclass(frozen=True)
 class StrategyConfig:
     edge_threshold: float = 0.15
+    exit_hysteresis: float = 0.00
     bet_size: float = 10.0
     maximum_quote_age_seconds: float = 2.0
     maximum_feed_age_seconds: float = 15.0
@@ -117,11 +118,46 @@ def taker_fee(contracts: float, price: float) -> float:
     return math.ceil(raw * 100.0 - 1e-12) / 100.0
 
 
+def estimated_round_trip_fee_per_contract(price: float) -> float:
+    """Conservative fee reserve for an entry and an early taker exit."""
+    if not 0 < price < 1:
+        return math.inf
+    contracts = CONFIG.bet_size / price
+    return 2.0 * taker_fee(contracts, price) / contracts
+
+
+def fee_aware_signal_side(
+    final_probability: float,
+    bid: float,
+    ask: float,
+    buffer: float,
+) -> tuple[str | None, float]:
+    """Select a side only after spread and estimated round-trip fees.
+
+    The returned edge is net of the executable half-spread and fee reserve.
+    Starting from midpoint edge makes those costs visible; equivalently, this
+    requires executable-price edge to exceed fees plus ``buffer``.
+    """
+    midpoint = (float(bid) + float(ask)) / 2.0
+    half_spread = (float(ask) - float(bid)) / 2.0
+    yes_price = float(ask)
+    no_price = 1.0 - float(bid)
+    yes_net_edge = (
+        float(final_probability) - midpoint - half_spread
+        - estimated_round_trip_fee_per_contract(yes_price)
+    )
+    no_net_edge = (
+        midpoint - float(final_probability) - half_spread
+        - estimated_round_trip_fee_per_contract(no_price)
+    )
+    if yes_net_edge >= buffer and yes_net_edge >= no_net_edge:
+        return "yes", yes_net_edge
+    if no_net_edge >= buffer:
+        return "no", no_net_edge
+    return None, max(yes_net_edge, no_net_edge)
+
+
 def signal_side(final_probability: float, bid: float, ask: float) -> tuple[str | None, float]:
-    yes_edge = final_probability - ask
-    no_edge = bid - final_probability
-    if yes_edge >= CONFIG.edge_threshold and yes_edge >= no_edge:
-        return "yes", yes_edge
-    if no_edge >= CONFIG.edge_threshold:
-        return "no", no_edge
-    return None, max(yes_edge, no_edge)
+    return fee_aware_signal_side(
+        final_probability, bid, ask, CONFIG.edge_threshold
+    )

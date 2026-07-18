@@ -3,5 +3,13 @@
   "minimum_edge": 0.075,
   "confirmation_seconds": 1.0,
   "maximum_pre_event_trade_age_seconds": 5.0,
-  "minimum_fair_move": 0.005
+  "maximum_event_to_entry_seconds": 10.0,
+  "invalidate_on_next_pitch": true,
+  "minimum_fair_move": 0.005,
+  "momentum_exit_enabled": false,
+  "momentum_window_seconds": 2.0,
+  "minimum_favorable_velocity": 0.01,
+  "momentum_trailing_giveback": 0.01,
+  "momentum_max_hold_seconds": 2.0,
+  "minimum_momentum_trades": 3
 }

@@ -5,6 +5,7 @@ import unittest
 import pandas as pd
 
 from mlb_kalshi.strategy import (
+    fee_aware_signal_side,
     reaction_feature_frame,
     signal_side,
     state_feature_frame,
@@ -42,6 +43,17 @@ class StrategyContractTests(unittest.TestCase):
         self.assertEqual(signal_side(0.30, 0.49, 0.51)[0], "no")
         self.assertIsNone(signal_side(0.50, 0.49, 0.51)[0])
         self.assertEqual(taker_fee(100, 0.50), 1.75)
+
+    def test_fee_aware_signal_reserves_two_taker_crossings(self):
+        # Raw executable edge is 4%, but two 50-cent taker fees consume about
+        # 3.5%, so a 1% buffer rejects the trade.
+        side, net_edge = fee_aware_signal_side(0.55, 0.49, 0.51, 0.01)
+        self.assertIsNone(side)
+        self.assertLess(net_edge, 0.01)
+
+        side, net_edge = fee_aware_signal_side(0.57, 0.49, 0.51, 0.01)
+        self.assertEqual(side, "yes")
+        self.assertGreaterEqual(net_edge, 0.01)
 
 
 if __name__ == "__main__":

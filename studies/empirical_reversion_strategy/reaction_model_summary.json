@@ -1,0 +1,44 @@
+{
+  "data_scope": "2026 only; no 2025 data used",
+  "fit_end_exclusive": "2026-06-01",
+  "features": [
+    "pre_batting_price",
+    "inning",
+    "batting_score_diff",
+    "outs_after",
+    "runner_on_first_after",
+    "runner_on_second_after",
+    "runner_on_third_after",
+    "pre_trade_count_5s",
+    "pre_volume_5s",
+    "pre_flow_imbalance_5s",
+    "pre_volatility_5s",
+    "pitch_duration_seconds",
+    "event_type"
+  ],
+  "target": "five-second batting-team log-odds market move after a hit",
+  "fit": {
+    "events": 2231,
+    "games": 228,
+    "mae_logit": 0.15762867796726612,
+    "rmse_logit": 0.2231927243903078
+  },
+  "classifier_fit_period": {
+    "events": 2263,
+    "games": 205,
+    "mae_logit": 0.17341573482788422,
+    "rmse_logit": 0.24345350172788421
+  },
+  "tuning_period": {
+    "events": 1625,
+    "games": 144,
+    "mae_logit": 0.18774672018630958,
+    "rmse_logit": 0.2727069498072756
+  },
+  "holdout_period": {
+    "events": 2006,
+    "games": 175,
+    "mae_logit": 0.17505720709379935,
+    "rmse_logit": 0.2540269501690341
+  }
+}

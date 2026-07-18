@@ -46,6 +46,8 @@ def main() -> None:
         maximum_pre_event_trade_age_seconds=(
             config.maximum_pre_event_trade_age_seconds
         ),
+        maximum_event_to_entry_seconds=config.maximum_event_to_entry_seconds,
+        invalidate_on_next_pitch=config.invalidate_on_next_pitch,
         minimum_fair_move=config.minimum_fair_move,
     )
     CONFIG_PATH.write_text(json.dumps(asdict(deployment_config), indent=2))
@@ -59,12 +61,14 @@ def main() -> None:
         "eligible_hit_updates": result.eligible_hit_updates,
         "rejected_fair_updates": result.rejected_fair_updates,
         "invalidated_candidates": result.invalidated_candidates,
+        "expired_candidates": result.expired_candidates,
         "fresh_hit_anchors": result.fresh_hit_anchors,
         "confirmed_signals": result.confirmed_signals,
         "trades": result.trades,
         "yes_trades": result.yes_trades,
         "no_trades": result.no_trades,
         "reversion_exits": result.reversion_exits,
+        "momentum_exits": result.momentum_exits,
         "settlements": result.settlements,
         "fees": result.fees,
         "capital": result.capital,
@@ -91,11 +95,13 @@ def main() -> None:
     print(f"Eligible fair moves:   {result.eligible_hit_updates:,}")
     print(f"Rejected fair moves:   {result.rejected_fair_updates:,}")
     print(f"Invalidated signals:   {result.invalidated_candidates:,}")
+    print(f"Expired signals:       {result.expired_candidates:,}")
     print(f"Fresh hit anchors:     {result.fresh_hit_anchors:,}")
     print(f"Confirmed signals:     {result.confirmed_signals:,}")
     print(f"Filled trades:         {result.trades:,}")
     print(f"YES / NO:              {result.yes_trades:,} / {result.no_trades:,}")
     print(f"Reversion exits:       {result.reversion_exits:,}")
+    print(f"Momentum-delayed exits:{result.momentum_exits:>9,}")
     print(f"Settlements:           {result.settlements:,}")
     print(f"Fees:                  ${result.fees:,.2f}")
     print(f"Capital:               ${result.capital:,.2f}")

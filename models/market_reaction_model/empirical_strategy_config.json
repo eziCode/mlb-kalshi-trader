@@ -1,0 +1,7 @@
+{
+  "enabled": false,
+  "minimum_probability_residual": 0.01,
+  "minimum_reversion_probability": 0.5,
+  "minimum_reversion_probability_margin": 0.0,
+  "reaction_window_seconds": 5.0
+}

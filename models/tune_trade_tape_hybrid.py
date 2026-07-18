@@ -58,6 +58,7 @@ def main() -> None:
                 "eligible_hit_updates": result.eligible_hit_updates,
                 "rejected_fair_updates": result.rejected_fair_updates,
                 "invalidated_candidates": result.invalidated_candidates,
+                "expired_candidates": result.expired_candidates,
                 "fresh_hit_anchors": result.fresh_hit_anchors,
                 "confirmed_signals": result.confirmed_signals,
                 "trades": result.trades,
