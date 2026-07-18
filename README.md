@@ -3,6 +3,10 @@
 Research and paper-trading pipeline for testing MLB in-game Kalshi strategies
 with identical historical and live feature semantics.
 
+Strategy-specific training, custom data entrypoints, studies, paper runners,
+and Dockerfiles are cataloged under [`approaches/`](approaches/README.md).
+Legacy top-level commands remain available for compatibility.
+
 ## Hybrid event-residual strategy
 
 The hybrid does not trade the local model's absolute disagreement with

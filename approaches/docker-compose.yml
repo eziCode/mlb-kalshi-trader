@@ -1,0 +1,40 @@
+services:
+  absolute-probability:
+    profiles: ["absolute-probability"]
+    build: {context: .., dockerfile: approaches/absolute_probability/Dockerfile}
+    environment: {PAPER_MODE: replay}
+  hybrid-event:
+    profiles: ["hybrid-event"]
+    build: {context: .., dockerfile: approaches/hybrid_event/Dockerfile}
+    environment: {PAPER_MODE: replay}
+  trade-tape-hybrid:
+    profiles: ["trade-tape-hybrid"]
+    build: {context: .., dockerfile: approaches/trade_tape_hybrid/Dockerfile}
+    environment:
+      PAPER_MODE: live
+      ALLOW_UNVALIDATED_HYBRID: "1"
+    volumes: ["../live_trading_engine/logs:/app/logs"]
+  optimal-exit:
+    profiles: ["optimal-exit"]
+    build: {context: .., dockerfile: approaches/optimal_exit/Dockerfile}
+    environment: {PAPER_MODE: replay}
+  empirical-reversion:
+    profiles: ["empirical-reversion"]
+    build: {context: .., dockerfile: approaches/empirical_reversion/Dockerfile}
+    environment: {PAPER_MODE: replay}
+  empirical-runner:
+    profiles: ["empirical-runner"]
+    build: {context: .., dockerfile: approaches/empirical_runner/Dockerfile}
+    environment: {PAPER_MODE: replay}
+  state-reversion:
+    profiles: ["state-reversion"]
+    build: {context: .., dockerfile: approaches/state_reversion/Dockerfile}
+    environment: {PAPER_MODE: replay}
+  residual-path:
+    profiles: ["residual-path"]
+    build: {context: .., dockerfile: approaches/residual_path/Dockerfile}
+    environment: {PAPER_MODE: replay}
+  mispricing:
+    profiles: ["mispricing"]
+    build: {context: .., dockerfile: approaches/mispricing/Dockerfile}
+    environment: {PAPER_MODE: replay}
