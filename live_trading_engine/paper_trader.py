@@ -24,14 +24,15 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from mlb_kalshi.hybrid import (  # noqa: E402
-    HIT_EVENTS,
     anchored_event_target,
+    directional_event_fair_move,
+    event_category,
 )
 from mlb_kalshi.trade_tape import TradeTapeConfig  # noqa: E402
 from mlb_kalshi.strategy import (  # noqa: E402
     CONFIG,
     fee_aware_signal_side,
-    state_feature_frame,
+    predict_home_probability,
     taker_fee,
 )
 
@@ -108,6 +109,7 @@ class EventCandidate:
     target: float
     event_id: int
     event_type: str
+    event_category: str
     observed_at: datetime
     event_time: datetime
     pre_market: float
@@ -484,7 +486,8 @@ async def main() -> None:
         csv.writer(handle).writerow([
             "decision_time", "market_received_at", "state_received_at",
             "bid", "ask", "inning", "outs", "score_diff", "fair_prob",
-            "completed_event_id", "completed_event", "target", "excess_move",
+            "completed_event_id", "completed_event", "event_category",
+            "target", "excess_move",
             "edge", "continuation_value", "exit_advantage", "action", "cash",
         ])
 
@@ -529,7 +532,7 @@ async def main() -> None:
 
         values = {**game.state, "pregame_prob": pregame_prob}
         state_row = pd.DataFrame([values])
-        fair_prob = state_model.predict_proba(state_feature_frame(state_row))[0, 1]
+        fair_prob = predict_home_probability(state_model, state_row)[0]
         action = "HOLD"
         edge = float("nan")
         target = float("nan")
@@ -597,23 +600,47 @@ async def main() -> None:
 
             if (
                 new_event
-                and game.completed_event in HIT_EVENTS
+                and game.completed_event is not None
+                and (
+                    hybrid_config.event_agnostic
+                    or event_category(game.completed_event)
+                    in hybrid_config.enabled_event_categories
+                )
                 and previous_market is not None
                 and previous_fair is not None
                 and pitch_token_time(game.latest_completed_pitch_token) is not None
             ):
-                signed_fair_move = (
-                    float(fair_prob) - previous_fair
-                ) * (
-                    1.0 if game.completed_event_batting_home else -1.0
+                category = event_category(game.completed_event) or "other"
+                fair_move = (
+                    abs(float(fair_prob) - previous_fair)
+                    if hybrid_config.event_agnostic
+                    else directional_event_fair_move(
+                        game.completed_event,
+                        bool(game.completed_event_batting_home),
+                        previous_fair,
+                        float(fair_prob),
+                    )
                 )
-                if signed_fair_move >= hybrid_config.minimum_fair_move:
+                minimum_fair_move = (
+                    hybrid_config.minimum_fair_move
+                    if hybrid_config.event_agnostic
+                    else hybrid_config.minimum_fair_move_by_category.get(
+                        category, hybrid_config.minimum_fair_move
+                    )
+                )
+                if fair_move >= minimum_fair_move:
                     target = float(anchored_event_target(
                         previous_market, previous_fair, fair_prob
                     ))
                     side, edge = fee_aware_signal_side(
                         target, market.bid, market.ask,
-                        hybrid_config.minimum_edge,
+                        (
+                            hybrid_config.minimum_edge
+                            if hybrid_config.event_agnostic
+                            else hybrid_config.minimum_edge_by_category.get(
+                                category, hybrid_config.minimum_edge
+                            )
+                        ),
                     )
                     candidate = (
                         EventCandidate(
@@ -621,6 +648,7 @@ async def main() -> None:
                             target=target,
                             event_id=int(game.completed_event_id),
                             event_type=str(game.completed_event),
+                            event_category=str(category),
                             observed_at=now,
                             event_time=pitch_token_time(
                                 game.latest_completed_pitch_token
@@ -646,7 +674,14 @@ async def main() -> None:
                 ))
                 confirmed_side, edge = fee_aware_signal_side(
                     target, market.bid, market.ask,
-                    hybrid_config.minimum_edge,
+                    (
+                        hybrid_config.minimum_edge
+                        if hybrid_config.event_agnostic
+                        else hybrid_config.minimum_edge_by_category.get(
+                            candidate.event_category,
+                            hybrid_config.minimum_edge,
+                        )
+                    ),
                 )
                 confirmation_age = (
                     now - candidate.observed_at
@@ -687,7 +722,8 @@ async def main() -> None:
                 game.received_at.isoformat(), market.bid, market.ask,
                 game.state["inning"], game.state["outs_when_up"],
                 game.state["score_diff"], fair_prob,
-                game.completed_event_id, game.completed_event, target,
+                game.completed_event_id, game.completed_event,
+                event_category(game.completed_event), target,
                 excess_move, edge, continuation_value, exit_advantage,
                 action, cash,
             ])

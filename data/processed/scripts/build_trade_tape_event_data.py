@@ -22,7 +22,8 @@ PROJECT_ROOT = Path(__file__).resolve().parents[3]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from mlb_kalshi.strategy import state_feature_frame  # noqa: E402
+from mlb_kalshi.strategy import predict_home_probability  # noqa: E402
+from mlb_kalshi.hybrid import event_category  # noqa: E402
 
 
 PITCH_STATE_PATH = (
@@ -153,9 +154,7 @@ def build_state_updates(game_map: pd.DataFrame) -> pd.DataFrame:
 
     model = CatBoostClassifier()
     model.load_model(MODEL_PATH)
-    states["fair_before"] = model.predict_proba(
-        state_feature_frame(states)
-    )[:, 1]
+    states["fair_before"] = predict_home_probability(model, states)
     states["fair_after"] = states.groupby("game_pk")["fair_before"].shift(-1)
     post_state_sources = [
         "inning", "inning_topbot", "outs_when_up", "score_diff", "balls",
@@ -173,10 +172,13 @@ def build_state_updates(game_map: pd.DataFrame) -> pd.DataFrame:
     updates["is_hit"] = updates["completed_event"].isin(
         ["single", "double", "triple", "home_run"]
     )
+    updates["event_category"] = updates["completed_event"].map(event_category)
+    updates["is_trade_event"] = updates["event_category"].notna()
     output_columns = [
         "game_pk", "game_date", "market_ticker", "home_win",
         "at_bat_number", "pitch_number", "pitch_start_time", "pitch_end_time",
         "completed_event", "completed_event_batting_home", "is_hit",
+        "event_category", "is_trade_event",
         "fair_before", "fair_after",
         "inning_after", "inning_topbot_after", "outs_when_up_after",
         "score_diff_after", "balls_after", "strikes_after",

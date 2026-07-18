@@ -145,3 +145,9 @@ paper observations without enabling any real trading, explicitly set
 both environment variables are required. Paper entries expire ten seconds
 after the triggering hit and are cancelled by the next completed pitch. Open
 positions exit on confirmed target reversion.
+
+The event engine supports configurable completed-plate-appearance categories:
+hits, walks, hit-by-pitch, errors, double plays, sacrifices, and force outs.
+Each category can use its own minimum fair-value move and entry edge in
+`trade_tape_config.json`. Pitching changes and within-plate-appearance runner
+events remain disabled until their state semantics are modeled separately.

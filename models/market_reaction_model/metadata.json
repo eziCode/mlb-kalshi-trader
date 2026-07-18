@@ -1,10 +1,10 @@
 {
   "state_features": [
-    "pregame_prob",
+    "pregame_batting_prob",
     "inning",
-    "inning_topbot",
+    "batting_team_is_home",
     "outs_when_up",
-    "score_diff",
+    "batting_score_diff",
     "balls",
     "strikes",
     "runner_on_first",
@@ -19,7 +19,18 @@
     "inning"
   ],
   "edge_threshold": 0.15,
-  "state_iterations": 80,
-  "reaction_iterations": 1,
-  "scaled_features": []
+  "state_iterations": 68,
+  "reaction_iterations": 5,
+  "scaled_features": [],
+  "state_probability_orientation": "batting_team_converted_to_home",
+  "monotone_constraints": {
+    "pregame_batting_prob": 1,
+    "outs_when_up": -1,
+    "batting_score_diff": 1,
+    "balls": 1,
+    "strikes": -1,
+    "runner_on_first": 1,
+    "runner_on_second": 1,
+    "runner_on_third": 1
+  }
 }
