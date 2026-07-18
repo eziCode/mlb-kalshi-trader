@@ -146,8 +146,7 @@ ALLOW_UNVALIDATED_HYBRID=1 \
 ```
 
 Each child process writes a separate market-specific CSV and console log under
-`live_trading_engine/logs/`. Use `--max-games N` to cap the number of concurrent
-games and the resulting maximum modeled exposure (`N × $10`).
+`live_trading_engine/logs/`.
 
 The paper trader refuses invalid/missing pregame anchors and uses the local
 state model plus the current actual order book. It does not place real orders.
@@ -158,8 +157,50 @@ both environment variables are required. Paper entries expire ten seconds
 after the triggering hit and are cancelled by the next completed pitch. Open
 positions exit on confirmed target reversion.
 
-The event engine supports configurable completed-plate-appearance categories:
-hits, walks, hit-by-pitch, errors, double plays, sacrifices, and force outs.
-Each category can use its own minimum fair-value move and entry edge in
-`trade_tape_config.json`. Pitching changes and within-plate-appearance runner
-events remain disabled until their state semantics are modeled separately.
+### Docker
+
+Build the paper-only image:
+
+```bash
+docker compose build
+```
+
+Start all discoverable games for the container's current Chicago-local date:
+
+```bash
+docker compose up -d
+docker compose logs -f paper-trader
+```
+
+Per-game CSV and console logs persist on the host under
+`live_trading_engine/logs/`. The coordinator skips final, postponed, cancelled,
+and ambiguously matched games. It includes games already marked live: each
+late-started child initializes from its first valid state/book snapshot,
+ignores the event already visible at startup, and begins evaluating only later
+completed events. The historical pregame anchor is still fetched from the
+actual first-pitch timestamp.
+
+All game workers reserve funds atomically from one persistent $1,000 paper
+portfolio at `live_trading_engine/logs/paper_portfolio.sqlite3`. The aggregate
+metric is marked liquidation equity: shared available cash plus the executable
+value of every open position after estimated exit fees. Inspect it with:
+
+```bash
+docker compose run --rm paper-trader --portfolio-status
+```
+
+The database survives container restarts through the log-directory mount, and
+workers recover their own open position from it when restarted.
+
+Run a fixed schedule date or discovery-only preflight with:
+
+```bash
+docker compose run --rm paper-trader --discover-only --date 2026-07-18
+docker compose run --rm paper-trader --all-games --date 2026-07-18
+```
+
+Stop the coordinator and all child paper traders with:
+
+```bash
+docker compose down
+```
