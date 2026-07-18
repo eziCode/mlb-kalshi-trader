@@ -13,6 +13,7 @@ from pathlib import Path
 import sqlite3
 import subprocess
 import sys
+import threading
 import time
 
 import pandas as pd
@@ -274,6 +275,32 @@ class DiscoveredGame:
     market_ticker: str
 
 
+MAIN_LOG_ACTIONS = (
+    "WATCH_", "OPEN_", "CLOSE_", "EXPIRE_", "SKIP_",
+    "INITIALIZE_", "Recovered open", "Snapshot rejected",
+    "Shared portfolio:",
+)
+
+
+def should_surface_worker_line(line: str) -> bool:
+    """Keep the coordinator log focused on decisions and operational errors."""
+    return any(marker in line for marker in MAIN_LOG_ACTIONS)
+
+
+def relay_worker_output(
+    stream, handle, game_label: str, ticker: str,
+) -> None:
+    """Tee a worker stream to its file and selected lines to the main log."""
+    try:
+        for line in stream:
+            handle.write(line)
+            handle.flush()
+            if should_surface_worker_line(line):
+                print(f"[{game_label} {ticker}] {line.rstrip()}", flush=True)
+    finally:
+        stream.close()
+
+
 def canonical_kalshi_code(value: str) -> str:
     code = str(value).strip().upper()
     return KALSHI_TEAM_CODES.get(code, code)
@@ -407,7 +434,9 @@ def run_daily_coordinator(game_date: date) -> int:
         float(os.getenv("PAPER_STARTING_CASH", "1000")),
     )
     run_id = int(time.time())
-    children: list[tuple[DiscoveredGame, subprocess.Popen, object]] = []
+    children: list[
+        tuple[DiscoveredGame, subprocess.Popen, object, threading.Thread]
+    ] = []
     try:
         for game in games:
             console_path = log_dir / (
@@ -418,15 +447,28 @@ def run_daily_coordinator(game_date: date) -> int:
             env["MLB_GAME_PK"] = str(game.game_pk)
             env["KALSHI_MARKET_TICKER"] = game.market_ticker
             env["PAPER_PORTFOLIO_DB"] = str(portfolio_path)
+            env["PYTHONUNBUFFERED"] = "1"
             process = subprocess.Popen(
-                [sys.executable, str(Path(__file__).resolve())],
+                [sys.executable, "-u", str(Path(__file__).resolve())],
                 cwd=PROJECT_ROOT,
                 env=env,
-                stdout=handle,
+                stdout=subprocess.PIPE,
                 stderr=subprocess.STDOUT,
                 text=True,
+                bufsize=1,
             )
-            children.append((game, process, handle))
+            if process.stdout is None:
+                raise RuntimeError("Failed to capture paper-trader output")
+            relay = threading.Thread(
+                target=relay_worker_output,
+                args=(
+                    process.stdout, handle,
+                    f"{game.away_code}@{game.home_code}", game.market_ticker,
+                ),
+                daemon=True,
+            )
+            relay.start()
+            children.append((game, process, handle, relay))
             print(
                 f"Started {game.away_code}@{game.home_code} "
                 f"game_pk={game.game_pk} ticker={game.market_ticker} "
@@ -438,8 +480,9 @@ def run_daily_coordinator(game_date: date) -> int:
             f"cash=${opening.cash:.2f}."
         )
         return_code = 0
-        for game, process, _ in children:
+        for game, process, _, relay in children:
             code = process.wait()
+            relay.join(timeout=5)
             if code:
                 return_code = code
                 print(f"Game {game.game_pk} exited with status {code}")
@@ -452,17 +495,18 @@ def run_daily_coordinator(game_date: date) -> int:
         return return_code
     except KeyboardInterrupt:
         print("Stopping all paper traders...")
-        for _, process, _ in children:
+        for _, process, _, _ in children:
             if process.poll() is None:
                 process.terminate()
-        for _, process, _ in children:
+        for _, process, _, relay in children:
             try:
                 process.wait(timeout=10)
             except subprocess.TimeoutExpired:
                 process.kill()
+            relay.join(timeout=5)
         return 130
     finally:
-        for _, _, handle in children:
+        for _, _, handle, _ in children:
             handle.close()
 
 

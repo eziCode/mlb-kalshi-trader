@@ -14,10 +14,22 @@ from live_trading_engine.paper_trader import (
     pitch_token_time,
     Position,
     SharedPaperPortfolio,
+    should_surface_worker_line,
 )
 
 
 class PaperTraderTests(unittest.TestCase):
+    def test_main_log_surfaces_trade_actions_but_not_every_hold_tick(self):
+        self.assertTrue(should_surface_worker_line(
+            "18:52:29 0.80/0.81 WATCH_YES_DOUBLE portfolio=$1000.00"
+        ))
+        self.assertTrue(should_surface_worker_line(
+            "18:52:30 0.80/0.81 OPEN_YES_DOUBLE portfolio=$999.72"
+        ))
+        self.assertFalse(should_surface_worker_line(
+            "18:52:31 0.80/0.81 HOLD portfolio=$999.60"
+        ))
+
     def test_workers_share_one_atomic_cash_pool(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / "portfolio.sqlite3"
