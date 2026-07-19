@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from unittest.mock import AsyncMock, patch
 from pathlib import Path
 import tempfile
 import json
@@ -12,11 +13,39 @@ from settlement_value_strategy.predict import MispricingPredictor
 from settlement_value_strategy.build_normalized_raw import pitch_times, state_model_frame
 from settlement_value_strategy.live_paper_trader import (
     SharedPaperPortfolio, PaperPosition, build_live_decision_row,
-    consecutive_pitch,
+    consecutive_pitch, should_surface_worker_line, wait_for_pregame_anchor,
 )
 
 
+class PregameAnchorRetryTests(unittest.IsolatedAsyncioTestCase):
+    async def test_live_game_without_pitch_time_is_retried(self):
+        with (
+            patch(
+                "settlement_value_strategy.live_paper_trader.fetch_pregame_anchor",
+                side_effect=[
+                    RuntimeError(
+                        "Live game has no authoritative first-pitch time"
+                    ),
+                    0.55,
+                ],
+            ) as fetch,
+            patch(
+                "settlement_value_strategy.live_paper_trader.asyncio.sleep",
+                new=AsyncMock(),
+            ) as sleep,
+        ):
+            result = await wait_for_pregame_anchor()
+        self.assertEqual(result, 0.55)
+        self.assertEqual(fetch.call_count, 2)
+        sleep.assert_awaited_once()
+
+
 class PipelineTests(unittest.TestCase):
+    def test_main_log_surfaces_readiness_and_trades(self):
+        self.assertTrue(should_surface_worker_line("TRADER READY game_pk=1"))
+        self.assertTrue(should_surface_worker_line("TRADE BUY NO"))
+        self.assertFalse(should_surface_worker_line("INITIALIZE_LIVE_BASELINE"))
+
     def test_live_pitch_sequence_rejects_polling_gap(self):
         self.assertTrue(consecutive_pitch((2, 1, "a"), (2, 2, "b")))
         self.assertTrue(consecutive_pitch((2, 3, "a"), (3, 1, "b")))

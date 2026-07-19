@@ -274,7 +274,7 @@ class DiscoveredGame:
     market_ticker: str
 
 
-MAIN_LOG_ACTIONS = ("TRADE ", "Shared portfolio:")
+MAIN_LOG_ACTIONS = ("TRADER READY", "TRADE ", "Shared portfolio:")
 
 
 def should_surface_worker_line(line: str) -> bool:
@@ -816,6 +816,12 @@ async def main() -> None:
         )
         if initializing_live_baseline:
             action = "INITIALIZE_LIVE_BASELINE"
+            print(
+                f"TRADER READY game_pk={GAME_PK} ticker={MARKET_TICKER} "
+                f"status=LIVE inning={game.state['inning']} "
+                f"bid={market.bid:.4f} ask={market.ask:.4f}",
+                flush=True,
+            )
             print(
                 f"Initialized {'midgame' if game.completed_event_id is not None else 'pregame'} "
                 f"baseline at inning {game.state['inning']}; "

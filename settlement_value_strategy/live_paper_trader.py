@@ -479,6 +479,22 @@ def fetch_pregame_anchor() -> float:
     return (bid + ask) / 2
 
 
+async def wait_for_pregame_anchor() -> float:
+    """Wait through MLB's transient Live-without-pitch startup state."""
+    while True:
+        try:
+            return await asyncio.to_thread(fetch_pregame_anchor)
+        except RuntimeError as error:
+            if "no authoritative first-pitch time" not in str(error).lower():
+                raise
+            print(
+                "Pregame anchor pending: MLB marks the game Live but has not "
+                "published a pitch start time; retrying",
+                flush=True,
+            )
+            await asyncio.sleep(max(POLL_SECONDS, 1.0))
+
+
 def _market_team_code(market: dict) -> str | None:
     ticker = str(market.get("ticker") or "")
     code = ticker.rsplit("-", 1)[-1].upper() if "-" in ticker else ""
@@ -604,7 +620,7 @@ async def run_worker() -> None:
     portfolio = SharedPaperPortfolio(
         portfolio_path, float(os.getenv("PAPER_STARTING_CASH", "1000"))
     )
-    pregame_prob = await asyncio.to_thread(fetch_pregame_anchor)
+    pregame_prob = await wait_for_pregame_anchor()
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     log_path = LOG_DIR / f"settlement_value_decisions_{MARKET_TICKER}.csv"
     new_log = not log_path.exists() or log_path.stat().st_size == 0
@@ -670,6 +686,12 @@ async def run_worker() -> None:
             mark = market.bid if position.side == "yes" else 1.0 - market.ask
             portfolio.update_mark(int(GAME_PK), mark)
         if previous_game is None or previous_game.status != "Live":
+            print(
+                f"TRADER READY game_pk={GAME_PK} ticker={MARKET_TICKER} "
+                f"status=LIVE inning={game.state['inning']} "
+                f"bid={market.bid:.4f} ask={market.ask:.4f}",
+                flush=True,
+            )
             previous_game = game
             if game.pitch_token:
                 handled_tokens.add(game.pitch_token)
@@ -774,14 +796,19 @@ async def run_worker() -> None:
         await asyncio.sleep(POLL_SECONDS)
 
 
+MAIN_LOG_ACTIONS = ("TRADER READY", "TRADE ", "Shared portfolio")
+
+
+def should_surface_worker_line(line: str) -> bool:
+    return any(marker in line for marker in MAIN_LOG_ACTIONS)
+
+
 def _relay(stream, handle, label: str) -> None:
     """Persist all worker detail, but surface only executions and settlement."""
     for line in stream:
         handle.write(line)
         handle.flush()
-        if any(marker in line for marker in (
-            "TRADE ", "Shared portfolio"
-        )):
+        if should_surface_worker_line(line):
             print(f"[{label}] {line.rstrip()}", flush=True)
 
 

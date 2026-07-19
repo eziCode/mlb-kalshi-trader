@@ -4,6 +4,7 @@ import unittest
 
 import pandas as pd
 
+from scripts.paper_trade import should_surface_worker_line
 from trade_tape_strategy.core import (
     TradeTapeConfig,
     simulate_trade_tape,
@@ -12,6 +13,11 @@ from trade_tape_strategy.core import (
 
 
 class TradeTapeStrategyTests(unittest.TestCase):
+    def test_main_log_surfaces_readiness_and_trades(self):
+        self.assertTrue(should_surface_worker_line("TRADER READY game_pk=1"))
+        self.assertTrue(should_surface_worker_line("TRADE SELL YES"))
+        self.assertFalse(should_surface_worker_line("Initialized baseline"))
+
     def test_trade_signal_is_relative_to_yes_price_after_fees(self):
         self.assertEqual(trade_signal(0.60, 0.50, 0.05)[0], "yes")
         self.assertEqual(trade_signal(0.40, 0.50, 0.05)[0], "no")
