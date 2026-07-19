@@ -80,8 +80,10 @@ All thresholds are rechecked at the eventual fill price. It permits at most
 one position per game. There is no early exit in this strategy; profit and loss
 are determined by final game settlement.
 
-The frozen reference policy is NO-only with a 10-point minimum edge and $2
-minimum predicted net value on a $10 stake.
+The selected high-coverage policy is NO-only with a 4-point minimum edge and $0.50
+minimum predicted net value on a $10 stake. Selection maximizes tuning trades only
+among policies that are profitable in every chronological fold, retain at least
+20% ROI in the worst fold, and earn at least 25% aggregate tuning ROI.
 
 ## Data and training flow
 
@@ -177,7 +179,7 @@ docker run --rm mlb-kalshi-trader mispricing pipeline
 docker run --rm mlb-kalshi-trader mispricing backtest
 ```
 
-The frozen reference holdout contains 44 trades, $75.97 net PnL, and 16.68%
-ROI. It is development evidence, not a pristine final test; deployment remains
+The current development holdout contains 103 trades across 220 games,
+$236.92 net PnL, and 22.24% ROI. It is development evidence, not a pristine final test; deployment remains
 disabled pending forward paper validation.
 

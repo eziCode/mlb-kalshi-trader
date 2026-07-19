@@ -150,7 +150,24 @@ def main() -> None:
     aggregate = grid[grid.trades >= 20].sort_values(
         ["roi", "pnl", "trades"], ascending=False
     )
-    selected = stable.iloc[0] if not stable.empty else aggregate.iloc[0]
+    high_coverage = stable[
+        (stable.side_filter == "no")
+        & (stable.worst_fold_roi >= 0.20) & (stable.roi >= 0.25)
+    ].sort_values(
+        ["trades", "worst_fold_roi", "roi", "pnl"], ascending=False
+    )
+    if not high_coverage.empty:
+        selected = high_coverage.iloc[0]
+        selection_rule = (
+            "maximum trades among NO-only policies with all folds profitable, "
+            "worst-fold ROI >=20%, and aggregate tuning ROI >=25%"
+        )
+    elif not stable.empty:
+        selected = stable.iloc[0]
+        selection_rule = "maximum worst-fold ROI among stable policies"
+    else:
+        selected = aggregate.iloc[0]
+        selection_rule = "maximum aggregate ROI fallback"
     config = MispricingConfig(
         enabled=False,
         minimum_expected_pnl=float(selected.minimum_expected_pnl),
@@ -179,6 +196,7 @@ def main() -> None:
         ),
         "tuning_metrics": metrics(tune, tune_probability),
         "selected_config": asdict(config),
+        "selection_rule": selection_rule,
         "selected_tuning_result": selected.to_dict(),
         "outer_holdout_used": False,
     }
