@@ -24,6 +24,7 @@ import sqlite3
 import subprocess
 import sys
 import threading
+import time
 
 from catboost import CatBoostClassifier
 import numpy as np
@@ -243,19 +244,32 @@ class SharedPaperPortfolio:
         self, game_pk: int, yes_bid: float, yes_ask: float,
         away_yes_bid: float | None = None,
     ) -> None:
-        with closing(self._connect()) as connection, connection:
-            connection.execute(
-                """UPDATE positions SET mark_price=CASE
-                    WHEN side='yes' THEN ?
-                    WHEN side='away_yes' THEN ?
-                    ELSE 1.0-? END,
-                    updated_at=? WHERE game_pk=?""",
-                (
-                    yes_bid,
-                    away_yes_bid if away_yes_bid is not None else 1.0-yes_ask,
-                    yes_ask, datetime.now(timezone.utc).isoformat(), game_pk,
-                ),
-            )
+        for attempt in range(6):
+            try:
+                with closing(self._connect()) as connection, connection:
+                    connection.execute(
+                        """UPDATE positions SET mark_price=CASE
+                            WHEN side='yes' THEN ?
+                            WHEN side='away_yes' THEN ?
+                            ELSE 1.0-? END,
+                            updated_at=? WHERE game_pk=?""",
+                        (
+                            yes_bid,
+                            away_yes_bid
+                            if away_yes_bid is not None else 1.0-yes_ask,
+                            yes_ask,
+                            datetime.now(timezone.utc).isoformat(), game_pk,
+                        ),
+                    )
+                return
+            except sqlite3.OperationalError as error:
+                transient = (
+                    "locked" in str(error).lower()
+                    or "locking protocol" in str(error).lower()
+                )
+                if not transient or attempt == 5:
+                    raise
+                time.sleep(0.05 * (2 ** attempt))
 
     def settle(self, game_pk: int, proceeds: float) -> bool:
         with closing(self._connect()) as connection, connection:
@@ -495,7 +509,9 @@ def fetch_game_snapshot() -> GameSnapshot:
 
 def home_fair_probability(model, pregame_prob: float, state: dict) -> float:
     frame = pd.DataFrame([{**state, "pregame_prob": pregame_prob}])
-    batting = float(model.predict_proba(state_model_frame(frame))[0, 1])
+    batting = float(model.predict_proba(
+        state_model_frame(frame), thread_count=1,
+    )[0, 1])
     return batting if int(state["inning_topbot"]) == 1 else 1.0 - batting
 
 
@@ -938,48 +954,83 @@ def run_all_games(game_date: date) -> int:
     portfolio = SharedPaperPortfolio(
         database, float(os.getenv("PAPER_STARTING_CASH", "1000"))
     )
-    children = []
+    children = {}
+    restart_counts = {game.game_pk: 0 for game in games}
+    maximum_restarts = int(os.getenv("PAPER_WORKER_MAX_RESTARTS", "10"))
+    restart_delay = float(os.getenv("PAPER_WORKER_RESTART_DELAY", "2"))
+
+    def start_worker(game: DiscoveredGame, restarted: bool = False):
+        path = LOG_DIR / f"settlement_value_console_{game.market_ticker}.log"
+        handle = path.open("a")
+        env = os.environ.copy()
+        env.update({
+            "MLB_GAME_PK": str(game.game_pk),
+            "KALSHI_MARKET_TICKER": game.market_ticker,
+            "KALSHI_AWAY_MARKET_TICKER": game.away_market_ticker,
+            "PAPER_PORTFOLIO_DB": str(database),
+            "PYTHONUNBUFFERED": "1",
+            "PYTHONFAULTHANDLER": "1",
+            "OMP_NUM_THREADS": "1",
+            "OPENBLAS_NUM_THREADS": "1",
+            "MKL_NUM_THREADS": "1",
+            "NUMEXPR_NUM_THREADS": "1",
+            "VECLIB_MAXIMUM_THREADS": "1",
+        })
+        process = subprocess.Popen(
+            [sys.executable, "-u", str(Path(__file__).resolve())],
+            cwd=REPOSITORY_ROOT, env=env, stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, text=True, bufsize=1,
+        )
+        thread = threading.Thread(
+            target=_relay, args=(process.stdout, handle,
+                f"{game.away_code}@{game.home_code} {game.market_ticker}"),
+            daemon=True,
+        )
+        thread.start()
+        children[game.game_pk] = (game, process, handle, thread)
+        action = "restarted" if restarted else "started"
+        print(
+            f"Trader {action}: {game.away_code}@{game.home_code} "
+            f"game_pk={game.game_pk} home_ticker={game.market_ticker} "
+            f"away_ticker={game.away_market_ticker} "
+            f"game_log={path}",
+            flush=True,
+        )
+
     try:
         for game in games:
-            path = LOG_DIR / f"settlement_value_console_{game.market_ticker}.log"
-            handle = path.open("a")
-            env = os.environ.copy()
-            env.update({
-                "MLB_GAME_PK": str(game.game_pk),
-                "KALSHI_MARKET_TICKER": game.market_ticker,
-                "KALSHI_AWAY_MARKET_TICKER": game.away_market_ticker,
-                "PAPER_PORTFOLIO_DB": str(database), "PYTHONUNBUFFERED": "1",
-            })
-            process = subprocess.Popen(
-                [sys.executable, "-u", str(Path(__file__).resolve())],
-                cwd=REPOSITORY_ROOT, env=env, stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT, text=True, bufsize=1,
-            )
-            thread = threading.Thread(
-                target=_relay, args=(process.stdout, handle,
-                    f"{game.away_code}@{game.home_code} {game.market_ticker}"), daemon=True,
-            )
-            thread.start()
-            children.append((game, process, handle, thread))
-            print(
-                f"Trader started: {game.away_code}@{game.home_code} "
-                f"game_pk={game.game_pk} home_ticker={game.market_ticker} "
-                f"away_ticker={game.away_market_ticker} "
-                f"game_log={path}",
-                flush=True,
-            )
+            start_worker(game)
         opening = portfolio.metrics()
         print(
             f"Running {len(children)} isolated paper traders with shared "
             f"cash=${opening.cash:.2f}."
         )
         return_code = 0
-        for game, process, _, thread in children:
-            code = process.wait()
-            thread.join(timeout=5)
-            if code:
-                return_code = code
-                print(f"Game {game.game_pk} exited with status {code}")
+        while children:
+            for game_pk, child in list(children.items()):
+                game, process, handle, thread = child
+                code = process.poll()
+                if code is None:
+                    continue
+                thread.join(timeout=5)
+                handle.close()
+                del children[game_pk]
+                if code == 0:
+                    continue
+                restart_counts[game_pk] += 1
+                attempt = restart_counts[game_pk]
+                print(
+                    f"Game {game_pk} exited with status {code}; "
+                    f"restart {attempt}/{maximum_restarts}",
+                    flush=True,
+                )
+                if attempt <= maximum_restarts:
+                    time.sleep(restart_delay)
+                    start_worker(game, restarted=True)
+                else:
+                    return_code = code
+            if children:
+                time.sleep(1)
         final = portfolio.metrics()
         print(
             f"Shared portfolio: cash=${final.cash:.2f} "
@@ -988,12 +1039,12 @@ def run_all_games(game_date: date) -> int:
         )
         return return_code
     except KeyboardInterrupt:
-        for _, process, _, _ in children:
+        for _, process, _, _ in children.values():
             if process.poll() is None:
                 process.terminate()
         return 130
     finally:
-        for _, process, handle, thread in children:
+        for _, process, handle, thread in children.values():
             if process.poll() is None:
                 process.terminate()
             thread.join(timeout=5)

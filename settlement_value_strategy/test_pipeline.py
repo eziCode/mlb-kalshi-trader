@@ -7,6 +7,7 @@ import tempfile
 import json
 
 import pandas as pd
+import settlement_value_strategy.live_paper_trader as live_paper_trader
 
 from settlement_value_strategy.prepare_data import compact_execution_tape
 from settlement_value_strategy.predict import MispricingPredictor
@@ -41,6 +42,9 @@ class PregameAnchorRetryTests(unittest.IsolatedAsyncioTestCase):
 
 
 class PipelineTests(unittest.TestCase):
+    def test_worker_supervisor_has_sleep_dependency(self):
+        self.assertIsNotNone(live_paper_trader.time.sleep)
+
     def test_main_log_surfaces_readiness_and_trades(self):
         self.assertTrue(should_surface_worker_line("TRADER READY game_pk=1"))
         self.assertTrue(should_surface_worker_line("TRADE BUY NO"))

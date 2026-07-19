@@ -15,6 +15,7 @@ from settlement_value_strategy.strategy import (
 
 
 ROOT = Path(__file__).resolve().parent
+PREDICTION_THREAD_COUNT = 1
 
 
 class MispricingPredictor:
@@ -33,7 +34,10 @@ class MispricingPredictor:
 
     def probability(self, rows: pd.DataFrame) -> np.ndarray:
         raw = np.clip(
-            self.model.predict_proba(mispricing_feature_frame(rows))[:, 1],
+            self.model.predict_proba(
+                mispricing_feature_frame(rows),
+                thread_count=PREDICTION_THREAD_COUNT,
+            )[:, 1],
             1e-6, 1 - 1e-6,
         )
         logits = np.log(raw / (1 - raw))
@@ -66,4 +70,3 @@ class MispricingPredictor:
             "probability_edge": float(edge),
             "eligible": bool(eligible),
         }
-
