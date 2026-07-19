@@ -11,5 +11,6 @@
   "minimum_favorable_velocity": 0.01,
   "momentum_trailing_giveback": 0.01,
   "momentum_max_hold_seconds": 2.0,
-  "minimum_momentum_trades": 3
+  "minimum_momentum_trades": 3,
+  "minimum_seconds_between_entries": 30.0
 }

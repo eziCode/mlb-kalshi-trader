@@ -32,6 +32,7 @@ class TradeTapeConfig:
     momentum_trailing_giveback: float = 0.01
     momentum_max_hold_seconds: float = 2.0
     minimum_momentum_trades: int = 3
+    minimum_seconds_between_entries: float = 30.0
 
 
 @dataclass
@@ -67,6 +68,11 @@ class TapePosition:
     trigger_at_bat: int
     trigger_pitch: int
     trigger_event_time_ns: int
+    pending_exit_ns: int | None = None
+    pending_exit_reason: str | None = None
+    held_price_history: list[tuple[int, float]] = field(default_factory=list)
+    momentum_hold_started_ns: int | None = None
+    momentum_high_water: float | None = None
 
 
 @dataclass
@@ -246,12 +252,8 @@ def simulate_trade_tape(
         current_fair = float(update_rows[0].fair_before)
         candidate: Candidate | None = None
         pending_entry: PendingEntry | None = None
-        position: TapePosition | None = None
-        pending_exit_ns: int | None = None
-        pending_exit_reason: str | None = None
-        held_price_history: list[tuple[int, float]] = []
-        momentum_hold_started_ns: int | None = None
-        momentum_high_water: float | None = None
+        positions: list[TapePosition] = []
+        last_entry_ns: int | None = None
 
         for trade_index, trade_ns in enumerate(times):
             while (
@@ -266,8 +268,7 @@ def simulate_trade_tape(
                     else candidate
                 )
                 if (
-                    position is None
-                    and active_candidate is not None
+                    active_candidate is not None
                     and pd.Timestamp(update.pitch_end_time).value
                     > active_candidate.event_time_ns
                 ):
@@ -283,7 +284,7 @@ def simulate_trade_tape(
                 current_fair = float(update.fair_after)
                 if bool(update.is_hit):
                     result.observed_hits += 1
-                    if position is None:
+                    if pd.notna(update.completed_event):
                         batting_home = bool(update.completed_event_batting_home)
                         signed_fair_move = (
                             float(update.fair_after) - float(update.fair_before)
@@ -336,8 +337,7 @@ def simulate_trade_tape(
                 else candidate
             )
             if (
-                position is None
-                and active_candidate is not None
+                active_candidate is not None
                 and trade_ns - active_candidate.event_time_ns
                 > maximum_entry_age_ns
             ):
@@ -345,7 +345,9 @@ def simulate_trade_tape(
                 candidate = None
                 pending_entry = None
 
-            if position is not None:
+            remaining_size = size
+            closed_positions: list[TapePosition] = []
+            for position in positions:
                 target = _dynamic_target(position, current_fair)
                 held_price = yes_price if position.side == "yes" else no_price
                 reverted = (
@@ -353,34 +355,32 @@ def simulate_trade_tape(
                 ) or (
                     position.side == "no" and yes_price <= target
                 )
-                held_price_history.append((trade_ns, held_price))
-                held_price_history = [
-                    point for point in held_price_history
+                position.held_price_history.append((trade_ns, held_price))
+                position.held_price_history = [
+                    point for point in position.held_price_history
                     if point[0] >= trade_ns - momentum_window_ns
                 ]
                 velocity = _price_velocity(
-                    held_price_history,
-                    trade_ns,
-                    momentum_window_ns,
+                    position.held_price_history, trade_ns, momentum_window_ns,
                     config.minimum_momentum_trades,
                 )
                 exit_taker_side = "no" if position.side == "yes" else "yes"
-                if pending_exit_ns is not None:
-                    if pending_exit_reason == "reversion" and not reverted:
-                        pending_exit_ns = None
-                        pending_exit_reason = None
-                    elif (
-                        trade_ns > pending_exit_ns
-                        and compatible_taker(exit_taker_side, taker_side)
-                        and size >= position.contracts
+                if position.pending_exit_ns is not None:
+                    if (
+                        position.pending_exit_reason == "reversion"
+                        and not reverted
                     ):
-                        exit_price = (
-                            yes_price if position.side == "yes" else no_price
-                        )
+                        position.pending_exit_ns = None
+                        position.pending_exit_reason = None
+                    elif (
+                        trade_ns > position.pending_exit_ns
+                        and compatible_taker(exit_taker_side, taker_side)
+                        and remaining_size >= position.contracts
+                    ):
+                        exit_price = held_price
                         exit_fee = taker_fee(position.contracts, exit_price)
                         pnl = (
-                            position.contracts * exit_price
-                            - exit_fee
+                            position.contracts * exit_price - exit_fee
                             - position.contracts * position.entry_price
                             - position.entry_fee
                         )
@@ -388,18 +388,16 @@ def simulate_trade_tape(
                         result.fees += exit_fee
                         result.reversion_exits += 1
                         result.momentum_exits += int(
-                            pending_exit_reason == "momentum_reversion"
+                            position.pending_exit_reason == "momentum_reversion"
                         )
                         result.records.append(TapeTradeRecord(
-                            game_pk=game_pk,
-                            side=position.side,
+                            game_pk=game_pk, side=position.side,
                             event_type=position.event_type,
                             entry_time=_ns_to_timestamp(position.entry_ns),
                             exit_time=_ns_to_timestamp(trade_ns),
-                            exit_reason=pending_exit_reason or "reversion",
+                            exit_reason=(position.pending_exit_reason or "reversion"),
                             entry_price=position.entry_price,
-                            exit_price=exit_price,
-                            contracts=position.contracts,
+                            exit_price=exit_price, contracts=position.contracts,
                             anchor_target=position.anchor_target,
                             anchor_fair=position.anchor_fair,
                             trigger_at_bat=position.trigger_at_bat,
@@ -407,33 +405,28 @@ def simulate_trade_tape(
                             trigger_event_time=_ns_to_timestamp(
                                 position.trigger_event_time_ns
                             ),
-                            pnl=pnl,
-                            fees=position.entry_fee + exit_fee,
+                            pnl=pnl, fees=position.entry_fee + exit_fee,
                         ))
-                        position = None
-                        pending_exit_ns = None
-                        pending_exit_reason = None
-                        held_price_history = []
-                        momentum_hold_started_ns = None
-                        momentum_high_water = None
+                        remaining_size -= position.contracts
+                        closed_positions.append(position)
                         continue
-                if position is not None and pending_exit_ns is None:
-                    if momentum_hold_started_ns is not None:
-                        momentum_high_water = max(
-                            float(momentum_high_water), held_price
+                if position.pending_exit_ns is None:
+                    if position.momentum_hold_started_ns is not None:
+                        position.momentum_high_water = max(
+                            float(position.momentum_high_water), held_price
                         )
                         momentum_stopped = (
                             (velocity is not None and velocity <= 0)
                             or held_price <= (
-                                momentum_high_water
+                                position.momentum_high_water
                                 - config.momentum_trailing_giveback
                             )
-                            or trade_ns - momentum_hold_started_ns
+                            or trade_ns - position.momentum_hold_started_ns
                             >= momentum_max_hold_ns
                         )
                         if momentum_stopped:
-                            pending_exit_ns = trade_ns
-                            pending_exit_reason = "momentum_reversion"
+                            position.pending_exit_ns = trade_ns
+                            position.pending_exit_reason = "momentum_reversion"
                     elif reverted:
                         strong_momentum = (
                             config.momentum_exit_enabled
@@ -441,12 +434,13 @@ def simulate_trade_tape(
                             and velocity >= config.minimum_favorable_velocity
                         )
                         if strong_momentum:
-                            momentum_hold_started_ns = trade_ns
-                            momentum_high_water = held_price
+                            position.momentum_hold_started_ns = trade_ns
+                            position.momentum_high_water = held_price
                         else:
-                            pending_exit_ns = trade_ns
-                            pending_exit_reason = "reversion"
-                continue
+                            position.pending_exit_ns = trade_ns
+                            position.pending_exit_reason = "reversion"
+            if closed_positions:
+                positions = [p for p in positions if p not in closed_positions]
 
             if pending_entry is not None:
                 target = _dynamic_target(pending_entry.candidate, current_fair)
@@ -459,10 +453,16 @@ def simulate_trade_tape(
                 elif (
                     trade_ns > pending_entry.created_ns
                     and compatible_taker(side, taker_side)
+                    and (
+                        last_entry_ns is None
+                        or trade_ns - last_entry_ns >= int(
+                            config.minimum_seconds_between_entries * 1e9
+                        )
+                    )
                 ):
                     entry_price = yes_price if side == "yes" else no_price
                     contracts = CONFIG.bet_size / entry_price
-                    if size >= contracts:
+                    if remaining_size >= contracts:
                         entry_fee = taker_fee(contracts, entry_price)
                         position = TapePosition(
                             side=side,
@@ -480,15 +480,15 @@ def simulate_trade_tape(
                             trigger_event_time_ns=(
                                 pending_entry.candidate.event_time_ns
                             ),
+                            held_price_history=[(trade_ns, entry_price)],
                         )
+                        positions.append(position)
+                        last_entry_ns = trade_ns
                         result.trades += 1
                         result.yes_trades += int(side == "yes")
                         result.no_trades += int(side == "no")
                         result.capital += CONFIG.bet_size + entry_fee
                         result.fees += entry_fee
-                        held_price_history = [(trade_ns, entry_price)]
-                        momentum_hold_started_ns = None
-                        momentum_high_water = None
                         pending_entry = None
                         candidate = None
                         continue
@@ -510,7 +510,7 @@ def simulate_trade_tape(
                     pending_entry = PendingEntry(candidate, side, trade_ns)
                     candidate = None
 
-        if position is not None:
+        for position in positions:
             won = (
                 position.side == "yes" and home_win == 1
             ) or (

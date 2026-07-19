@@ -125,9 +125,17 @@ class SharedPaperPortfolio:
                 "id INTEGER PRIMARY KEY CHECK (id=1), "
                 "starting_cash REAL NOT NULL, cash REAL NOT NULL)"
             )
+            columns = connection.execute(
+                "PRAGMA table_info(positions)"
+            ).fetchall()
+            if any(row[1] == "game_pk" and row[5] == 1 for row in columns):
+                connection.execute(
+                    "ALTER TABLE positions RENAME TO positions_single_position"
+                )
             connection.execute(
                 """CREATE TABLE IF NOT EXISTS positions (
-                    game_pk INTEGER PRIMARY KEY,
+                    position_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    game_pk INTEGER NOT NULL,
                     market_ticker TEXT NOT NULL,
                     side TEXT NOT NULL,
                     contracts REAL NOT NULL,
@@ -137,9 +145,24 @@ class SharedPaperPortfolio:
                     settlement_probability REAL NOT NULL,
                     trigger_pitch TEXT NOT NULL,
                     mark_price REAL NOT NULL,
-                    updated_at TEXT NOT NULL
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(game_pk, trigger_pitch)
                 )"""
             )
+            if columns and any(
+                row[1] == "game_pk" and row[5] == 1 for row in columns
+            ):
+                connection.execute(
+                    """INSERT OR IGNORE INTO positions (
+                        game_pk,market_ticker,side,contracts,entry_price,
+                        entry_fee,entry_time,settlement_probability,
+                        trigger_pitch,mark_price,updated_at
+                    ) SELECT game_pk,market_ticker,side,contracts,entry_price,
+                        entry_fee,entry_time,settlement_probability,
+                        trigger_pitch,mark_price,updated_at
+                    FROM positions_single_position"""
+                )
+                connection.execute("DROP TABLE positions_single_position")
             connection.execute(
                 "INSERT OR IGNORE INTO portfolio VALUES (1, ?, ?)",
                 (starting_cash, starting_cash),
@@ -150,6 +173,7 @@ class SharedPaperPortfolio:
 
     def open_position(
         self, game_pk: int, ticker: str, position: PaperPosition,
+        minimum_seconds_between_entries: float = 0.0,
     ) -> bool:
         cost = position.contracts * position.entry_price + position.entry_fee
         with closing(self._connect()) as connection, connection:
@@ -157,10 +181,22 @@ class SharedPaperPortfolio:
             cash = float(connection.execute(
                 "SELECT cash FROM portfolio WHERE id=1"
             ).fetchone()[0])
-            exists = connection.execute(
-                "SELECT 1 FROM positions WHERE game_pk=?", (game_pk,)
+            duplicate = connection.execute(
+                "SELECT 1 FROM positions WHERE game_pk=? AND trigger_pitch=?",
+                (game_pk, position.trigger_pitch),
             ).fetchone()
-            if exists or cash + 1e-9 < cost:
+            latest = connection.execute(
+                "SELECT entry_time FROM positions WHERE game_pk=? "
+                "ORDER BY entry_time DESC LIMIT 1", (game_pk,),
+            ).fetchone()
+            cooling_down = bool(
+                latest
+                and (
+                    position.entry_time
+                    - pd.to_datetime(latest[0], utc=True).to_pydatetime()
+                ).total_seconds() < minimum_seconds_between_entries
+            )
+            if duplicate or cooling_down or cash + 1e-9 < cost:
                 connection.rollback()
                 return False
             now = datetime.now(timezone.utc).isoformat()
@@ -168,7 +204,11 @@ class SharedPaperPortfolio:
                 "UPDATE portfolio SET cash=cash-? WHERE id=1", (cost,)
             )
             connection.execute(
-                "INSERT INTO positions VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                """INSERT INTO positions (
+                    game_pk,market_ticker,side,contracts,entry_price,entry_fee,
+                    entry_time,settlement_probability,trigger_pitch,mark_price,
+                    updated_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
                 (
                     game_pk, ticker, position.side, position.contracts,
                     position.entry_price, position.entry_fee,
@@ -179,27 +219,34 @@ class SharedPaperPortfolio:
             )
         return True
 
-    def load_position(self, game_pk: int) -> PaperPosition | None:
+    def load_positions(self, game_pk: int) -> list[PaperPosition]:
         with closing(self._connect()) as connection, connection:
-            row = connection.execute(
+            rows = connection.execute(
                 "SELECT side,contracts,entry_price,entry_fee,entry_time,"
                 "settlement_probability,trigger_pitch FROM positions "
-                "WHERE game_pk=?", (game_pk,),
-            ).fetchone()
-        if row is None:
-            return None
-        return PaperPosition(
-            side=str(row[0]), contracts=float(row[1]),
-            entry_price=float(row[2]), entry_fee=float(row[3]),
-            entry_time=pd.to_datetime(row[4], utc=True).to_pydatetime(),
-            settlement_probability=float(row[5]), trigger_pitch=str(row[6]),
-        )
+                "WHERE game_pk=? ORDER BY entry_time", (game_pk,),
+            ).fetchall()
+        return [
+            PaperPosition(
+                side=str(row[0]), contracts=float(row[1]),
+                entry_price=float(row[2]), entry_fee=float(row[3]),
+                entry_time=pd.to_datetime(row[4], utc=True).to_pydatetime(),
+                settlement_probability=float(row[5]),
+                trigger_pitch=str(row[6]),
+            )
+            for row in rows
+        ]
 
-    def update_mark(self, game_pk: int, price: float) -> None:
+    def update_marks(self, game_pk: int, yes_bid: float, yes_ask: float) -> None:
         with closing(self._connect()) as connection, connection:
             connection.execute(
-                "UPDATE positions SET mark_price=?,updated_at=? WHERE game_pk=?",
-                (price, datetime.now(timezone.utc).isoformat(), game_pk),
+                """UPDATE positions SET mark_price=CASE
+                    WHEN side='yes' THEN ? ELSE 1.0-? END,
+                    updated_at=? WHERE game_pk=?""",
+                (
+                    yes_bid, yes_ask, datetime.now(timezone.utc).isoformat(),
+                    game_pk,
+                ),
             )
 
     def settle(self, game_pk: int, proceeds: float) -> bool:
@@ -631,9 +678,9 @@ async def run_worker() -> None:
                 "fair_after", "settlement_probability", "side", "expected_pnl",
                 "edge", "action", "cash", "equity", "portfolio_pnl",
             ])
-    position = portfolio.load_position(int(GAME_PK))
-    if position:
-        print(f"Recovered open {position.side.upper()} position for game {GAME_PK}")
+    positions = portfolio.load_positions(int(GAME_PK))
+    if positions:
+        print(f"Recovered {len(positions)} open position(s) for game {GAME_PK}")
     previous_game = None
     handled_tokens: set[tuple[int, int, str]] = set()
     print(f"Pregame Kalshi anchor: {pregame_prob:.1%}; log={log_path}")
@@ -650,22 +697,27 @@ async def run_worker() -> None:
             await asyncio.sleep(POLL_SECONDS)
             continue
         if game.status == "Final":
-            if position:
-                won = (
-                    position.side == "yes" and game.home_score > game.away_score
-                ) or (
-                    position.side == "no" and game.home_score < game.away_score
-                )
-                payout = position.contracts if won else 0.0
-                portfolio.settle(int(GAME_PK), payout)
-                print(
-                    f"TRADE SETTLE {position.side.upper()} "
-                    f"result={'WIN' if won else 'LOSS'} "
-                    f"contracts={position.contracts:.4f} payout={payout:.4f} "
-                    f"reason=GAME_FINAL game_pk={GAME_PK} "
-                    f"ticker={MARKET_TICKER}",
-                    flush=True,
-                )
+            if positions:
+                total_payout = 0.0
+                for position in positions:
+                    won = (
+                        position.side == "yes"
+                        and game.home_score > game.away_score
+                    ) or (
+                        position.side == "no"
+                        and game.home_score < game.away_score
+                    )
+                    payout = position.contracts if won else 0.0
+                    total_payout += payout
+                    print(
+                        f"TRADE SETTLE {position.side.upper()} "
+                        f"result={'WIN' if won else 'LOSS'} "
+                        f"contracts={position.contracts:.4f} "
+                        f"payout={payout:.4f} reason=GAME_FINAL "
+                        f"game_pk={GAME_PK} ticker={MARKET_TICKER}",
+                        flush=True,
+                    )
+                portfolio.settle(int(GAME_PK), total_payout)
             metrics = portfolio.metrics()
             print(f"Shared portfolio: equity=${metrics.equity:.2f} PnL=${metrics.pnl:+.2f}")
             return
@@ -682,9 +734,8 @@ async def run_worker() -> None:
             print(f"Market snapshot rejected: {error}", flush=True)
             await asyncio.sleep(POLL_SECONDS)
             continue
-        if position:
-            mark = market.bid if position.side == "yes" else 1.0 - market.ask
-            portfolio.update_mark(int(GAME_PK), mark)
+        if positions:
+            portfolio.update_marks(int(GAME_PK), market.bid, market.ask)
         if previous_game is None or previous_game.status != "Live":
             print(
                 f"TRADER READY game_pk={GAME_PK} ticker={MARKET_TICKER} "
@@ -734,7 +785,7 @@ async def run_worker() -> None:
         else:
             decision = predictor.decision(row)
             action = "NO_SIGNAL"
-            if decision["eligible"] and position is None:
+            if decision["eligible"]:
                 side = str(decision["side"])
                 price = market.ask if side == "yes" else 1.0 - market.bid
                 contracts = predictor.config.bet_size / price
@@ -760,9 +811,10 @@ async def run_worker() -> None:
                         probability, str(token),
                     )
                     if portfolio.open_position(
-                        int(GAME_PK), MARKET_TICKER, proposed
+                        int(GAME_PK), MARKET_TICKER, proposed,
+                        predictor.config.minimum_seconds_between_entries,
                     ):
-                        position = proposed
+                        positions.append(proposed)
                         action = f"OPEN_{side.upper()}"
                         print(
                             f"TRADE BUY {side.upper()} contracts={contracts:.4f} "
@@ -771,9 +823,7 @@ async def run_worker() -> None:
                             flush=True,
                         )
                     else:
-                        action = "SKIP_INSUFFICIENT_CASH_OR_EXISTING_POSITION"
-            elif decision["eligible"]:
-                action = "SKIP_EXISTING_POSITION"
+                        action = "SKIP_CASH_COOLDOWN_OR_DUPLICATE_SIGNAL"
         handled_tokens.add(token)
         metrics = portfolio.metrics()
         values = decision or {}

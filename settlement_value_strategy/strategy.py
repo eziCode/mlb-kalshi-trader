@@ -87,6 +87,7 @@ class MispricingConfig:
     minimum_probability_edge: float = 0.03
     bet_size: float = 10.0
     side_filter: str = "both"
+    minimum_seconds_between_entries: float = 30.0
 
 
 @dataclass
@@ -249,10 +250,8 @@ def simulate_mispricing(
         no = tape.no_price_dollars.to_numpy(float)
         sizes = tape.count_fp.to_numpy(float)
         taker_sides = tape.taker_outcome_side.astype(str).to_numpy()
-        entered = False
+        last_fill_ns: int | None = None
         for row in game.sort_values("signal_time").itertuples(index=False):
-            if entered:
-                break
             yes_ev, no_ev = signal_economics(
                 row.fair_probability, row.market_home_price, config.bet_size
             )
@@ -272,6 +271,14 @@ def simulate_mispricing(
             if pd.notna(row.next_update_time):
                 deadline = min(deadline, pd.Timestamp(row.next_update_time).value)
             start = int(np.searchsorted(times, signal_ns, side="right"))
+            if last_fill_ns is not None:
+                next_allowed_ns = last_fill_ns + int(
+                    config.minimum_seconds_between_entries * 1e9
+                )
+                start = max(
+                    start,
+                    int(np.searchsorted(times, next_allowed_ns, side="left")),
+                )
             stop = int(np.searchsorted(times, deadline, side="left"))
             for i in range(start, stop):
                 if not compatible_taker(side, taker_sides[i]):
@@ -309,6 +316,6 @@ def simulate_mispricing(
                     "entry_fee": fee, "predicted_expected_pnl": fill_expected,
                     "pnl": pnl,
                 })
-                entered = True
+                last_fill_ns = int(times[i])
                 break
     return result

@@ -50,6 +50,9 @@ def main() -> None:
         maximum_event_to_entry_seconds=config.maximum_event_to_entry_seconds,
         invalidate_on_next_pitch=config.invalidate_on_next_pitch,
         minimum_fair_move=config.minimum_fair_move,
+        minimum_seconds_between_entries=(
+            config.minimum_seconds_between_entries
+        ),
     )
     CONFIG_PATH.write_text(json.dumps(asdict(deployment_config), indent=2))
     summary = {

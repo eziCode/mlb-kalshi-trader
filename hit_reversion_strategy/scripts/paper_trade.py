@@ -145,9 +145,17 @@ class SharedPaperPortfolio:
                     cash REAL NOT NULL
                 )"""
             )
+            columns = connection.execute(
+                "PRAGMA table_info(positions)"
+            ).fetchall()
+            if any(row[1] == "game_pk" and row[5] == 1 for row in columns):
+                connection.execute(
+                    "ALTER TABLE positions RENAME TO positions_single_position"
+                )
             connection.execute(
                 """CREATE TABLE IF NOT EXISTS positions (
-                    game_pk INTEGER PRIMARY KEY,
+                    position_id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    game_pk INTEGER NOT NULL,
                     market_ticker TEXT NOT NULL,
                     side TEXT NOT NULL,
                     contracts REAL NOT NULL,
@@ -158,9 +166,23 @@ class SharedPaperPortfolio:
                     anchor_fair REAL NOT NULL,
                     event_id INTEGER NOT NULL,
                     mark_price REAL NOT NULL,
-                    updated_at TEXT NOT NULL
+                    updated_at TEXT NOT NULL,
+                    UNIQUE(game_pk, event_id)
                 )"""
             )
+            if columns and any(
+                row[1] == "game_pk" and row[5] == 1 for row in columns
+            ):
+                connection.execute(
+                    """INSERT OR IGNORE INTO positions (
+                        game_pk,market_ticker,side,contracts,entry_price,
+                        entry_fee,entry_time,anchor_target,anchor_fair,event_id,
+                        mark_price,updated_at
+                    ) SELECT game_pk,market_ticker,side,contracts,entry_price,
+                        entry_fee,entry_time,anchor_target,anchor_fair,event_id,
+                        mark_price,updated_at FROM positions_single_position"""
+                )
+                connection.execute("DROP TABLE positions_single_position")
             connection.execute(
                 "INSERT OR IGNORE INTO portfolio(id, starting_cash, cash) "
                 "VALUES (1, ?, ?)",
@@ -170,17 +192,32 @@ class SharedPaperPortfolio:
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.path, timeout=30)
 
-    def open_position(self, game_pk: int, ticker: str, position: Position) -> bool:
+    def open_position(
+        self, game_pk: int, ticker: str, position: Position,
+        minimum_seconds_between_entries: float = 0.0,
+    ) -> bool:
         cost = position.contracts * position.entry_price + position.entry_fee
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             cash = float(connection.execute(
                 "SELECT cash FROM portfolio WHERE id = 1"
             ).fetchone()[0])
-            exists = connection.execute(
-                "SELECT 1 FROM positions WHERE game_pk = ?", (game_pk,)
+            duplicate = connection.execute(
+                "SELECT 1 FROM positions WHERE game_pk=? AND event_id=?",
+                (game_pk, position.event_id),
             ).fetchone()
-            if exists or cash + 1e-9 < cost:
+            latest = connection.execute(
+                "SELECT entry_time FROM positions WHERE game_pk=? "
+                "ORDER BY entry_time DESC LIMIT 1", (game_pk,),
+            ).fetchone()
+            cooling_down = bool(
+                latest
+                and (
+                    position.entry_time
+                    - pd.to_datetime(latest[0], utc=True).to_pydatetime()
+                ).total_seconds() < minimum_seconds_between_entries
+            )
+            if duplicate or cooling_down or cash + 1e-9 < cost:
                 connection.rollback()
                 return False
             now = datetime.now(timezone.utc).isoformat()
@@ -188,7 +225,11 @@ class SharedPaperPortfolio:
                 "UPDATE portfolio SET cash = cash - ? WHERE id = 1", (cost,)
             )
             connection.execute(
-                """INSERT INTO positions VALUES (
+                """INSERT INTO positions (
+                    game_pk,market_ticker,side,contracts,entry_price,entry_fee,
+                    entry_time,anchor_target,anchor_fair,event_id,mark_price,
+                    updated_at
+                ) VALUES (
                     ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                 )""",
                 (
@@ -201,19 +242,26 @@ class SharedPaperPortfolio:
             )
         return True
 
-    def update_mark(self, game_pk: int, mark_price: float) -> None:
+    def update_marks(self, game_pk: int, yes_bid: float, yes_ask: float) -> None:
         with self._connect() as connection:
             connection.execute(
-                "UPDATE positions SET mark_price = ?, updated_at = ? "
-                "WHERE game_pk = ?",
-                (mark_price, datetime.now(timezone.utc).isoformat(), game_pk),
+                """UPDATE positions SET mark_price=CASE
+                    WHEN side='yes' THEN ? ELSE 1.0-? END,
+                    updated_at=? WHERE game_pk=?""",
+                (
+                    yes_bid, yes_ask, datetime.now(timezone.utc).isoformat(),
+                    game_pk,
+                ),
             )
 
-    def close_position(self, game_pk: int, proceeds: float) -> bool:
+    def close_position(
+        self, game_pk: int, event_id: int, proceeds: float,
+    ) -> bool:
         with self._connect() as connection:
             connection.execute("BEGIN IMMEDIATE")
             exists = connection.execute(
-                "SELECT 1 FROM positions WHERE game_pk = ?", (game_pk,)
+                "SELECT 1 FROM positions WHERE game_pk=? AND event_id=?",
+                (game_pk, event_id),
             ).fetchone()
             if not exists:
                 connection.rollback()
@@ -223,27 +271,29 @@ class SharedPaperPortfolio:
                 (proceeds,),
             )
             connection.execute(
-                "DELETE FROM positions WHERE game_pk = ?", (game_pk,)
+                "DELETE FROM positions WHERE game_pk=? AND event_id=?",
+                (game_pk, event_id),
             )
         return True
 
-    def load_position(self, game_pk: int) -> Position | None:
+    def load_positions(self, game_pk: int) -> list[Position]:
         with self._connect() as connection:
-            row = connection.execute(
+            rows = connection.execute(
                 """SELECT side, contracts, entry_price, entry_fee, entry_time,
                           anchor_target, anchor_fair, event_id
-                   FROM positions WHERE game_pk = ?""",
+                   FROM positions WHERE game_pk = ? ORDER BY entry_time""",
                 (game_pk,),
-            ).fetchone()
-        if row is None:
-            return None
-        return Position(
-            side=str(row[0]), contracts=float(row[1]), entry_price=float(row[2]),
-            entry_fee=float(row[3]),
-            entry_time=pd.to_datetime(row[4], utc=True).to_pydatetime(),
-            anchor_target=float(row[5]), anchor_fair=float(row[6]),
-            event_id=int(row[7]),
-        )
+            ).fetchall()
+        return [
+            Position(
+                side=str(row[0]), contracts=float(row[1]),
+                entry_price=float(row[2]), entry_fee=float(row[3]),
+                entry_time=pd.to_datetime(row[4], utc=True).to_pydatetime(),
+                anchor_target=float(row[5]), anchor_fair=float(row[6]),
+                event_id=int(row[7]),
+            )
+            for row in rows
+        ]
 
     def metrics(self) -> PortfolioMetrics:
         with self._connect() as connection:
@@ -734,17 +784,17 @@ async def main() -> None:
                 "portfolio_open_positions",
             ])
 
-    position = portfolio.load_position(int(GAME_PK))
-    if position is not None:
+    positions = portfolio.load_positions(int(GAME_PK))
+    if positions:
         print(
-            f"Recovered open {position.side.upper()} position for game "
+            f"Recovered {len(positions)} open position(s) for game "
             f"{GAME_PK} from {portfolio_path}"
         )
     candidate: EventCandidate | None = None
     previous_market: float | None = None
     previous_fair: float | None = None
     previous_event_id: int | None = None
-    exit_watch_started: datetime | None = None
+    exit_watch_started: dict[int, datetime] = {}
     while True:
         try:
             # The order book may disappear immediately after the game.  Read
@@ -757,25 +807,25 @@ async def main() -> None:
             continue
         now = datetime.now(timezone.utc)
         if game.status == "Final":
-            if position is not None:
+            for position in list(positions):
                 won = (
                     position.side == "yes" and game.home_score > game.away_score
                 ) or (
                     position.side == "no" and game.home_score < game.away_score
                 )
-                settled_side = position.side
-                settled_contracts = position.contracts
                 payout = position.contracts if won else 0.0
-                portfolio.close_position(int(GAME_PK), payout)
+                portfolio.close_position(
+                    int(GAME_PK), position.event_id, payout
+                )
                 print(
-                    f"TRADE SETTLE {settled_side.upper()} "
+                    f"TRADE SETTLE {position.side.upper()} "
                     f"result={'WIN' if won else 'LOSS'} "
-                    f"contracts={settled_contracts:.4f} payout={payout:.4f} "
+                    f"contracts={position.contracts:.4f} payout={payout:.4f} "
                     f"reason=GAME_FINAL game_pk={GAME_PK} "
                     f"ticker={MARKET_TICKER}",
                     flush=True,
                 )
-                position = None
+            positions.clear()
             final = portfolio.metrics()
             print(
                 f"Shared portfolio: cash=${final.cash:.2f} "
@@ -828,7 +878,9 @@ async def main() -> None:
                 "events already visible at startup will not be traded."
             )
 
-        if position is not None:
+        portfolio.update_marks(int(GAME_PK), market.bid, market.ask)
+        closed_positions: list[Position] = []
+        for position in positions:
             target = float(anchored_event_target(
                 position.anchor_target, position.anchor_fair, fair_prob
             ))
@@ -837,18 +889,16 @@ async def main() -> None:
             ) or (
                 position.side == "no" and market.ask <= target
             )
-            liquidation_price = (
-                market.bid if position.side == "yes" else 1.0 - market.ask
-            )
-            portfolio.update_mark(int(GAME_PK), liquidation_price)
-            if should_exit and exit_watch_started is None:
-                exit_watch_started = now
+            watch_started = exit_watch_started.get(position.event_id)
+            if should_exit and watch_started is None:
+                exit_watch_started[position.event_id] = now
             elif not should_exit:
-                exit_watch_started = None
+                exit_watch_started.pop(position.event_id, None)
+            watch_started = exit_watch_started.get(position.event_id)
             confirmed_exit = (
                 should_exit
-                and exit_watch_started is not None
-                and (now - exit_watch_started).total_seconds()
+                and watch_started is not None
+                and (now - watch_started).total_seconds()
                 >= hybrid_config.confirmation_seconds
             )
             if confirmed_exit:
@@ -857,7 +907,8 @@ async def main() -> None:
                 closed_side = position.side
                 closed_contracts = position.contracts
                 portfolio.close_position(
-                    int(GAME_PK), position.contracts * price - fee
+                    int(GAME_PK), position.event_id,
+                    position.contracts * price - fee,
                 )
                 reason = "TARGET_REVERSION"
                 action = f"CLOSE_{position.side.upper()}_{reason}"
@@ -868,11 +919,15 @@ async def main() -> None:
                     f"ticker={MARKET_TICKER}",
                     flush=True,
                 )
-                position = None
-                candidate = None
-                exit_watch_started = None
+                closed_positions.append(position)
+                exit_watch_started.pop(position.event_id, None)
+        if closed_positions:
+            positions = [
+                position for position in positions
+                if position not in closed_positions
+            ]
 
-        if position is None:
+        if candidate is not None or new_event:
             if candidate is not None:
                 candidate_age = (now - candidate.event_time).total_seconds()
                 pitch_changed = (
@@ -941,7 +996,7 @@ async def main() -> None:
                             f"{game.completed_event.upper()}"
                         )
 
-            if candidate is not None and position is None:
+            if candidate is not None:
                 target = float(anchored_event_target(
                     candidate.target, candidate.post_fair, fair_prob
                 ))
@@ -974,9 +1029,10 @@ async def main() -> None:
                         event_id=candidate.event_id,
                     )
                     if portfolio.open_position(
-                        int(GAME_PK), str(MARKET_TICKER), proposed_position
+                        int(GAME_PK), str(MARKET_TICKER), proposed_position,
+                        hybrid_config.minimum_seconds_between_entries,
                     ):
-                        position = proposed_position
+                        positions.append(proposed_position)
                         action = (
                             f"OPEN_{candidate.side.upper()}_"
                             f"{candidate.event_type.upper()}"
@@ -989,9 +1045,8 @@ async def main() -> None:
                             flush=True,
                         )
                         candidate = None
-                        exit_watch_started = None
                     else:
-                        action = "SKIP_INSUFFICIENT_SHARED_CASH"
+                        action = "SKIP_CASH_COOLDOWN_OR_DUPLICATE_EVENT"
 
         excess_move = (
             market.midpoint - target if pd.notna(target) else float("nan")

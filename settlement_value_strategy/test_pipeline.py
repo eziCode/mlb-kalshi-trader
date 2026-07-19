@@ -84,18 +84,23 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(row["delta_strikes"], 1.0)
         predictor.decision(row)
 
-    def test_live_portfolio_prevents_duplicate_game_position(self):
+    def test_live_portfolio_stacks_after_cooldown_and_rejects_duplicates(self):
         now = pd.Timestamp("2026-07-01T12:00:00Z").to_pydatetime()
         position = PaperPosition("yes", 10.0, .5, .1, now, .7, "pitch")
         with tempfile.TemporaryDirectory() as directory:
             portfolio = SharedPaperPortfolio(
                 Path(directory) / "paper.sqlite3", starting_cash=100.0
             )
-            self.assertTrue(portfolio.open_position(1, "ticker", position))
-            self.assertFalse(portfolio.open_position(1, "ticker", position))
+            self.assertTrue(portfolio.open_position(1, "ticker", position, 30))
+            self.assertFalse(portfolio.open_position(1, "ticker", position, 30))
+            later = PaperPosition(
+                "yes", 10.0, .5, .1,
+                now + pd.Timedelta(seconds=31), .7, "next-pitch",
+            )
+            self.assertTrue(portfolio.open_position(1, "ticker", later, 30))
             metrics = portfolio.metrics()
-            self.assertEqual(metrics.open_positions, 1)
-            self.assertAlmostEqual(metrics.cash, 94.9)
+            self.assertEqual(metrics.open_positions, 2)
+            self.assertAlmostEqual(metrics.cash, 89.8)
 
     def test_predictor_scores_packaged_row(self):
         row = pd.read_parquet(
