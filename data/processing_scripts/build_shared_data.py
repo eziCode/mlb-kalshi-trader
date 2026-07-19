@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import argparse
+from datetime import date
 import gzip
 import json
 from pathlib import Path
 import sys
 
 from catboost import CatBoostClassifier
+import numpy as np
 import pandas as pd
 
 
@@ -30,6 +32,32 @@ TRADE_COLUMNS = [
     "created_time", "yes_price_dollars", "no_price_dollars", "count_fp",
     "taker_outcome_side", "taker_book_side",
 ]
+
+SETTLEMENT_STATE_FEATURES = (
+    "pregame_batting_prob", "inning", "batting_team_is_home",
+    "outs_when_up", "batting_score_diff", "balls", "strikes",
+    "runner_on_first", "runner_on_second", "runner_on_third",
+)
+
+
+def settlement_state_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    batting_home = frame.inning_topbot.astype(int)
+    result = pd.DataFrame(index=frame.index)
+    result["pregame_batting_prob"] = np.where(
+        batting_home.eq(1), frame.pregame_prob, 1.0 - frame.pregame_prob
+    )
+    result["inning"] = frame.inning
+    result["batting_team_is_home"] = batting_home
+    result["outs_when_up"] = frame.outs_when_up
+    result["batting_score_diff"] = np.where(
+        batting_home.eq(1), frame.score_diff, -frame.score_diff
+    )
+    for name in (
+        "balls", "strikes", "runner_on_first", "runner_on_second",
+        "runner_on_third",
+    ):
+        result[name] = frame[name]
+    return result.loc[:, SETTLEMENT_STATE_FEATURES].astype(float)
 
 
 def canonical_team(value: object) -> str:
@@ -206,6 +234,9 @@ def map_games_to_markets(
 def build_shared(
     pitch_states: Path, feed_cache: Path, trade_dir: Path,
     model_path: Path, output_dir: Path,
+    settlement_model_train_end: date | None = None,
+    settlement_model_output: Path | None = None,
+    settlement_state_output: Path | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     states = load_pitch_states(pitch_states)
     pitch_times, feed_games = feed_rows(feed_cache)
@@ -327,6 +358,83 @@ def build_shared(
     home_trades.to_parquet(output_dir / "home_market_trades.parquet", index=False)
     away_trades.to_parquet(output_dir / "away_market_trades.parquet", index=False)
     updates.to_parquet(output_dir / "state_updates.parquet", index=False)
+
+    if settlement_model_train_end is not None:
+        if settlement_model_output is None or settlement_state_output is None:
+            raise ValueError(
+                "Settlement model and state output paths are required with "
+                "--settlement-model-train-end"
+            )
+        settlement = states.merge(
+            games[[
+                "game_pk", "game_date", "market_ticker", "home_win",
+                "pregame_prob",
+            ]],
+            on=["game_pk", "game_date"], how="inner",
+        ).sort_values(["game_pk", "at_bat_number", "pitch_number"])
+        fit = settlement[
+            pd.to_datetime(settlement.game_date).dt.date
+            < settlement_model_train_end
+        ].copy()
+        if fit.empty:
+            raise RuntimeError(
+                "No state rows precede settlement model cutoff "
+                f"{settlement_model_train_end}"
+            )
+        batting_home = fit.inning_topbot.astype(int)
+        batting_win = np.where(
+            batting_home.eq(1), fit.home_win, 1 - fit.home_win
+        )
+        counts = fit.groupby("game_pk").game_pk.transform("size")
+        settlement_model = CatBoostClassifier(
+            iterations=350, depth=4, learning_rate=.03, l2_leaf_reg=15,
+            loss_function="Logloss", random_seed=42, verbose=False,
+            allow_writing_files=False, thread_count=-1,
+        )
+        print(
+            f"Training settlement state model on {fit.game_pk.nunique():,} "
+            f"games strictly before {settlement_model_train_end}...",
+            flush=True,
+        )
+        settlement_model.fit(
+            settlement_state_frame(fit), batting_win,
+            sample_weight=(1.0 / counts).to_numpy(),
+        )
+        settlement_model_output.parent.mkdir(parents=True, exist_ok=True)
+        settlement_model.save_model(settlement_model_output)
+        batting_probability = settlement_model.predict_proba(
+            settlement_state_frame(settlement), thread_count=-1
+        )[:, 1]
+        settlement["fair_before"] = np.where(
+            settlement.inning_topbot.astype(int).eq(1),
+            batting_probability, 1.0 - batting_probability,
+        )
+        settlement["fair_after"] = settlement.groupby(
+            "game_pk"
+        ).fair_before.shift(-1)
+        for column in post:
+            settlement[f"{column}_after"] = settlement.groupby(
+                "game_pk"
+            )[column].shift(-1)
+        settlement = settlement.drop(columns=[
+            "pitch_start_time", "pitch_end_time", "completed_event",
+            "completed_event_batting_home",
+        ], errors="ignore").merge(
+            pitch_times,
+            on=["game_pk", "at_bat_number", "pitch_number"], how="inner",
+        ).dropna(subset=["fair_after", "pitch_start_time", "pitch_end_time"])
+        settlement["is_hit"] = settlement.completed_event.isin(
+            ["single", "double", "triple", "home_run"]
+        )
+        settlement_updates = settlement[state_columns].sort_values(
+            ["game_pk", "pitch_end_time", "at_bat_number", "pitch_number"]
+        )
+        settlement_state_output.parent.mkdir(parents=True, exist_ok=True)
+        settlement_updates.to_parquet(settlement_state_output, index=False)
+        print(
+            f"Wrote {len(settlement_updates):,} leakage-free settlement "
+            f"state updates to {settlement_state_output}", flush=True,
+        )
     print(
         f"Wrote {len(home_trades):,} home trades, {len(away_trades):,} away "
         f"trades, and {len(updates):,} state updates "
@@ -356,6 +464,9 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir", type=Path, default=REPOSITORY_ROOT / "data/shared",
     )
+    parser.add_argument("--settlement-model-train-end", type=date.fromisoformat)
+    parser.add_argument("--settlement-model-output", type=Path)
+    parser.add_argument("--settlement-state-output", type=Path)
     return parser.parse_args()
 
 
@@ -363,5 +474,6 @@ if __name__ == "__main__":
     args = parse_args()
     build_shared(
         args.pitch_states, args.feed_cache, args.trade_dir,
-        args.model, args.output_dir,
+        args.model, args.output_dir, args.settlement_model_train_end,
+        args.settlement_model_output, args.settlement_state_output,
     )

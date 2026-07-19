@@ -10,8 +10,8 @@ data/
 ├─ raw/                    resumable downloads and API caches
 ├─ processed/              intermediate pitch-state features
 ├─ shared/                 canonical normalized trade/state inputs
-├─ mispricing/             decisions and compact execution tape
-└─ trade_tape/             local win-model training inputs
+├─ settlement_value/      decisions, state updates, and execution tapes
+└─ hit_reversion/          local win-model training inputs
 ```
 
 ## Recommended command
@@ -25,8 +25,9 @@ From the repository root:
 The required first argument is `mispricing`, `trade-tape`, or `both`.
 Acquisition and shared normalization are common to both. Settlement-value
 setup also
-builds `data/settlement_value/decision_rows.parquet` and
-`data/settlement_value/execution_trades.parquet`.
+builds `data/settlement_value/state_updates.parquet`,
+`decision_rows.parquet`, `execution_trades.parquet`, and
+`away_execution_trades.parquet`.
 
 It runs, in order:
 
@@ -53,8 +54,14 @@ One-minute Kalshi candles are intentionally not used.
 
 `shared/home_market_trades.parquet` contains the normalized home-team contract
 execution tape. `shared/away_market_trades.parquet` contains the independently
-traded paired away-team YES contract. `shared/state_updates.parquet` contains causal completed-pitch
-state transitions, outcomes, local fair values, and event timing.
+traded paired away-team YES contract. `shared/state_updates.parquet` contains
+causal completed-pitch state transitions for hit reversion.
+
+Settlement value uses `settlement_value/state_updates.parquet`, scored by a
+chronology-safe batting-perspective state model trained strictly before its
+training cutoff. This keeps the trade tapes shared while preventing holdout
+outcomes and the hit-reversion feature contract from leaking into settlement
+features.
 
 The hit-reversion strategy consumes these files directly. The settlement-value
 strategy turns them into model-specific decision rows and a compact causal

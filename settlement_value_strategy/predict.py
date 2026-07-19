@@ -10,7 +10,7 @@ import numpy as np
 import pandas as pd
 
 from settlement_value_strategy.strategy import (
-    MispricingConfig, mispricing_feature_frame, signal_economics,
+    MispricingConfig, mispricing_feature_frame, model_signal,
 )
 
 
@@ -51,17 +51,8 @@ class MispricingPredictor:
         frame = pd.DataFrame([row])
         probability = float(self.probability(frame)[0])
         market = float(row["market_home_price"])
-        yes_ev, no_ev = signal_economics(
-            probability, market, self.config.bet_size
-        )
-        if yes_ev >= no_ev:
-            side, expected_pnl, edge = "yes", yes_ev, probability - market
-        else:
-            side, expected_pnl, edge = "no", no_ev, market - probability
-        eligible = (
-            (self.config.side_filter == "both" or side == self.config.side_filter)
-            and expected_pnl >= self.config.minimum_expected_pnl
-            and edge >= self.config.minimum_probability_edge
+        side, expected_pnl, edge, eligible = model_signal(
+            probability, market, self.config
         )
         return {
             "settlement_probability": probability,

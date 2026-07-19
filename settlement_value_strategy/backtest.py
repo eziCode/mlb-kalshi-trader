@@ -51,7 +51,39 @@ def main() -> None:
         calibration["intercept"] + calibration["coefficient"] * logits
     )))
     result = simulate_away_yes(frame, probability, trades, config)
-    passed = bool(result.trades >= 20 and result.pnl > 0 and result.roi > .10)
+    records = pd.DataFrame(result.records)
+    if records.empty:
+        game_pnl = pd.Series(dtype=float)
+        daily = pd.DataFrame(columns=["trades", "pnl", "win_rate", "roi"])
+    else:
+        game_pnl = records.groupby("game_pk").pnl.sum()
+        daily = records.groupby("game_date").agg(
+            trades=("pnl", "size"), pnl=("pnl", "sum"),
+            win_rate=("pnl", lambda values: values.gt(0).mean()),
+        )
+        daily["roi"] = daily.pnl / (daily.trades * config.bet_size)
+    top_count = min(4, len(game_pnl))
+    top_game_pnl = float(game_pnl.nlargest(top_count).sum())
+    pnl_without_top_games = float(result.pnl - top_game_pnl)
+    profitable_day_fraction = (
+        float(daily.pnl.gt(0).mean()) if len(daily) else 0.0
+    )
+    worst_day_roi = float(daily.roi.min()) if len(daily) else 0.0
+    robustness = {
+        "top_game_count": top_count,
+        "top_game_pnl": top_game_pnl,
+        "pnl_without_top_games": pnl_without_top_games,
+        "profitable_day_fraction": profitable_day_fraction,
+        "worst_day_roi": worst_day_roi,
+    }
+    passed = bool(
+        result.trades >= 20
+        and result.pnl > 0
+        and result.roi > .10
+        and pnl_without_top_games > 0
+        and profitable_day_fraction >= .60
+        and worst_day_roi >= -.35
+    )
     raw_config["validation_passed"] = passed
     raw_config["enabled"] = False
     (MODEL_DIR / "config.json").write_text(json.dumps(raw_config, indent=2))
@@ -62,6 +94,7 @@ def main() -> None:
         "yes_trades": result.yes_trades, "no_trades": result.no_trades,
         "fees": result.fees, "capital": result.capital,
         "pnl": result.pnl, "roi": result.roi,
+        "robustness": robustness,
         "probability_metrics": {
             "roc_auc": float(roc_auc_score(frame.home_win, probability)),
             "log_loss": float(log_loss(frame.home_win, probability)),
@@ -70,7 +103,6 @@ def main() -> None:
         "validation_passed": passed,
     }
     (STUDY_DIR / "holdout_summary.json").write_text(json.dumps(summary, indent=2))
-    records = pd.DataFrame(result.records)
     records.to_csv(STUDY_DIR / "holdout_trades.csv", index=False)
     if not records.empty:
         segments = records.groupby("side").agg(
@@ -79,11 +111,6 @@ def main() -> None:
         )
         segments["roi"] = segments.pnl / (segments.trades * 10.0)
         segments.to_csv(STUDY_DIR / "holdout_side_summary.csv")
-        daily = records.groupby("game_date").agg(
-            trades=("pnl", "size"), pnl=("pnl", "sum"),
-            win_rate=("pnl", lambda x: x.gt(0).mean()),
-        )
-        daily["roi"] = daily.pnl / (daily.trades * 10.0)
         daily.to_csv(STUDY_DIR / "holdout_daily_summary.csv")
     print(json.dumps(summary, indent=2))
 

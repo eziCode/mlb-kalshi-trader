@@ -40,7 +40,7 @@ if str(REPOSITORY_ROOT) not in sys.path:
 from settlement_value_strategy.build_normalized_raw import state_model_frame
 from settlement_value_strategy.predict import MispricingPredictor
 from settlement_value_strategy.strategy import (
-    anchored_event_target, signal_economics, taker_fee,
+    MISPRICING_FEATURES, anchored_event_target, signal_economics, taker_fee,
 )
 
 
@@ -74,6 +74,8 @@ class MarketSnapshot:
     received_at: datetime
     bid: float
     ask: float
+    bid_size: float
+    ask_size: float
 
 
 @dataclass(frozen=True)
@@ -239,6 +241,13 @@ class SharedPaperPortfolio:
             )
             for row in rows
         ]
+
+    def open_game_pks(self) -> list[int]:
+        with closing(self._connect()) as connection:
+            rows = connection.execute(
+                "SELECT DISTINCT game_pk FROM positions ORDER BY game_pk"
+            ).fetchall()
+        return [int(row[0]) for row in rows]
 
     def update_marks(
         self, game_pk: int, yes_bid: float, yes_ask: float,
@@ -416,6 +425,16 @@ def build_live_decision_row(
     return row
 
 
+def execution_within_window(
+    signal_time: object, decision_time: datetime, maximum_delay: float,
+) -> bool:
+    age = (
+        decision_time
+        - pd.Timestamp(signal_time).to_pydatetime()
+    ).total_seconds()
+    return 0.0 <= age <= maximum_delay
+
+
 def fetch_market_snapshot(ticker: str | None = None) -> MarketSnapshot:
     ticker = ticker or MARKET_TICKER
     response = requests.get(
@@ -428,9 +447,12 @@ def fetch_market_snapshot(ticker: str | None = None) -> MarketSnapshot:
     if not yes or not no:
         raise RuntimeError("Kalshi order book is not two-sided")
     bid, ask = float(yes[-1][0]), 1.0 - float(no[-1][0])
+    bid_size, ask_size = float(yes[-1][1]), float(no[-1][1])
     if not 0 < bid < ask < 1:
         raise RuntimeError(f"Invalid Kalshi order book: {bid}/{ask}")
-    return MarketSnapshot(datetime.now(timezone.utc), bid, ask)
+    return MarketSnapshot(
+        datetime.now(timezone.utc), bid, ask, bid_size, ask_size
+    )
 
 
 def fetch_recent_trades(ticker: str | None = None) -> pd.DataFrame:
@@ -545,8 +567,12 @@ def fetch_pregame_anchor() -> float:
     candles = response.json().get("candlesticks") or []
     if not candles:
         raise RuntimeError("No pre-first-pitch Kalshi anchor")
-    bid = float(candles[-1]["yes_bid"]["close_dollars"])
-    ask = float(candles[-1]["yes_ask"]["close_dollars"])
+    latest = candles[-1]
+    traded = latest.get("price", {}).get("close_dollars")
+    if traded is not None and 0 < float(traded) < 1:
+        return float(traded)
+    bid = float(latest["yes_bid"]["close_dollars"])
+    ask = float(latest["yes_ask"]["close_dollars"])
     if not 0 < bid < ask < 1:
         raise RuntimeError("Invalid pregame quote")
     return (bid + ask) / 2
@@ -701,14 +727,17 @@ async def run_worker() -> None:
     )
     pregame_prob = await wait_for_pregame_anchor()
     LOG_DIR.mkdir(parents=True, exist_ok=True)
-    log_path = LOG_DIR / f"settlement_value_decisions_{MARKET_TICKER}.csv"
+    log_path = LOG_DIR / f"settlement_value_decisions_v2_{MARKET_TICKER}.csv"
     new_log = not log_path.exists() or log_path.stat().st_size == 0
     if new_log:
         with log_path.open("a", newline="") as handle:
             csv.writer(handle).writerow([
-                "time", "pitch", "bid", "ask", "market_trade", "fair_before",
-                "fair_after", "settlement_probability", "side", "expected_pnl",
-                "edge", "action", "cash", "equity", "portfolio_pnl",
+                "decision_time", "pitch", "signal_time", "execution_age_seconds",
+                "home_bid", "home_ask", "home_ask_size", "away_bid",
+                "away_ask", "away_ask_size", "settlement_probability",
+                "model_side", "model_expected_pnl", "model_edge", "fill_price",
+                "fill_expected_pnl", "fill_edge", "action", "cash", "equity",
+                "portfolio_pnl", *MISPRICING_FEATURES,
             ])
     positions = portfolio.load_positions(int(GAME_PK))
     if positions:
@@ -814,6 +843,7 @@ async def run_worker() -> None:
             fair_before=fair_before, fair_after=fair_after, pitch_token=token,
             trades=trades, config=predictor.config,
         )
+        fill_ev = fill_edge = price = None
         if row is None:
             # Do not mark handled until the post-delay trade arrives or expires.
             if (
@@ -826,9 +856,12 @@ async def run_worker() -> None:
         else:
             decision = predictor.decision(row)
             action = "NO_SIGNAL"
-            if (
-                decision["eligible"]
-                or predictor.config.execution_contract == "away_yes"
+            decision_time = datetime.now(timezone.utc)
+            signal_time = pd.Timestamp(row["signal_time"]).to_pydatetime()
+            execution_age = (decision_time - signal_time).total_seconds()
+            if decision["eligible"] and (
+                predictor.config.execution_contract != "away_yes"
+                or decision["side"] == "no"
             ):
                 route_away_yes = (
                     predictor.config.execution_contract == "away_yes"
@@ -840,6 +873,10 @@ async def run_worker() -> None:
                     else market.ask if side == "yes" else 1.0 - market.bid
                 )
                 contracts = predictor.config.bet_size / price
+                available = (
+                    away_market.ask_size if route_away_yes
+                    else market.ask_size if side == "yes" else market.bid_size
+                )
                 fee = taker_fee(contracts, price)
                 probability = float(decision["settlement_probability"])
                 if route_away_yes:
@@ -857,7 +894,14 @@ async def run_worker() -> None:
                         probability - fill_yes
                         if side == "yes" else fill_yes - probability
                     )
-                if (
+                if not execution_within_window(
+                    row["signal_time"], decision_time,
+                    predictor.config.maximum_fill_delay_seconds,
+                ):
+                    action = "SKIP_STALE_EXECUTION_WINDOW"
+                elif available + 1e-9 < contracts:
+                    action = "SKIP_INSUFFICIENT_TOP_LEVEL_DEPTH"
+                elif (
                     fill_ev < predictor.config.minimum_expected_pnl
                     or fill_edge < predictor.config.minimum_probability_edge
                 ):
@@ -865,7 +909,7 @@ async def run_worker() -> None:
                 else:
                     proposed = PaperPosition(
                         execution_side, contracts, price, fee,
-                        datetime.now(timezone.utc), execution_probability,
+                        decision_time, execution_probability,
                         str(token),
                     )
                     if len(positions) >= predictor.config.maximum_positions_per_game:
@@ -886,6 +930,7 @@ async def run_worker() -> None:
                             f"TRADE BUY {'AWAY YES' if route_away_yes else side.upper()} "
                             f"contracts={contracts:.4f} "
                             f"price={price:.4f} fee={fee:.4f} "
+                            f"signal_age={execution_age:.3f}s "
                             f"game_pk={GAME_PK} ticker="
                             f"{AWAY_MARKET_TICKER if route_away_yes else MARKET_TICKER}",
                             flush=True,
@@ -895,14 +940,23 @@ async def run_worker() -> None:
         handled_tokens.add(token)
         metrics = portfolio.metrics()
         values = decision or {}
+        decision_time = datetime.now(timezone.utc)
+        signal_time_value = row.get("signal_time") if row else None
+        execution_age_value = (
+            (decision_time - pd.Timestamp(signal_time_value).to_pydatetime())
+            .total_seconds()
+            if signal_time_value else None
+        )
         with log_path.open("a", newline="") as handle:
             csv.writer(handle).writerow([
-                datetime.now(timezone.utc).isoformat(), str(token), market.bid,
-                market.ask, row.get("market_home_price") if row else None,
-                fair_before, fair_after, values.get("settlement_probability"),
-                values.get("side"), values.get("expected_pnl"),
-                values.get("probability_edge"), action, metrics.cash,
-                metrics.equity, metrics.pnl,
+                decision_time.isoformat(), str(token), signal_time_value,
+                execution_age_value, market.bid, market.ask, market.ask_size,
+                away_market.bid, away_market.ask, away_market.ask_size,
+                values.get("settlement_probability"), values.get("side"),
+                values.get("expected_pnl"), values.get("probability_edge"),
+                price, fill_ev, fill_edge, action, metrics.cash, metrics.equity,
+                metrics.pnl,
+                *[(row or {}).get(name) for name in MISPRICING_FEATURES],
             ])
         print(
             f"{token} {market.bid:.2f}/{market.ask:.2f} "
@@ -930,22 +984,56 @@ def _relay(stream, handle, label: str) -> None:
             print(f"[{label}] {line.rstrip()}", flush=True)
 
 
+def reconcile_final_positions(portfolio: SharedPaperPortfolio) -> int:
+    """Settle positions whose workers disappeared before observing Final."""
+    settled = 0
+    for game_pk in portfolio.open_game_pks():
+        try:
+            response = requests.get(
+                f"{MLB_API}/v1.1/game/{game_pk}/feed/live", timeout=15
+            )
+            response.raise_for_status()
+            payload = response.json()
+        except requests.RequestException as error:
+            print(
+                f"WARNING: could not reconcile game {game_pk}: {error}",
+                flush=True,
+            )
+            continue
+        status = payload.get("gameData", {}).get("status", {}).get(
+            "abstractGameState"
+        )
+        if status != "Final":
+            continue
+        teams = payload.get("liveData", {}).get("linescore", {}).get(
+            "teams", {}
+        )
+        home_score = int(teams.get("home", {}).get("runs") or 0)
+        away_score = int(teams.get("away", {}).get("runs") or 0)
+        positions = portfolio.load_positions(game_pk)
+        payout = sum(
+            position.contracts
+            for position in positions
+            if (
+                position.side == "yes" and home_score > away_score
+            ) or (
+                position.side in {"no", "away_yes"}
+                and away_score > home_score
+            )
+        )
+        if portfolio.settle(game_pk, payout):
+            settled += len(positions)
+            print(
+                f"Reconciled final game {game_pk}: {away_score}-{home_score} "
+                f"positions={len(positions)} payout=${payout:.2f}",
+                flush=True,
+            )
+    return settled
+
+
 def run_all_games(game_date: date) -> int:
     if os.getenv("ALLOW_UNVALIDATED_MISPRICING") != "1":
         raise RuntimeError("Set ALLOW_UNVALIDATED_MISPRICING=1 for paper mode")
-    games, warnings = discover_daily_games(game_date)
-    for warning in warnings:
-        print(f"WARNING: {warning}")
-    if not games:
-        raise RuntimeError(f"No matched games for {game_date}")
-    print(f"Games for {game_date} ({len(games)}):", flush=True)
-    for game in games:
-        print(
-            f"  {game.scheduled_time.isoformat()} "
-            f"{game.away_code}@{game.home_code} game_pk={game.game_pk} "
-            f"ticker={game.market_ticker}",
-            flush=True,
-        )
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     database = Path(os.getenv(
         "PAPER_PORTFOLIO_DB",
@@ -954,6 +1042,26 @@ def run_all_games(game_date: date) -> int:
     portfolio = SharedPaperPortfolio(
         database, float(os.getenv("PAPER_STARTING_CASH", "1000"))
     )
+    reconcile_final_positions(portfolio)
+    games, warnings = discover_daily_games(game_date)
+    for warning in warnings:
+        print(f"WARNING: {warning}")
+    if not games:
+        metrics = portfolio.metrics()
+        print(
+            f"No active matched games for {game_date}; "
+            f"equity=${metrics.equity:.2f} PnL=${metrics.pnl:+.2f}",
+            flush=True,
+        )
+        return 0
+    print(f"Games for {game_date} ({len(games)}):", flush=True)
+    for game in games:
+        print(
+            f"  {game.scheduled_time.isoformat()} "
+            f"{game.away_code}@{game.home_code} game_pk={game.game_pk} "
+            f"ticker={game.market_ticker}",
+            flush=True,
+        )
     children = {}
     restart_counts = {game.game_pk: 0 for game in games}
     maximum_restarts = int(os.getenv("PAPER_WORKER_MAX_RESTARTS", "10"))

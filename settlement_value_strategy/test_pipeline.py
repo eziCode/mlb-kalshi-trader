@@ -1,20 +1,22 @@
 from __future__ import annotations
 
 import unittest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, Mock, patch
 from pathlib import Path
 import tempfile
 import json
 
 import pandas as pd
 import settlement_value_strategy.live_paper_trader as live_paper_trader
+from catboost import CatBoostClassifier
 
 from settlement_value_strategy.prepare_data import compact_execution_tape
 from settlement_value_strategy.predict import MispricingPredictor
 from settlement_value_strategy.build_normalized_raw import pitch_times, state_model_frame
 from settlement_value_strategy.live_paper_trader import (
     SharedPaperPortfolio, PaperPosition, build_live_decision_row,
-    consecutive_pitch, should_surface_worker_line, wait_for_pregame_anchor,
+    consecutive_pitch, execution_within_window, reconcile_final_positions,
+    should_surface_worker_line, wait_for_pregame_anchor,
 )
 
 
@@ -42,6 +44,42 @@ class PregameAnchorRetryTests(unittest.IsolatedAsyncioTestCase):
 
 
 class PipelineTests(unittest.TestCase):
+    def test_live_execution_rejects_stale_signal(self):
+        signal = pd.Timestamp("2026-07-01T12:00:00Z")
+        self.assertTrue(execution_within_window(
+            signal, (signal + pd.Timedelta(seconds=5)).to_pydatetime(), 5,
+        ))
+        self.assertFalse(execution_within_window(
+            signal, (signal + pd.Timedelta(seconds=5.001)).to_pydatetime(), 5,
+        ))
+
+    def test_startup_reconciles_positions_from_final_games(self):
+        now = pd.Timestamp("2026-07-01T12:00:00Z").to_pydatetime()
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {
+            "gameData": {"status": {"abstractGameState": "Final"}},
+            "liveData": {"linescore": {"teams": {
+                "away": {"runs": 5}, "home": {"runs": 2},
+            }}},
+        }
+        with tempfile.TemporaryDirectory() as directory:
+            portfolio = SharedPaperPortfolio(
+                Path(directory) / "paper.sqlite3", starting_cash=100,
+            )
+            position = PaperPosition(
+                "away_yes", 20, .5, .1, now, .7, "pitch",
+            )
+            self.assertTrue(portfolio.open_position(123, "AWAY", position))
+            with patch(
+                "settlement_value_strategy.live_paper_trader.requests.get",
+                return_value=response,
+            ):
+                self.assertEqual(reconcile_final_positions(portfolio), 1)
+            metrics = portfolio.metrics()
+            self.assertEqual(metrics.open_positions, 0)
+            self.assertAlmostEqual(metrics.cash, 109.9)
+
     def test_worker_supervisor_has_sleep_dependency(self):
         self.assertIsNotNone(live_paper_trader.time.sleep)
 
@@ -154,6 +192,11 @@ class PipelineTests(unittest.TestCase):
         features = state_model_frame(frame)
         self.assertEqual(features.pregame_batting_prob.tolist(), [.40, .60])
         self.assertEqual(features.batting_score_diff.tolist(), [-2, 2])
+        model = CatBoostClassifier()
+        model.load_model(
+            MispricingPredictor().root / "model/local_win_expectancy.cbm"
+        )
+        self.assertEqual(model.feature_names_, features.columns.tolist())
 
 
 if __name__ == "__main__":

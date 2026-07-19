@@ -230,6 +230,29 @@ def signal_economics(probability: float, yes_price: float, bet_size: float = 10.
     return yes_ev, no_ev
 
 
+def model_signal(
+    probability: float, market_home_price: float, config: MispricingConfig,
+) -> tuple[str, float, float, bool]:
+    """Return the identical model-side decision for replay and live trading."""
+    yes_ev, no_ev = signal_economics(
+        probability, market_home_price, config.bet_size
+    )
+    if yes_ev >= no_ev:
+        side = "yes"
+        expected_pnl = yes_ev
+        edge = probability - market_home_price
+    else:
+        side = "no"
+        expected_pnl = no_ev
+        edge = market_home_price - probability
+    eligible = (
+        (config.side_filter == "both" or side == config.side_filter)
+        and expected_pnl >= config.minimum_expected_pnl
+        and edge >= config.minimum_probability_edge
+    )
+    return side, float(expected_pnl), float(edge), bool(eligible)
+
+
 def simulate_mispricing(
     frame: pd.DataFrame,
     probabilities,
@@ -357,6 +380,13 @@ def simulate_away_yes(
         for row in game.sort_values("signal_time").itertuples(index=False):
             if positions >= config.maximum_positions_per_game:
                 break
+            model_side, _, _, model_eligible = model_signal(
+                float(row.fair_probability),
+                float(row.market_home_price),
+                config,
+            )
+            if not model_eligible or model_side != "no":
+                continue
             away_fair = 1.0 - float(row.fair_probability)
             signal_ns = pd.Timestamp(row.signal_time).value
             deadline = signal_ns + int(config.maximum_fill_delay_seconds * 1e9)
@@ -411,7 +441,7 @@ def simulate_away_yes(
                 result.pnl += pnl
                 result.records.append({
                     **row._asdict(),
-                    "model_side": "no",
+                    "model_side": model_side,
                     "side": "yes",
                     "execution_contract": "away_yes",
                     "fill_time": pd.Timestamp(times[index], tz="UTC"),

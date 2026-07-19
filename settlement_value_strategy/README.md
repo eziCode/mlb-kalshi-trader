@@ -79,11 +79,10 @@ independent prices, liquidity, and fill opportunities. It requires:
 - minimum expected net PnL;
 - sufficient reported size at a compatible later taker-side execution.
 
-All thresholds are rechecked at the eventual fill price. It permits at most
-one position per game. There is no early exit in this strategy; profit and loss
-are determined by final game settlement.
+All thresholds are rechecked at the eventual fill price. There is no early
+exit in this strategy; profit and loss are determined by final game settlement.
 
-The selected policy requires a 4-point minimum edge and $0.50 minimum
+The selected policy requires a 1-point minimum edge and $0.50 minimum
 predicted net value on a $10 stake, waits 30 seconds between fills, and caps
 exposure at five away-YES positions per game. Selection considers only policies
 profitable in every chronological fold, with at least 15% ROI in the worst fold
@@ -104,6 +103,8 @@ rows under `data/settlement_value/`:
 ```text
 data/settlement_value/decision_rows.parquet
 data/settlement_value/execution_trades.parquet
+data/settlement_value/away_execution_trades.parquet
+data/settlement_value/state_updates.parquet
 ```
 
 Then train and evaluate:
@@ -126,6 +127,12 @@ Training chronology is fixed:
 - calibrate June 17-21;
 - tune thresholds and side June 22-27;
 - evaluate the outer development holdout from June 28 onward.
+
+The settlement-specific local state model is trained only on games strictly
+before June 17 and uses a batting-team feature contract in both preprocessing
+and live inference. This prevents holdout outcomes from leaking into
+`fair_before` and `fair_after` and prevents the former home-versus-batting
+feature mismatch.
 
 `train` rewrites the model, calibration, policy configuration, tuning grid,
 and training summary. `backtest` rewrites holdout summaries and trade records.
@@ -169,9 +176,12 @@ ALLOW_UNVALIDATED_MISPRICING=1 \
 ```
 
 The live trader reconstructs the same pitch/trade feature contract, rejects
-polling gaps, shares cash across workers in SQLite, recovers open positions on
-restart, and settles at game end. It never submits real orders. The override
-permits paper observation while deployment is disabled.
+polling gaps and signals older than the five-second fill window, requires
+enough top-level size, and applies the same model-side eligibility rule as the
+backtest. It logs all model features and execution timing to a versioned CSV.
+Workers share cash through SQLite; startup reconciliation settles positions
+whose original worker missed the final game state. It never submits real
+orders. The override permits paper observation while deployment is disabled.
 
 ## Docker and reference result
 
@@ -183,6 +193,9 @@ docker run --rm mlb-kalshi-trader mispricing pipeline
 docker run --rm mlb-kalshi-trader mispricing backtest
 ```
 
-The current development holdout contains 103 trades across 220 games,
-$236.92 net PnL, and 22.24% ROI. It is development evidence, not a pristine final test; deployment remains
-disabled pending forward paper validation.
+The corrected development holdout contains 524 fills across 220 available
+games, $849.80 net PnL, and 15.58% ROI. It does **not** pass robustness
+validation: the four best games contribute more than total net profit, the
+remaining games lose $332.69, only 58.8% of days are profitable, and the worst
+day loses 55.9% of deployed capital. Deployment therefore remains disabled
+pending genuinely independent forward paper validation.

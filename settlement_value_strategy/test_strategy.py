@@ -6,12 +6,46 @@ import pandas as pd
 
 from settlement_value_strategy.strategy import (
     MISPRICING_FEATURES, MispricingConfig, mispricing_feature_frame,
-    signal_economics, simulate_mispricing,
+    model_signal, signal_economics, simulate_mispricing,
     simulate_away_yes,
 )
 
 
 class MispricingTests(unittest.TestCase):
+    def test_away_execution_requires_eligible_no_model_signal(self):
+        config = MispricingConfig(
+            minimum_expected_pnl=.5, minimum_probability_edge=.04,
+            side_filter="no", execution_contract="away_yes",
+        )
+        side, _, _, eligible = model_signal(.80, .70, config)
+        self.assertEqual(side, "yes")
+        self.assertFalse(eligible)
+
+    def test_away_replay_rejects_ineligible_home_yes_signal(self):
+        signal_time = pd.Timestamp("2026-06-01T12:00:00Z")
+        frame = pd.DataFrame({
+            "game_pk": [1], "signal_time": [signal_time],
+            "next_update_time": [signal_time + pd.Timedelta(seconds=4)],
+            "market_home_price": [.70], "home_win": [0],
+        })
+        trades = pd.DataFrame({
+            "game_pk": [1, 1], "trade_id": [1, 2],
+            "created_time": [
+                signal_time - pd.Timedelta(seconds=1),
+                signal_time + pd.Timedelta(seconds=1),
+            ],
+            "yes_price_dollars": [.10, .10], "count_fp": [100, 100],
+            "taker_outcome_side": ["yes", "yes"],
+        })
+        result = simulate_away_yes(
+            frame, [.80], trades,
+            MispricingConfig(
+                minimum_expected_pnl=.5, minimum_probability_edge=.04,
+                side_filter="no", execution_contract="away_yes",
+            ),
+        )
+        self.assertEqual(result.trades, 0)
+
     def test_feature_contract_is_event_agnostic(self):
         self.assertFalse(any("event" in name for name in MISPRICING_FEATURES))
         frame = pd.DataFrame({name: [0.0] for name in MISPRICING_FEATURES})

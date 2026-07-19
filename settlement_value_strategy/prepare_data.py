@@ -75,7 +75,7 @@ def main() -> None:
     )
     parser.add_argument(
         "--states", type=Path,
-        default=SHARED_DATA / "state_updates.parquet",
+        default=DATA / "state_updates.parquet",
     )
     parser.add_argument(
         "--away-trades", type=Path,

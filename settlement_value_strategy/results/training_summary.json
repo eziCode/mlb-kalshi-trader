@@ -4,23 +4,23 @@
   "fit_metrics": {
     "rows": 233794,
     "games": 3095,
-    "roc_auc": 0.8271041049654582,
-    "log_loss": 0.5060991916369111,
-    "brier": 0.1700443118905285
+    "roc_auc": 0.8282901108033306,
+    "log_loss": 0.5047849918592816,
+    "brier": 0.16945132557719592
   },
   "calibration_metrics": {
     "rows": 13587,
     "games": 64,
-    "roc_auc": 0.8402520000287759,
-    "log_loss": 0.49146743205794485,
-    "brier": 0.1642974307600114
+    "roc_auc": 0.8417573574909345,
+    "log_loss": 0.48863325455391937,
+    "brier": 0.1630957567587638
   },
   "tuning_metrics": {
     "rows": 16218,
     "games": 80,
-    "roc_auc": 0.8049115315066233,
-    "log_loss": 0.5402442956348344,
-    "brier": 0.1830736523219136
+    "roc_auc": 0.8010021818128216,
+    "log_loss": 0.5509929957753814,
+    "brier": 0.18580596262664614
   },
   "selected_config": {
     "enabled": false,
@@ -29,7 +29,7 @@
     "maximum_anchor_age_seconds": 5.0,
     "maximum_fill_delay_seconds": 5.0,
     "minimum_expected_pnl": 0.5,
-    "minimum_probability_edge": 0.04,
+    "minimum_probability_edge": 0.01,
     "bet_size": 10.0,
     "side_filter": "no",
     "minimum_seconds_between_entries": 30.0,
@@ -39,29 +39,29 @@
   "selection_rule": "maximum trades among paired away-YES policies with all folds profitable, worst-fold ROI >=15%, and aggregate ROI >=20%",
   "selected_tuning_result": {
     "minimum_expected_pnl": 0.5,
-    "minimum_probability_edge": 0.04,
+    "minimum_probability_edge": 0.01,
     "side_filter": "no",
     "execution_contract": "away_yes",
     "maximum_positions_per_game": 5,
-    "trades": 82,
-    "yes_trades": 82,
+    "trades": 169,
+    "yes_trades": 169,
     "no_trades": 0,
-    "pnl": 432.974379209564,
-    "fees": 26.349999999999987,
-    "capital": 846.3499999999999,
-    "roi": 0.5115784004366563,
-    "fold_1_trades": 24,
-    "fold_1_pnl": 46.25821153370848,
-    "fold_1_roi": 0.18644235030312553,
-    "fold_2_trades": 28,
-    "fold_2_pnl": 276.92121547980724,
-    "fold_2_roi": 0.9567813132011445,
-    "fold_3_trades": 30,
-    "fold_3_pnl": 109.79495219604843,
-    "fold_3_roi": 0.35554208800248827,
-    "minimum_fold_trades": 24,
+    "pnl": 765.7577805210519,
+    "fees": 75.33000000000004,
+    "capital": 1765.3299999999988,
+    "roi": 0.4337759968510434,
+    "fold_1_trades": 46,
+    "fold_1_pnl": 216.51771339843035,
+    "fold_1_roi": 0.45043107490988027,
+    "fold_2_trades": 51,
+    "fold_2_pnl": 430.62865154980847,
+    "fold_2_roi": 0.8073429414683598,
+    "fold_3_trades": 72,
+    "fold_3_pnl": 118.61141557281303,
+    "fold_3_roi": 0.15788541174417708,
+    "minimum_fold_trades": 46,
     "profitable_folds": 3,
-    "worst_fold_roi": 0.18644235030312553
+    "worst_fold_roi": 0.15788541174417708
   },
   "outer_holdout_used": false
 }

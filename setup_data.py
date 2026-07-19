@@ -106,10 +106,16 @@ def main() -> None:
         if args.refresh:
             trade_command += ["--refresh-markets", "--refresh-trades"]
         steps.append(("Download exact Kalshi MLB executions", trade_command))
-    steps.append((
-        "Build shared strategy inputs",
-        [python, str(PROCESSORS / "build_shared_data.py")],
-    ))
+    shared_command = [python, str(PROCESSORS / "build_shared_data.py")]
+    if args.strategy in {"mispricing", "both"}:
+        shared_command += [
+            "--settlement-model-train-end", "2026-06-17",
+            "--settlement-model-output",
+            str(ROOT / "settlement_value_strategy/model/local_win_expectancy.cbm"),
+            "--settlement-state-output",
+            str(ROOT / "data/settlement_value/state_updates.parquet"),
+        ]
+    steps.append(("Build shared strategy inputs", shared_command))
     if args.strategy in {"mispricing", "both"}:
         steps.append((
             "Build mispricing decisions and compact execution tape",
