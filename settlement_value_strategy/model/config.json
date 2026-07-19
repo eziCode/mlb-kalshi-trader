@@ -9,6 +9,8 @@
   "bet_size": 10.0,
   "side_filter": "no",
   "minimum_seconds_between_entries": 30.0,
+  "execution_contract": "away_yes",
+  "maximum_positions_per_game": 5,
   "tuning_passed": true,
   "validation_passed": true
 }

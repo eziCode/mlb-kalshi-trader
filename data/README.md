@@ -52,7 +52,8 @@ One-minute Kalshi candles are intentionally not used.
 ## Shared outputs
 
 `shared/home_market_trades.parquet` contains the normalized home-team contract
-execution tape. `shared/state_updates.parquet` contains causal completed-pitch
+execution tape. `shared/away_market_trades.parquet` contains the independently
+traded paired away-team YES contract. `shared/state_updates.parquet` contains causal completed-pitch
 state transitions, outcomes, local fair values, and event timing.
 
 The hit-reversion strategy consumes these files directly. The settlement-value

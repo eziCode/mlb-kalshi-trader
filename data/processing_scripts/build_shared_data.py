@@ -1,4 +1,4 @@
-"""Build the two strategy-neutral Parquet inputs from downloaded raw data."""
+"""Build strategy-neutral home/away trade tapes and state updates."""
 
 from __future__ import annotations
 
@@ -245,6 +245,52 @@ def build_shared(
         ["game_pk", "created_time", "trade_id"]
     )
 
+    # Preserve the paired away-team YES market. Buying this contract is the
+    # same settlement view as buying NO on the home-team market, but it has an
+    # independent book and materially different fill opportunities.
+    games["event_ticker"] = games.market_ticker.str.rsplit("-", n=1).str[0]
+    market_map = downloaded[["market_ticker"]].drop_duplicates().copy()
+    market_map["event_ticker"] = market_map.market_ticker.str.rsplit(
+        "-", n=1
+    ).str[0]
+    paired = games[[
+        "game_pk", "game_date", "market_ticker", "home_win",
+        "first_pitch_time", "last_pitch_time", "event_ticker",
+    ]].rename(columns={"market_ticker": "home_market_ticker"}).merge(
+        market_map, on="event_ticker", how="inner"
+    )
+    paired = paired[paired.market_ticker.ne(paired.home_market_ticker)]
+    counts = paired.groupby("game_pk").market_ticker.nunique()
+    paired = paired[paired.game_pk.isin(counts[counts.eq(1)].index)]
+    away_trades = downloaded.merge(
+        paired, on=["game_date", "market_ticker", "event_ticker"], how="inner"
+    )
+    if "market_result" in away_trades:
+        expected = away_trades.home_win.map({0: "yes", 1: "no"})
+        bad_games = set(away_trades.loc[
+            away_trades.market_result.notna()
+            & away_trades.market_result.astype(str).str.lower().ne(expected),
+            "game_pk",
+        ])
+        if bad_games:
+            print(
+                f"Excluding {len(bad_games)} paired markets with inconsistent "
+                "settlement mapping",
+                flush=True,
+            )
+            away_trades = away_trades[~away_trades.game_pk.isin(bad_games)]
+    away_trades = away_trades[
+        (away_trades.created_time >= away_trades.first_pitch_time)
+        & (away_trades.created_time <= away_trades.last_pitch_time)
+    ].copy()
+    away_columns = [*TRADE_COLUMNS, "home_market_ticker"]
+    for column in away_columns:
+        if column not in away_trades:
+            away_trades[column] = None
+    away_trades = away_trades[away_columns].drop_duplicates("trade_id").sort_values(
+        ["game_pk", "created_time", "trade_id"]
+    )
+
     work = states.merge(
         games[["game_pk", "game_date", "market_ticker", "home_win", "pregame_prob"]],
         on=["game_pk", "game_date"], how="inner",
@@ -279,9 +325,11 @@ def build_shared(
     )
     output_dir.mkdir(parents=True, exist_ok=True)
     home_trades.to_parquet(output_dir / "home_market_trades.parquet", index=False)
+    away_trades.to_parquet(output_dir / "away_market_trades.parquet", index=False)
     updates.to_parquet(output_dir / "state_updates.parquet", index=False)
     print(
-        f"Wrote {len(home_trades):,} trades and {len(updates):,} state updates "
+        f"Wrote {len(home_trades):,} home trades, {len(away_trades):,} away "
+        f"trades, and {len(updates):,} state updates "
         f"to {output_dir}", flush=True,
     )
     return home_trades, updates

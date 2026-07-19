@@ -20,7 +20,7 @@ if str(STRATEGY_DIR.parent) not in sys.path:
 
 from settlement_value_strategy.strategy import (  # noqa: E402
     MispricingConfig, build_mispricing_dataset, mispricing_feature_frame,
-    simulate_mispricing,
+    simulate_away_yes,
 )
 
 
@@ -38,10 +38,11 @@ HOLDOUT_START = pd.Timestamp("2026-06-28").date()
 
 def load_data():
     trades = pd.read_parquet(DATA_DIR / "execution_trades.parquet")
+    away_trades = pd.read_parquet(DATA_DIR / "away_execution_trades.parquet")
     if DATASET_PATH.exists():
         frame = pd.read_parquet(DATASET_PATH)
         if "dataset_version" in frame and frame.dataset_version.eq(1).all():
-            return frame, trades
+            return frame, trades, away_trades
     raise FileNotFoundError(
         "data/decision_rows.parquet is required; raw dataset rebuilding is "
         "intentionally outside this self-contained training package"
@@ -68,9 +69,10 @@ def metrics(frame, probability):
 
 
 def main() -> None:
-    frame, trades = load_data()
+    frame, trades, away_trades = load_data()
     frame["game_date"] = pd.to_datetime(frame.game_date).dt.date
     trades["game_date"] = pd.to_datetime(trades.game_date).dt.date
+    away_trades["game_date"] = pd.to_datetime(away_trades.game_date).dt.date
     fit = frame[frame.game_date < FIT_END].copy()
     cal = frame[(frame.game_date >= FIT_END) & (frame.game_date < CAL_END)].copy()
     tune = frame[(frame.game_date >= CAL_END) & (frame.game_date < HOLDOUT_START)].copy()
@@ -102,23 +104,29 @@ def main() -> None:
     }
     tune_probability = calibrated_probability(model, tune, calibration)
     tune_games = set(tune.game_pk)
-    tune_trades = trades[trades.game_pk.isin(tune_games)].copy()
+    tune_trades = away_trades[away_trades.game_pk.isin(tune_games)].copy()
     dates = sorted(tune.game_date.unique())
     folds = [set(values) for values in np.array_split(dates, 3)]
     rows = []
     for minimum_ev in [0.0, .25, .50, 1.0, 1.5, 2.0]:
         for edge in [.01, .02, .03, .04, .05, .075, .10, .15]:
-          for side_filter in ["both", "yes", "no"]:
+          for maximum_positions in [1, 3, 5]:
             config = MispricingConfig(
                 minimum_expected_pnl=minimum_ev,
                 minimum_probability_edge=edge,
-                side_filter=side_filter,
+                side_filter="no",
+                execution_contract="away_yes",
+                maximum_positions_per_game=maximum_positions,
             )
-            result = simulate_mispricing(tune, tune_probability, tune_trades, config)
+            result = simulate_away_yes(
+                tune, tune_probability, tune_trades, config
+            )
             row = {
                 "minimum_expected_pnl": minimum_ev,
                 "minimum_probability_edge": edge,
-                "side_filter": side_filter,
+                "side_filter": "no",
+                "execution_contract": "away_yes",
+                "maximum_positions_per_game": maximum_positions,
                 "trades": result.trades, "yes_trades": result.yes_trades,
                 "no_trades": result.no_trades, "pnl": result.pnl,
                 "fees": result.fees, "capital": result.capital, "roi": result.roi,
@@ -128,7 +136,7 @@ def main() -> None:
                 mask = tune.game_date.isin(fold_dates).to_numpy()
                 fold_frame = tune.loc[mask]
                 games = set(fold_frame.game_pk)
-                fold_result = simulate_mispricing(
+                fold_result = simulate_away_yes(
                     fold_frame, tune_probability[mask],
                     tune_trades[tune_trades.game_pk.isin(games)], config,
                 )
@@ -151,16 +159,16 @@ def main() -> None:
         ["roi", "pnl", "trades"], ascending=False
     )
     high_coverage = stable[
-        (stable.side_filter == "no")
-        & (stable.worst_fold_roi >= 0.20) & (stable.roi >= 0.25)
+        (stable.execution_contract == "away_yes")
+        & (stable.worst_fold_roi >= 0.15) & (stable.roi >= 0.20)
     ].sort_values(
         ["trades", "worst_fold_roi", "roi", "pnl"], ascending=False
     )
     if not high_coverage.empty:
         selected = high_coverage.iloc[0]
         selection_rule = (
-            "maximum trades among NO-only policies with all folds profitable, "
-            "worst-fold ROI >=20%, and aggregate tuning ROI >=25%"
+            "maximum trades among paired away-YES policies with all folds "
+            "profitable, worst-fold ROI >=15%, and aggregate ROI >=20%"
         )
     elif not stable.empty:
         selected = stable.iloc[0]
@@ -173,6 +181,8 @@ def main() -> None:
         minimum_expected_pnl=float(selected.minimum_expected_pnl),
         minimum_probability_edge=float(selected.minimum_probability_edge),
         side_filter=str(selected.side_filter),
+        execution_contract=str(selected.execution_contract),
+        maximum_positions_per_game=int(selected.maximum_positions_per_game),
     )
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
     STUDY_DIR.mkdir(parents=True, exist_ok=True)

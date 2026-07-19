@@ -127,10 +127,12 @@ def main() -> None:
         return
     print("\nShared data setup complete:", flush=True)
     print(f"  {ROOT / 'data/shared/home_market_trades.parquet'}", flush=True)
+    print(f"  {ROOT / 'data/shared/away_market_trades.parquet'}", flush=True)
     print(f"  {ROOT / 'data/shared/state_updates.parquet'}", flush=True)
     if args.strategy in {"mispricing", "both"}:
         print(f"  {ROOT / 'data/settlement_value/decision_rows.parquet'}", flush=True)
         print(f"  {ROOT / 'data/settlement_value/execution_trades.parquet'}", flush=True)
+        print(f"  {ROOT / 'data/settlement_value/away_execution_trades.parquet'}", flush=True)
 
 
 if __name__ == "__main__":
