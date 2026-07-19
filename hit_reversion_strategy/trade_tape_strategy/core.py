@@ -14,7 +14,7 @@ import numpy as np
 import pandas as pd
 
 from .hybrid import anchored_event_target
-from .strategy import CONFIG, taker_fee
+from .strategy import CONFIG, estimated_round_trip_fee_per_contract, taker_fee
 
 
 @dataclass(frozen=True)
@@ -119,8 +119,24 @@ def trade_signal(
     yes_price: float,
     minimum_edge: float,
 ) -> tuple[str | None, float]:
-    yes_edge = target - yes_price
-    no_edge = yes_price - target
+    """Return a side only when its edge remains after estimated taker fees.
+
+    ``minimum_edge`` is a net threshold. The fee reserve covers both entry
+    and an early taker exit, using the same fixed-dollar position sizing as
+    the simulator. Trade-tape prices are complementary, so the executable
+    NO price is one minus the observed YES price.
+    """
+    no_price = 1.0 - yes_price
+    yes_edge = (
+        target
+        - yes_price
+        - estimated_round_trip_fee_per_contract(yes_price)
+    )
+    no_edge = (
+        yes_price
+        - target
+        - estimated_round_trip_fee_per_contract(no_price)
+    )
     if yes_edge >= minimum_edge:
         return "yes", yes_edge
     if no_edge >= minimum_edge:

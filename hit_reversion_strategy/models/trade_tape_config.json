@@ -1,7 +1,7 @@
 {
   "enabled": false,
-  "minimum_edge": 0.04,
-  "confirmation_seconds": 2.0,
+  "minimum_edge": 0.075,
+  "confirmation_seconds": 1.0,
   "maximum_pre_event_trade_age_seconds": 5.0,
   "maximum_event_to_entry_seconds": 10.0,
   "invalidate_on_next_pitch": true,

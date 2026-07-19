@@ -12,10 +12,15 @@ from trade_tape_strategy.core import (
 
 
 class TradeTapeStrategyTests(unittest.TestCase):
-    def test_trade_signal_is_relative_to_yes_price(self):
+    def test_trade_signal_is_relative_to_yes_price_after_fees(self):
         self.assertEqual(trade_signal(0.60, 0.50, 0.05)[0], "yes")
         self.assertEqual(trade_signal(0.40, 0.50, 0.05)[0], "no")
         self.assertIsNone(trade_signal(0.52, 0.50, 0.05)[0])
+
+    def test_trade_signal_rejects_gross_edge_consumed_by_fees(self):
+        side, net_edge = trade_signal(0.56, 0.50, 0.05)
+        self.assertIsNone(side)
+        self.assertAlmostEqual(net_edge, 0.025)
 
     def test_position_has_no_time_based_exit(self):
         trades, updates = self._frames(include_reversion=False)
