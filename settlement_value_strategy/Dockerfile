@@ -8,4 +8,3 @@ RUN pip install --no-cache-dir -r /app/requirements.txt
 COPY settlement_value_strategy /app/settlement_value_strategy
 
 ENTRYPOINT ["python", "-m", "settlement_value_strategy.backtest"]
-

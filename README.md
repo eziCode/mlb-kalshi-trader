@@ -139,3 +139,23 @@ READMEs for single-game, all-game, discovery, logging, and safety options:
 
 - [`settlement_value_strategy/README.md`](settlement_value_strategy/README.md)
 - [`hit_reversion_strategy/README.md`](hit_reversion_strategy/README.md)
+
+Both strategies use the same container layout:
+
+```text
+/app/settlement_value_strategy
+/app/hit_reversion_strategy
+/app/paper_logs
+```
+
+Query a running container without referring to its internal Python script:
+
+```bash
+docker exec \
+  -e PAPER_PORTFOLIO_DB=/app/paper_logs/settlement_value_portfolio_YYYY-MM-DD.sqlite3 \
+  settlement-value-paper /app/docker-entrypoint.sh mispricing portfolio-status
+
+docker exec \
+  -e PAPER_PORTFOLIO_DB=/app/paper_logs/hit_reversion_portfolio_YYYY-MM-DD.sqlite3 \
+  hit-reversion-paper /app/docker-entrypoint.sh trade-tape portfolio-status
+```
