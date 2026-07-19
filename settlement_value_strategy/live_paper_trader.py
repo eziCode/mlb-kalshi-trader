@@ -24,7 +24,6 @@ import sqlite3
 import subprocess
 import sys
 import threading
-import time
 
 from catboost import CatBoostClassifier
 import numpy as np
@@ -600,20 +599,22 @@ async def run_worker() -> None:
     state_model.load_model(ROOT / "model/local_win_expectancy.cbm")
     portfolio_path = Path(os.getenv(
         "PAPER_PORTFOLIO_DB",
-        str(LOG_DIR / f"paper_portfolio_{date.today()}_game_{GAME_PK}.sqlite3"),
+        str(LOG_DIR / f"settlement_value_portfolio_{date.today()}_game_{GAME_PK}.sqlite3"),
     ))
     portfolio = SharedPaperPortfolio(
         portfolio_path, float(os.getenv("PAPER_STARTING_CASH", "1000"))
     )
     pregame_prob = await asyncio.to_thread(fetch_pregame_anchor)
     LOG_DIR.mkdir(parents=True, exist_ok=True)
-    log_path = LOG_DIR / f"mispricing_{MARKET_TICKER}_{int(time.time())}.csv"
-    with log_path.open("w", newline="") as handle:
-        csv.writer(handle).writerow([
-            "time", "pitch", "bid", "ask", "market_trade", "fair_before",
-            "fair_after", "settlement_probability", "side", "expected_pnl",
-            "edge", "action", "cash", "equity", "portfolio_pnl",
-        ])
+    log_path = LOG_DIR / f"settlement_value_decisions_{MARKET_TICKER}.csv"
+    new_log = not log_path.exists() or log_path.stat().st_size == 0
+    if new_log:
+        with log_path.open("a", newline="") as handle:
+            csv.writer(handle).writerow([
+                "time", "pitch", "bid", "ask", "market_trade", "fair_before",
+                "fair_after", "settlement_probability", "side", "expected_pnl",
+                "edge", "action", "cash", "equity", "portfolio_pnl",
+            ])
     position = portfolio.load_position(int(GAME_PK))
     if position:
         print(f"Recovered open {position.side.upper()} position for game {GAME_PK}")
@@ -639,8 +640,16 @@ async def run_worker() -> None:
                 ) or (
                     position.side == "no" and game.home_score < game.away_score
                 )
-                portfolio.settle(int(GAME_PK), position.contracts if won else 0.0)
-                print(f"SETTLE_{position.side.upper()} {'WIN' if won else 'LOSS'}")
+                payout = position.contracts if won else 0.0
+                portfolio.settle(int(GAME_PK), payout)
+                print(
+                    f"TRADE SETTLE {position.side.upper()} "
+                    f"result={'WIN' if won else 'LOSS'} "
+                    f"contracts={position.contracts:.4f} payout={payout:.4f} "
+                    f"reason=GAME_FINAL game_pk={GAME_PK} "
+                    f"ticker={MARKET_TICKER}",
+                    flush=True,
+                )
             metrics = portfolio.metrics()
             print(f"Shared portfolio: equity=${metrics.equity:.2f} PnL=${metrics.pnl:+.2f}")
             return
@@ -771,7 +780,7 @@ def _relay(stream, handle, label: str) -> None:
         handle.write(line)
         handle.flush()
         if any(marker in line for marker in (
-            "TRADE ", "SETTLE_", "Shared portfolio"
+            "TRADE ", "Shared portfolio"
         )):
             print(f"[{label}] {line.rstrip()}", flush=True)
 
@@ -795,14 +804,16 @@ def run_all_games(game_date: date) -> int:
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     database = Path(os.getenv(
         "PAPER_PORTFOLIO_DB",
-        str(LOG_DIR / f"paper_portfolio_{game_date}.sqlite3"),
+        str(LOG_DIR / f"settlement_value_portfolio_{game_date}.sqlite3"),
     ))
-    SharedPaperPortfolio(database, float(os.getenv("PAPER_STARTING_CASH", "1000")))
+    portfolio = SharedPaperPortfolio(
+        database, float(os.getenv("PAPER_STARTING_CASH", "1000"))
+    )
     children = []
     try:
         for game in games:
-            path = LOG_DIR / f"console_{game.market_ticker}_{int(time.time())}.log"
-            handle = path.open("w")
+            path = LOG_DIR / f"settlement_value_console_{game.market_ticker}.log"
+            handle = path.open("a")
             env = os.environ.copy()
             env.update({
                 "MLB_GAME_PK": str(game.game_pk),
@@ -816,24 +827,42 @@ def run_all_games(game_date: date) -> int:
             )
             thread = threading.Thread(
                 target=_relay, args=(process.stdout, handle,
-                    f"{game.away_code}@{game.home_code}"), daemon=True,
+                    f"{game.away_code}@{game.home_code} {game.market_ticker}"), daemon=True,
             )
             thread.start()
-            children.append((process, handle, thread))
+            children.append((game, process, handle, thread))
             print(
                 f"Trader started: {game.away_code}@{game.home_code} "
                 f"game_pk={game.game_pk} ticker={game.market_ticker} "
                 f"game_log={path}",
                 flush=True,
             )
-        return max(process.wait() for process, _, _ in children)
+        opening = portfolio.metrics()
+        print(
+            f"Running {len(children)} isolated paper traders with shared "
+            f"cash=${opening.cash:.2f}."
+        )
+        return_code = 0
+        for game, process, _, thread in children:
+            code = process.wait()
+            thread.join(timeout=5)
+            if code:
+                return_code = code
+                print(f"Game {game.game_pk} exited with status {code}")
+        final = portfolio.metrics()
+        print(
+            f"Shared portfolio: cash=${final.cash:.2f} "
+            f"equity=${final.equity:.2f} PnL=${final.pnl:+.2f} "
+            f"open_positions={final.open_positions}"
+        )
+        return return_code
     except KeyboardInterrupt:
-        for process, _, _ in children:
+        for _, process, _, _ in children:
             if process.poll() is None:
                 process.terminate()
         return 130
     finally:
-        for process, handle, thread in children:
+        for _, process, handle, thread in children:
             if process.poll() is None:
                 process.terminate()
             thread.join(timeout=5)
@@ -862,7 +891,7 @@ if __name__ == "__main__":
             )
     elif args.portfolio_status:
         path = Path(os.getenv(
-            "PAPER_PORTFOLIO_DB", str(LOG_DIR / "paper_portfolio.sqlite3")
+            "PAPER_PORTFOLIO_DB", str(LOG_DIR / "settlement_value_portfolio.sqlite3")
         ))
         metrics = SharedPaperPortfolio(path).metrics()
         print(

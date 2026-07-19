@@ -14,7 +14,6 @@ import sqlite3
 import subprocess
 import sys
 import threading
-import time
 
 import pandas as pd
 import requests
@@ -431,22 +430,19 @@ def run_daily_coordinator(game_date: date) -> int:
     log_dir.mkdir(parents=True, exist_ok=True)
     portfolio_path = Path(os.getenv(
         "PAPER_PORTFOLIO_DB",
-        str(log_dir / f"paper_portfolio_{game_date.isoformat()}.sqlite3"),
+        str(log_dir / f"hit_reversion_portfolio_{game_date.isoformat()}.sqlite3"),
     ))
     portfolio = SharedPaperPortfolio(
         portfolio_path,
         float(os.getenv("PAPER_STARTING_CASH", "1000")),
     )
-    run_id = int(time.time())
     children: list[
         tuple[DiscoveredGame, subprocess.Popen, object, threading.Thread]
     ] = []
     try:
         for game in games:
-            console_path = log_dir / (
-                f"paper_console_{game.market_ticker}_{run_id}.log"
-            )
-            handle = console_path.open("w")
+            console_path = log_dir / f"hit_reversion_console_{game.market_ticker}.log"
+            handle = console_path.open("a")
             env = os.environ.copy()
             env["MLB_GAME_PK"] = str(game.game_pk)
             env["KALSHI_MARKET_TICKER"] = game.market_ticker
@@ -706,7 +702,7 @@ async def main() -> None:
     portfolio_path = Path(os.getenv(
         "PAPER_PORTFOLIO_DB",
         str(LOG_DIR / (
-            f"paper_portfolio_{datetime.now().astimezone().date()}_"
+            f"hit_reversion_portfolio_{datetime.now().astimezone().date()}_"
             f"game_{GAME_PK}.sqlite3"
         )),
     ))
@@ -725,16 +721,18 @@ async def main() -> None:
 
     log_dir = LOG_DIR
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_path = log_dir / f"paper_trade_log_{MARKET_TICKER}_{int(time.time())}.csv"
-    with log_path.open("w", newline="") as handle:
-        csv.writer(handle).writerow([
-            "decision_time", "market_received_at", "state_received_at",
-            "bid", "ask", "inning", "outs", "score_diff", "fair_prob",
-            "completed_event_id", "completed_event", "target", "excess_move",
-            "edge", "continuation_value", "exit_advantage", "action",
-            "portfolio_cash", "portfolio_equity", "portfolio_pnl",
-            "portfolio_open_positions",
-        ])
+    log_path = log_dir / f"hit_reversion_decisions_{MARKET_TICKER}.csv"
+    new_log = not log_path.exists() or log_path.stat().st_size == 0
+    if new_log:
+        with log_path.open("a", newline="") as handle:
+            csv.writer(handle).writerow([
+                "decision_time", "market_received_at", "state_received_at",
+                "bid", "ask", "inning", "outs", "score_diff", "fair_prob",
+                "completed_event_id", "completed_event", "target", "excess_move",
+                "edge", "continuation_value", "exit_advantage", "action",
+                "portfolio_cash", "portfolio_equity", "portfolio_pnl",
+                "portfolio_open_positions",
+            ])
 
     position = portfolio.load_position(int(GAME_PK))
     if position is not None:
@@ -765,8 +763,17 @@ async def main() -> None:
                 ) or (
                     position.side == "no" and game.home_score < game.away_score
                 )
-                portfolio.close_position(
-                    int(GAME_PK), position.contracts if won else 0.0
+                settled_side = position.side
+                settled_contracts = position.contracts
+                payout = position.contracts if won else 0.0
+                portfolio.close_position(int(GAME_PK), payout)
+                print(
+                    f"TRADE SETTLE {settled_side.upper()} "
+                    f"result={'WIN' if won else 'LOSS'} "
+                    f"contracts={settled_contracts:.4f} payout={payout:.4f} "
+                    f"reason=GAME_FINAL game_pk={GAME_PK} "
+                    f"ticker={MARKET_TICKER}",
+                    flush=True,
                 )
                 position = None
             final = portfolio.metrics()
@@ -1040,7 +1047,7 @@ if __name__ == "__main__":
         if args.portfolio_status:
             path = Path(os.getenv(
                 "PAPER_PORTFOLIO_DB",
-                str(LOG_DIR / "paper_portfolio.sqlite3"),
+                str(LOG_DIR / "hit_reversion_portfolio.sqlite3"),
             ))
             portfolio = SharedPaperPortfolio(
                 path, float(os.getenv("PAPER_STARTING_CASH", "1000"))
