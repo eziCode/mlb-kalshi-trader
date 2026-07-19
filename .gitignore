@@ -1,0 +1,23 @@
+# Python environments and caches
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+
+# Operating-system files
+.DS_Store
+
+# Downloaded and generated data. Users recreate these with setup_data.py.
+/data/raw/
+/data/processed/
+/data/shared/
+/data/settlement_value/
+/data/hit_reversion/
+
+# Paper-trading runtime state
+**/logs/
+settlement_value_strategy/results/live/
+*.sqlite3
+*.sqlite3-shm
+*.sqlite3-wal

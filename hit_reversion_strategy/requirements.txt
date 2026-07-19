@@ -1,0 +1,5 @@
+catboost==1.2.10
+numpy==2.5.1
+pandas==3.0.3
+pyarrow>=18.0.0
+requests==2.34.2

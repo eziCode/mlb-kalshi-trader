@@ -1,0 +1,32 @@
+{
+  "holdout_start": "2026-06-28",
+  "decision_rows": 46935,
+  "games": 220,
+  "config": {
+    "enabled": false,
+    "observation_delay_seconds": 1.0,
+    "anchor_buffer_seconds": 2.0,
+    "maximum_anchor_age_seconds": 5.0,
+    "maximum_fill_delay_seconds": 5.0,
+    "minimum_expected_pnl": 1.0,
+    "minimum_probability_edge": 0.03,
+    "bet_size": 10.0,
+    "side_filter": "no",
+    "tuning_passed": true,
+    "validation_passed": true
+  },
+  "orders": 295,
+  "trades": 55,
+  "yes_trades": 0,
+  "no_trades": 55,
+  "fees": 26.879999999999995,
+  "capital": 576.88,
+  "pnl": 138.9562965959713,
+  "roi": 0.24087556614195554,
+  "probability_metrics": {
+    "roc_auc": 0.8643897931600768,
+    "log_loss": 0.46351610004155075,
+    "brier": 0.15385906359850032
+  },
+  "validation_passed": true
+}

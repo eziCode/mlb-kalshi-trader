@@ -1,0 +1,52 @@
+from __future__ import annotations
+
+import unittest
+
+import pandas as pd
+
+from settlement_value_strategy.strategy import (
+    MISPRICING_FEATURES, MispricingConfig, mispricing_feature_frame,
+    signal_economics, simulate_mispricing,
+)
+
+
+class MispricingTests(unittest.TestCase):
+    def test_feature_contract_is_event_agnostic(self):
+        self.assertFalse(any("event" in name for name in MISPRICING_FEATURES))
+        frame = pd.DataFrame({name: [0.0] for name in MISPRICING_FEATURES})
+        frame["event_type"] = "double"
+        self.assertNotIn("event_type", mispricing_feature_frame(frame))
+
+    def test_signal_economics_selects_undervalued_yes(self):
+        yes_ev, no_ev = signal_economics(0.70, 0.40)
+        self.assertGreater(yes_ev, 0)
+        self.assertLess(no_ev, 0)
+
+    def test_fill_is_strictly_later_and_holds_to_settlement(self):
+        signal_time = pd.Timestamp("2026-06-01T12:00:00Z")
+        frame = pd.DataFrame({
+            "game_pk": [1], "signal_time": [signal_time],
+            "next_update_time": [signal_time + pd.Timedelta(seconds=4)],
+            "market_home_price": [0.40], "home_win": [1],
+        })
+        trades = pd.DataFrame({
+            "game_pk": [1, 1], "trade_id": [1, 2],
+            "created_time": [signal_time, signal_time + pd.Timedelta(seconds=1)],
+            "yes_price_dollars": [0.40, 0.41],
+            "no_price_dollars": [0.60, 0.59],
+            "count_fp": [100.0, 100.0],
+            "taker_outcome_side": ["yes", "yes"],
+        })
+        result = simulate_mispricing(
+            frame, [0.80], trades,
+            MispricingConfig(
+                minimum_expected_pnl=0, minimum_probability_edge=0,
+            ),
+        )
+        self.assertEqual(result.trades, 1)
+        self.assertEqual(result.records[0]["fill_time"], trades.created_time.iloc[1])
+        self.assertGreater(result.pnl, 0)
+
+
+if __name__ == "__main__":
+    unittest.main()
