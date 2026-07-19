@@ -7,6 +7,7 @@ import pandas as pd
 from settlement_value_strategy.strategy import (
     MISPRICING_FEATURES, MispricingConfig, mispricing_feature_frame,
     signal_economics, simulate_mispricing,
+    simulate_away_yes,
 )
 
 
@@ -45,6 +46,41 @@ class MispricingTests(unittest.TestCase):
         )
         self.assertEqual(result.trades, 1)
         self.assertEqual(result.records[0]["fill_time"], trades.created_time.iloc[1])
+        self.assertGreater(result.pnl, 0)
+
+    def test_away_view_routes_to_paired_yes_and_respects_game_cap(self):
+        signal_time = pd.Timestamp("2026-06-01T12:00:00Z")
+        frame = pd.DataFrame({
+            "game_pk": [1, 1],
+            "signal_time": [signal_time, signal_time + pd.Timedelta(seconds=2)],
+            "next_update_time": [
+                signal_time + pd.Timedelta(seconds=2),
+                signal_time + pd.Timedelta(seconds=4),
+            ],
+            "market_home_price": [.60, .60], "home_win": [0, 0],
+        })
+        trades = pd.DataFrame({
+            "game_pk": [1, 1, 1], "trade_id": [1, 2, 3],
+            "created_time": [
+                signal_time - pd.Timedelta(seconds=1),
+                signal_time + pd.Timedelta(seconds=1),
+                signal_time + pd.Timedelta(seconds=3),
+            ],
+            "yes_price_dollars": [.35, .36, .36],
+            "count_fp": [100.0, 100.0, 100.0],
+            "taker_outcome_side": ["yes", "yes", "yes"],
+        })
+        result = simulate_away_yes(
+            frame, [.40, .40], trades,
+            MispricingConfig(
+                minimum_expected_pnl=0, minimum_probability_edge=0,
+                maximum_positions_per_game=1,
+                minimum_seconds_between_entries=0,
+            ),
+        )
+        self.assertEqual(result.trades, 1)
+        self.assertEqual(result.yes_trades, 1)
+        self.assertEqual(result.records[0]["execution_contract"], "away_yes")
         self.assertGreater(result.pnl, 0)
 
 

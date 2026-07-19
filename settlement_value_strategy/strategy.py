@@ -88,6 +88,8 @@ class MispricingConfig:
     bet_size: float = 10.0
     side_filter: str = "both"
     minimum_seconds_between_entries: float = 30.0
+    execution_contract: str = "away_yes"
+    maximum_positions_per_game: int = 5
 
 
 @dataclass
@@ -317,5 +319,109 @@ def simulate_mispricing(
                     "pnl": pnl,
                 })
                 last_fill_ns = int(times[i])
+                break
+    return result
+
+
+def simulate_away_yes(
+    frame: pd.DataFrame,
+    probabilities,
+    away_trades: pd.DataFrame,
+    config: MispricingConfig,
+) -> MispricingResult:
+    """Route the model's away-team view into the paired away YES contract.
+
+    The forecast remains the home win probability. An away YES contract has
+    fair value ``1 - home_probability`` and settles identically to home NO,
+    while using the independent paired market's price, size, and trade flow.
+    """
+    work = frame.copy()
+    work["fair_probability"] = np.asarray(probabilities, float)
+    result = MispricingResult(signals=len(work))
+    tape_by_game = {
+        int(game): group.sort_values(["created_time", "trade_id"])
+        for game, group in away_trades.groupby("game_pk", sort=False)
+    }
+    for game_pk, game in work.groupby("game_pk", sort=False):
+        tape = tape_by_game.get(int(game_pk))
+        if tape is None or tape.empty:
+            continue
+        times = pd.to_datetime(
+            tape.created_time, utc=True
+        ).array.as_unit("ns").asi8
+        prices = tape.yes_price_dollars.to_numpy(float)
+        sizes = tape.count_fp.to_numpy(float)
+        taker_sides = tape.taker_outcome_side.astype(str).to_numpy()
+        last_fill_ns: int | None = None
+        positions = 0
+        for row in game.sort_values("signal_time").itertuples(index=False):
+            if positions >= config.maximum_positions_per_game:
+                break
+            away_fair = 1.0 - float(row.fair_probability)
+            signal_ns = pd.Timestamp(row.signal_time).value
+            deadline = signal_ns + int(config.maximum_fill_delay_seconds * 1e9)
+            if pd.notna(row.next_update_time):
+                deadline = min(deadline, pd.Timestamp(row.next_update_time).value)
+            start = int(np.searchsorted(times, signal_ns, side="right"))
+            stop = int(np.searchsorted(times, deadline, side="left"))
+            if start == 0:
+                continue
+            observed_price = float(prices[start - 1])
+            observed_contracts = config.bet_size / observed_price
+            observed_fee = taker_fee(observed_contracts, observed_price)
+            observed_ev = (
+                observed_contracts * (away_fair - observed_price)
+                - observed_fee
+            )
+            if (
+                away_fair - observed_price < config.minimum_probability_edge
+                or observed_ev < config.minimum_expected_pnl
+            ):
+                continue
+            result.orders += 1
+            if last_fill_ns is not None:
+                next_allowed_ns = last_fill_ns + int(
+                    config.minimum_seconds_between_entries * 1e9
+                )
+                start = max(
+                    start,
+                    int(np.searchsorted(times, next_allowed_ns, side="left")),
+                )
+            for index in range(start, stop):
+                if not compatible_taker("yes", taker_sides[index]):
+                    continue
+                price = float(prices[index])
+                contracts = config.bet_size / price
+                if sizes[index] < contracts:
+                    continue
+                fee = taker_fee(contracts, price)
+                expected = contracts * (away_fair - price) - fee
+                edge = away_fair - price
+                if (
+                    expected < config.minimum_expected_pnl
+                    or edge < config.minimum_probability_edge
+                ):
+                    continue
+                won = int(row.home_win) == 0
+                pnl = (contracts if won else 0.0) - contracts * price - fee
+                result.trades += 1
+                result.yes_trades += 1
+                result.fees += fee
+                result.capital += config.bet_size + fee
+                result.pnl += pnl
+                result.records.append({
+                    **row._asdict(),
+                    "model_side": "no",
+                    "side": "yes",
+                    "execution_contract": "away_yes",
+                    "fill_time": pd.Timestamp(times[index], tz="UTC"),
+                    "fill_price": price,
+                    "contracts": contracts,
+                    "entry_fee": fee,
+                    "predicted_expected_pnl": expected,
+                    "pnl": pnl,
+                })
+                last_fill_ns = int(times[index])
+                positions += 1
                 break
     return result

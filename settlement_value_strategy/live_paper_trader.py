@@ -45,6 +45,7 @@ from settlement_value_strategy.strategy import (
 
 GAME_PK_TEXT = os.getenv("MLB_GAME_PK")
 MARKET_TICKER = os.getenv("KALSHI_MARKET_TICKER")
+AWAY_MARKET_TICKER = os.getenv("KALSHI_AWAY_MARKET_TICKER")
 GAME_PK = int(GAME_PK_TEXT) if GAME_PK_TEXT else None
 POLL_SECONDS = float(os.getenv("POLL_SECONDS", "1.0"))
 LOG_DIR = Path(os.getenv("PAPER_LOG_DIR", str(ROOT / "results/live")))
@@ -110,6 +111,7 @@ class DiscoveredGame:
     away_code: str
     home_code: str
     market_ticker: str
+    away_market_ticker: str
 
 
 class SharedPaperPortfolio:
@@ -237,15 +239,21 @@ class SharedPaperPortfolio:
             for row in rows
         ]
 
-    def update_marks(self, game_pk: int, yes_bid: float, yes_ask: float) -> None:
+    def update_marks(
+        self, game_pk: int, yes_bid: float, yes_ask: float,
+        away_yes_bid: float | None = None,
+    ) -> None:
         with closing(self._connect()) as connection, connection:
             connection.execute(
                 """UPDATE positions SET mark_price=CASE
-                    WHEN side='yes' THEN ? ELSE 1.0-? END,
+                    WHEN side='yes' THEN ?
+                    WHEN side='away_yes' THEN ?
+                    ELSE 1.0-? END,
                     updated_at=? WHERE game_pk=?""",
                 (
-                    yes_bid, yes_ask, datetime.now(timezone.utc).isoformat(),
-                    game_pk,
+                    yes_bid,
+                    away_yes_bid if away_yes_bid is not None else 1.0-yes_ask,
+                    yes_ask, datetime.now(timezone.utc).isoformat(), game_pk,
                 ),
             )
 
@@ -394,9 +402,10 @@ def build_live_decision_row(
     return row
 
 
-def fetch_market_snapshot() -> MarketSnapshot:
+def fetch_market_snapshot(ticker: str | None = None) -> MarketSnapshot:
+    ticker = ticker or MARKET_TICKER
     response = requests.get(
-        f"{KALSHI_API}/markets/{MARKET_TICKER}/orderbook", timeout=5
+        f"{KALSHI_API}/markets/{ticker}/orderbook", timeout=5
     )
     response.raise_for_status()
     book = response.json().get("orderbook_fp") or {}
@@ -410,10 +419,11 @@ def fetch_market_snapshot() -> MarketSnapshot:
     return MarketSnapshot(datetime.now(timezone.utc), bid, ask)
 
 
-def fetch_recent_trades() -> pd.DataFrame:
+def fetch_recent_trades(ticker: str | None = None) -> pd.DataFrame:
+    ticker = ticker or MARKET_TICKER
     response = requests.get(
         f"{KALSHI_API}/markets/trades",
-        params={"ticker": MARKET_TICKER, "limit": 1000}, timeout=5,
+        params={"ticker": ticker, "limit": 1000}, timeout=5,
     )
     response.raise_for_status()
     rows = response.json().get("trades") or []
@@ -643,6 +653,7 @@ def discover_daily_games(game_date: date) -> tuple[list[DiscoveredGame], list[st
             matched.append(DiscoveredGame(
                 int(game["gamePk"]), scheduled, away, home,
                 str(by_team[home]["ticker"]),
+                str(by_team[away]["ticker"]),
             ))
     return sorted(matched, key=lambda game: game.scheduled_time), warnings
 
@@ -651,6 +662,11 @@ async def run_worker() -> None:
     if GAME_PK is None or not MARKET_TICKER:
         raise RuntimeError("Set MLB_GAME_PK and KALSHI_MARKET_TICKER")
     predictor = MispricingPredictor()
+    if (
+        predictor.config.execution_contract == "away_yes"
+        and not AWAY_MARKET_TICKER
+    ):
+        raise RuntimeError("Set KALSHI_AWAY_MARKET_TICKER for away YES routing")
     if not predictor.config.enabled and os.getenv(
         "ALLOW_UNVALIDATED_MISPRICING"
     ) != "1":
@@ -706,6 +722,9 @@ async def run_worker() -> None:
                     ) or (
                         position.side == "no"
                         and game.home_score < game.away_score
+                    ) or (
+                        position.side == "away_yes"
+                        and game.home_score < game.away_score
                     )
                     payout = position.contracts if won else 0.0
                     total_payout += payout
@@ -714,7 +733,8 @@ async def run_worker() -> None:
                         f"result={'WIN' if won else 'LOSS'} "
                         f"contracts={position.contracts:.4f} "
                         f"payout={payout:.4f} reason=GAME_FINAL "
-                        f"game_pk={GAME_PK} ticker={MARKET_TICKER}",
+                        f"game_pk={GAME_PK} ticker="
+                        f"{AWAY_MARKET_TICKER if position.side == 'away_yes' else MARKET_TICKER}",
                         flush=True,
                     )
                 portfolio.settle(int(GAME_PK), total_payout)
@@ -726,21 +746,26 @@ async def run_worker() -> None:
             await asyncio.sleep(POLL_SECONDS)
             continue
         try:
-            market, trades = await asyncio.gather(
-                asyncio.to_thread(fetch_market_snapshot),
+            market, trades, away_market = await asyncio.gather(
+                asyncio.to_thread(fetch_market_snapshot, MARKET_TICKER),
                 asyncio.to_thread(fetch_recent_trades),
+                asyncio.to_thread(fetch_market_snapshot, AWAY_MARKET_TICKER),
             )
         except Exception as error:
             print(f"Market snapshot rejected: {error}", flush=True)
             await asyncio.sleep(POLL_SECONDS)
             continue
         if positions:
-            portfolio.update_marks(int(GAME_PK), market.bid, market.ask)
+            portfolio.update_marks(
+                int(GAME_PK), market.bid, market.ask, away_market.bid
+            )
         if previous_game is None or previous_game.status != "Live":
             print(
                 f"TRADER READY game_pk={GAME_PK} ticker={MARKET_TICKER} "
                 f"status=LIVE inning={game.state['inning']} "
-                f"bid={market.bid:.4f} ask={market.ask:.4f}",
+                f"home_bid={market.bid:.4f} home_ask={market.ask:.4f} "
+                f"away_bid={away_market.bid:.4f} "
+                f"away_ask={away_market.ask:.4f}",
                 flush=True,
             )
             previous_game = game
@@ -785,21 +810,37 @@ async def run_worker() -> None:
         else:
             decision = predictor.decision(row)
             action = "NO_SIGNAL"
-            if decision["eligible"]:
-                side = str(decision["side"])
-                price = market.ask if side == "yes" else 1.0 - market.bid
+            if (
+                decision["eligible"]
+                or predictor.config.execution_contract == "away_yes"
+            ):
+                route_away_yes = (
+                    predictor.config.execution_contract == "away_yes"
+                )
+                side = "no" if route_away_yes else str(decision["side"])
+                execution_side = "away_yes" if route_away_yes else side
+                price = (
+                    away_market.ask if route_away_yes
+                    else market.ask if side == "yes" else 1.0 - market.bid
+                )
                 contracts = predictor.config.bet_size / price
                 fee = taker_fee(contracts, price)
                 probability = float(decision["settlement_probability"])
-                fill_yes = market.ask if side == "yes" else market.bid
-                yes_ev, no_ev = signal_economics(
-                    probability, fill_yes, predictor.config.bet_size
-                )
-                fill_ev = yes_ev if side == "yes" else no_ev
-                fill_edge = (
-                    probability - fill_yes
-                    if side == "yes" else fill_yes - probability
-                )
+                if route_away_yes:
+                    execution_probability = 1.0 - probability
+                    fill_edge = execution_probability - price
+                    fill_ev = contracts * fill_edge - fee
+                else:
+                    execution_probability = probability
+                    fill_yes = market.ask if side == "yes" else market.bid
+                    yes_ev, no_ev = signal_economics(
+                        probability, fill_yes, predictor.config.bet_size
+                    )
+                    fill_ev = yes_ev if side == "yes" else no_ev
+                    fill_edge = (
+                        probability - fill_yes
+                        if side == "yes" else fill_yes - probability
+                    )
                 if (
                     fill_ev < predictor.config.minimum_expected_pnl
                     or fill_edge < predictor.config.minimum_probability_edge
@@ -807,19 +848,30 @@ async def run_worker() -> None:
                     action = "SKIP_EXECUTABLE_PRICE_FAILED_THRESHOLDS"
                 else:
                     proposed = PaperPosition(
-                        side, contracts, price, fee, datetime.now(timezone.utc),
-                        probability, str(token),
+                        execution_side, contracts, price, fee,
+                        datetime.now(timezone.utc), execution_probability,
+                        str(token),
                     )
+                    if len(positions) >= predictor.config.maximum_positions_per_game:
+                        action = "SKIP_MAXIMUM_GAME_POSITIONS"
+                        handled_tokens.add(token)
+                        previous_game = game
+                        await asyncio.sleep(POLL_SECONDS)
+                        continue
                     if portfolio.open_position(
-                        int(GAME_PK), MARKET_TICKER, proposed,
+                        int(GAME_PK),
+                        AWAY_MARKET_TICKER if route_away_yes else MARKET_TICKER,
+                        proposed,
                         predictor.config.minimum_seconds_between_entries,
                     ):
                         positions.append(proposed)
-                        action = f"OPEN_{side.upper()}"
+                        action = f"OPEN_{execution_side.upper()}"
                         print(
-                            f"TRADE BUY {side.upper()} contracts={contracts:.4f} "
+                            f"TRADE BUY {'AWAY YES' if route_away_yes else side.upper()} "
+                            f"contracts={contracts:.4f} "
                             f"price={price:.4f} fee={fee:.4f} "
-                            f"game_pk={GAME_PK} ticker={MARKET_TICKER}",
+                            f"game_pk={GAME_PK} ticker="
+                            f"{AWAY_MARKET_TICKER if route_away_yes else MARKET_TICKER}",
                             flush=True,
                         )
                     else:
@@ -895,6 +947,7 @@ def run_all_games(game_date: date) -> int:
             env.update({
                 "MLB_GAME_PK": str(game.game_pk),
                 "KALSHI_MARKET_TICKER": game.market_ticker,
+                "KALSHI_AWAY_MARKET_TICKER": game.away_market_ticker,
                 "PAPER_PORTFOLIO_DB": str(database), "PYTHONUNBUFFERED": "1",
             })
             process = subprocess.Popen(
@@ -910,7 +963,8 @@ def run_all_games(game_date: date) -> int:
             children.append((game, process, handle, thread))
             print(
                 f"Trader started: {game.away_code}@{game.home_code} "
-                f"game_pk={game.game_pk} ticker={game.market_ticker} "
+                f"game_pk={game.game_pk} home_ticker={game.market_ticker} "
+                f"away_ticker={game.away_market_ticker} "
                 f"game_log={path}",
                 flush=True,
             )
@@ -964,7 +1018,8 @@ if __name__ == "__main__":
         for game in discovered:
             print(
                 f"{game.scheduled_time.isoformat()} {game.away_code}@{game.home_code} "
-                f"game_pk={game.game_pk} ticker={game.market_ticker}"
+                f"game_pk={game.game_pk} home_ticker={game.market_ticker} "
+                f"away_ticker={game.away_market_ticker}"
             )
     elif args.portfolio_status:
         path = Path(os.getenv(

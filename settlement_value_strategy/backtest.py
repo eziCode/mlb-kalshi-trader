@@ -17,7 +17,7 @@ if str(STRATEGY_DIR.parent) not in sys.path:
     sys.path.insert(0, str(STRATEGY_DIR.parent))
 
 from settlement_value_strategy.strategy import (  # noqa: E402
-    MispricingConfig, mispricing_feature_frame, simulate_mispricing,
+    MispricingConfig, mispricing_feature_frame, simulate_away_yes,
 )
 
 
@@ -35,7 +35,7 @@ def main() -> None:
     })
     calibration = json.loads((MODEL_DIR / "calibration.json").read_text())
     frame = pd.read_parquet(DATA_DIR / "decision_rows.parquet")
-    trades = pd.read_parquet(DATA_DIR / "execution_trades.parquet")
+    trades = pd.read_parquet(DATA_DIR / "away_execution_trades.parquet")
     frame["game_date"] = pd.to_datetime(frame.game_date).dt.date
     trades["game_date"] = pd.to_datetime(trades.game_date).dt.date
     frame = frame[frame.game_date >= HOLDOUT_START].copy()
@@ -50,7 +50,7 @@ def main() -> None:
     probability = 1 / (1 + np.exp(-(
         calibration["intercept"] + calibration["coefficient"] * logits
     )))
-    result = simulate_mispricing(frame, probability, trades, config)
+    result = simulate_away_yes(frame, probability, trades, config)
     passed = bool(result.trades >= 20 and result.pnl > 0 and result.roi > .10)
     raw_config["validation_passed"] = passed
     raw_config["enabled"] = False

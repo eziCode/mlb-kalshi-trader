@@ -42,11 +42,13 @@ def compact_execution_tape(
     """Keep only strictly-later trades inside some candidate fill window."""
     chunks = []
     delay_ns = int(maximum_delay * 1e9)
+    tapes = {
+        int(game_pk): tape.sort_values(["created_time", "trade_id"])
+        for game_pk, tape in trades.groupby("game_pk", sort=False)
+    }
     for game_pk, rows in decisions.groupby("game_pk", sort=False):
-        tape = trades[trades.game_pk.eq(game_pk)].sort_values(
-            ["created_time", "trade_id"]
-        )
-        if tape.empty:
+        tape = tapes.get(int(game_pk))
+        if tape is None or tape.empty:
             continue
         times = pd.to_datetime(tape.created_time, utc=True).array.as_unit("ns").asi8
         keep = np.zeros(len(tape), dtype=bool)
@@ -75,22 +77,36 @@ def main() -> None:
         "--states", type=Path,
         default=SHARED_DATA / "state_updates.parquet",
     )
+    parser.add_argument(
+        "--away-trades", type=Path,
+        default=SHARED_DATA / "away_market_trades.parquet",
+    )
     parser.add_argument("--output", type=Path, default=DATA)
     args = parser.parse_args()
     trades = pd.read_parquet(args.trades)
+    away_trades = pd.read_parquet(args.away_trades)
     states = pd.read_parquet(args.states)
     require_columns(trades, TRADE_COLUMNS, "trade tape")
+    require_columns(away_trades, TRADE_COLUMNS, "away trade tape")
     require_columns(states, STATE_COLUMNS, "state updates")
     trades["created_time"] = pd.to_datetime(trades.created_time, utc=True)
+    away_trades["created_time"] = pd.to_datetime(
+        away_trades.created_time, utc=True
+    )
     states["pitch_end_time"] = pd.to_datetime(states.pitch_end_time, utc=True)
     decisions = build_mispricing_dataset(trades, states, MispricingConfig())
     compact = compact_execution_tape(decisions, trades)
+    compact_away = compact_execution_tape(decisions, away_trades)
     args.output.mkdir(parents=True, exist_ok=True)
     decisions.to_parquet(args.output / "decision_rows.parquet", index=False)
     compact.to_parquet(args.output / "execution_trades.parquet", index=False)
+    compact_away.to_parquet(
+        args.output / "away_execution_trades.parquet", index=False
+    )
     print(
         f"wrote {len(decisions):,} decisions and {len(compact):,} execution "
-        f"trades to {args.output}"
+        f"home trades and {len(compact_away):,} away YES trades to "
+        f"{args.output}"
     )
 
 

@@ -68,8 +68,11 @@ fit on a later chronological interval.
 
 ## Entry, fill, and settlement
 
-For a fixed dollar stake, the strategy computes expected PnL for YES and NO
-after Kalshi’s rounded taker fee. It selects the stronger side, then requires:
+For a fixed dollar stake, the strategy computes expected PnL after Kalshi’s
+rounded taker fee. The validated policy expresses an away-team view by buying
+YES on the paired away-team market instead of buying NO on the home-team
+market. The two contracts settle identically, but the away YES book provides
+independent prices, liquidity, and fill opportunities. It requires:
 
 - the configured side filter;
 - minimum probability edge;
@@ -80,10 +83,11 @@ All thresholds are rechecked at the eventual fill price. It permits at most
 one position per game. There is no early exit in this strategy; profit and loss
 are determined by final game settlement.
 
-The selected high-coverage policy is NO-only with a 4-point minimum edge and $0.50
-minimum predicted net value on a $10 stake. Selection maximizes tuning trades only
-among policies that are profitable in every chronological fold, retain at least
-20% ROI in the worst fold, and earn at least 25% aggregate tuning ROI.
+The selected policy requires a 4-point minimum edge and $0.50 minimum
+predicted net value on a $10 stake, waits 30 seconds between fills, and caps
+exposure at five away-YES positions per game. Selection considers only policies
+profitable in every chronological fold, with at least 15% ROI in the worst fold
+and 20% aggregate tuning ROI.
 
 ## Data and training flow
 
@@ -182,4 +186,3 @@ docker run --rm mlb-kalshi-trader mispricing backtest
 The current development holdout contains 103 trades across 220 games,
 $236.92 net PnL, and 22.24% ROI. It is development evidence, not a pristine final test; deployment remains
 disabled pending forward paper validation.
-
