@@ -99,10 +99,10 @@ Normalized executions and state updates are written to `data/shared/`. Local
 win-model training inputs live under `data/hit_reversion/`; there is no data
 folder inside this strategy directory.
 
-Tune on pre-holdout dates, then evaluate the fixed outer holdout:
+Tune on pre-holdout dates, then evaluate the fixed outer holdout. The worker processes share the read-only tuning frames on macOS and Linux; use `--workers 1` for sequential debugging:
 
 ```bash
-(cd hit_reversion_strategy && ../.venv/bin/python scripts/tune.py)
+(cd hit_reversion_strategy && ../.venv/bin/python scripts/tune.py --workers 8)
 (cd hit_reversion_strategy && ../.venv/bin/python scripts/backtest.py)
 ```
 

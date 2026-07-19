@@ -48,7 +48,7 @@ Then prepare, train, and evaluate the settlement-value strategy:
 Tune and evaluate the hit-reversion strategy from the same shared data:
 
 ```bash
-(cd hit_reversion_strategy && ../.venv/bin/python scripts/tune.py)
+(cd hit_reversion_strategy && ../.venv/bin/python scripts/tune.py --workers 8)
 (cd hit_reversion_strategy && ../.venv/bin/python scripts/backtest.py)
 ```
 
