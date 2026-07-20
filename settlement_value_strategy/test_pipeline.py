@@ -16,6 +16,7 @@ from settlement_value_strategy.build_normalized_raw import pitch_times, state_mo
 from settlement_value_strategy.live_paper_trader import (
     SharedPaperPortfolio, PaperPosition, build_live_decision_row,
     consecutive_pitch, execution_within_window, reconcile_final_positions,
+    pregame_probability_from_rating_state, replay_fill_from_observed_trades,
     should_surface_worker_line, wait_for_pregame_anchor,
 )
 
@@ -47,11 +48,51 @@ class PipelineTests(unittest.TestCase):
     def test_live_execution_rejects_stale_signal(self):
         signal = pd.Timestamp("2026-07-01T12:00:00Z")
         self.assertTrue(execution_within_window(
+            signal, (signal + pd.Timedelta(seconds=4.999)).to_pydatetime(), 5,
+        ))
+        self.assertFalse(execution_within_window(
             signal, (signal + pd.Timedelta(seconds=5)).to_pydatetime(), 5,
         ))
         self.assertFalse(execution_within_window(
             signal, (signal + pd.Timedelta(seconds=5.001)).to_pydatetime(), 5,
         ))
+        self.assertFalse(execution_within_window(
+            signal, signal.to_pydatetime(), 5,
+        ))
+
+    def test_live_pregame_prior_uses_saved_rating_team_codes(self):
+        state = {
+            "ratings": {"AZ": 1600, "CWS": 1400, "ATH": 1300},
+            "initial_rating": 1500, "home_advantage": 0,
+        }
+        exact = pregame_probability_from_rating_state(state, "AZ", "CWS")
+        aliased = pregame_probability_from_rating_state(
+            state, "ARI", "CHW"
+        )
+        self.assertAlmostEqual(exact, aliased)
+        self.assertGreater(exact, .5)
+
+    def test_live_fill_uses_backtest_compatible_post_signal_trade(self):
+        signal = pd.Timestamp("2026-07-01T12:00:00Z")
+        trades = pd.DataFrame({
+            "trade_id": [1, 2, 3],
+            "created_time": [
+                signal, signal + pd.Timedelta(seconds=1),
+                signal + pd.Timedelta(seconds=2),
+            ],
+            "yes_price_dollars": [.40, .41, .42],
+            "count_fp": [100, 100, 100],
+            "taker_outcome_side": ["yes", "no", "yes"],
+        })
+        config = MispricingPredictor().config
+        fill = replay_fill_from_observed_trades(
+            trades, signal, .80, [], "yes", config,
+        )
+        self.assertIsNotNone(fill)
+        self.assertEqual(fill["price"], .42)
+        self.assertEqual(
+            pd.Timestamp(fill["time"]), signal + pd.Timedelta(seconds=2)
+        )
 
     def test_startup_reconciles_positions_from_final_games(self):
         now = pd.Timestamp("2026-07-01T12:00:00Z").to_pydatetime()
