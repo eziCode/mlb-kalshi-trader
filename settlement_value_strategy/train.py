@@ -107,6 +107,17 @@ def main() -> None:
     tune_trades = away_trades[away_trades.game_pk.isin(tune_games)].copy()
     dates = sorted(tune.game_date.unique())
     folds = [set(values) for values in np.array_split(dates, 3)]
+
+    def consistency(result):
+        records = pd.DataFrame(result.records)
+        if records.empty:
+            return 0.0, 0.0
+        games = records.groupby("game_pk").pnl.sum()
+        return (
+            float(result.pnl - games.nlargest(min(1, len(games))).sum()),
+            float(games.gt(0).mean()),
+        )
+
     rows = []
     for minimum_ev in [0.0, .25, .50, 1.0, 1.5, 2.0]:
         for edge in [.01, .02, .03, .04, .05, .075, .10, .15]:
@@ -121,6 +132,7 @@ def main() -> None:
             result = simulate_away_yes(
                 tune, tune_probability, tune_trades, config
             )
+            pnl_without_best_game, profitable_game_fraction = consistency(result)
             row = {
                 "minimum_expected_pnl": minimum_ev,
                 "minimum_probability_edge": edge,
@@ -130,6 +142,8 @@ def main() -> None:
                 "trades": result.trades, "yes_trades": result.yes_trades,
                 "no_trades": result.no_trades, "pnl": result.pnl,
                 "fees": result.fees, "capital": result.capital, "roi": result.roi,
+                "pnl_without_best_game": pnl_without_best_game,
+                "profitable_game_fraction": profitable_game_fraction,
             }
             fold_pnls, fold_counts, fold_rois = [], [], []
             for index, fold_dates in enumerate(folds, start=1):
@@ -154,6 +168,8 @@ def main() -> None:
     stable = grid[
         (grid.trades >= 20) & (grid.minimum_fold_trades >= 3)
         & (grid.profitable_folds == 3)
+        & (grid.pnl_without_best_game > 0)
+        & (grid.profitable_game_fraction >= .50)
     ].sort_values(["worst_fold_roi", "roi", "pnl"], ascending=False)
     aggregate = grid[grid.trades >= 20].sort_values(
         ["roi", "pnl", "trades"], ascending=False
@@ -162,13 +178,14 @@ def main() -> None:
         (stable.execution_contract == "away_yes")
         & (stable.worst_fold_roi >= 0.15) & (stable.roi >= 0.20)
     ].sort_values(
-        ["trades", "worst_fold_roi", "roi", "pnl"], ascending=False
+        ["worst_fold_roi", "pnl_without_best_game", "trades"],
+        ascending=False,
     )
     if not high_coverage.empty:
         selected = high_coverage.iloc[0]
         selection_rule = (
-            "maximum trades among paired away-YES policies with all folds "
-            "profitable, worst-fold ROI >=15%, and aggregate ROI >=20%"
+            "maximum worst-fold ROI among non-tail-concentrated paired "
+            "away-YES policies"
         )
     elif not stable.empty:
         selected = stable.iloc[0]

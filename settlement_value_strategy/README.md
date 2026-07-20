@@ -82,11 +82,11 @@ independent prices, liquidity, and fill opportunities. It requires:
 All thresholds are rechecked at the eventual fill price. There is no early
 exit in this strategy; profit and loss are determined by final game settlement.
 
-The selected policy requires a 1-point minimum edge and $0.50 minimum
-predicted net value on a $10 stake, waits 30 seconds between fills, and caps
-exposure at five away-YES positions per game. Selection considers only policies
-profitable in every chronological fold, with at least 15% ROI in the worst fold
-and 20% aggregate tuning ROI.
+The selected consistency-aware policy requires a 4-point minimum edge on a
+$10 stake and caps exposure at one away-YES position per game. The tuner
+rejects policies whose tuning profit disappears after removing their best game
+or whose game-level win rate is below 50%, then ranks the survivors by their
+worst chronological fold.
 
 ## Data and training flow
 
@@ -193,9 +193,9 @@ docker run --rm mlb-kalshi-trader mispricing pipeline
 docker run --rm mlb-kalshi-trader mispricing backtest
 ```
 
-The corrected development holdout contains 524 fills across 220 available
-games, $849.80 net PnL, and 15.58% ROI. It does **not** pass robustness
-validation: the four best games contribute more than total net profit, the
-remaining games lose $332.69, only 58.8% of days are profitable, and the worst
-day loses 55.9% of deployed capital. Deployment therefore remains disabled
-pending genuinely independent forward paper validation.
+The consistency-aware development holdout contains 140 fills across 220
+available games, $249.73 net PnL, and 17.30% ROI. Removing the four best games
+still leaves $64.13 profit and 64.7% of days are profitable. It remains marked
+unvalidated because the worst day loses 37.3% of deployed capital, slightly
+beyond the conservative robustness gate. Deployment remains disabled pending
+genuinely independent forward paper validation.

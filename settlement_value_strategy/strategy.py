@@ -90,6 +90,7 @@ class MispricingConfig:
     minimum_seconds_between_entries: float = 30.0
     execution_contract: str = "away_yes"
     maximum_positions_per_game: int = 5
+    conditional_stacking: bool = True
 
 
 @dataclass
@@ -377,6 +378,8 @@ def simulate_away_yes(
         taker_sides = tape.taker_outcome_side.astype(str).to_numpy()
         last_fill_ns: int | None = None
         positions = 0
+        best_away_fair = float("-inf")
+        best_expected_return = float("-inf")
         for row in game.sort_values("signal_time").itertuples(index=False):
             if positions >= config.maximum_positions_per_game:
                 break
@@ -427,9 +430,15 @@ def simulate_away_yes(
                 fee = taker_fee(contracts, price)
                 expected = contracts * (away_fair - price) - fee
                 edge = away_fair - price
+                expected_return = expected / (config.bet_size + fee)
                 if (
                     expected < config.minimum_expected_pnl
                     or edge < config.minimum_probability_edge
+                ):
+                    continue
+                if config.conditional_stacking and positions > 0 and not (
+                    away_fair > best_away_fair
+                    and expected_return > best_expected_return
                 ):
                     continue
                 won = int(row.home_win) == 0
@@ -453,5 +462,9 @@ def simulate_away_yes(
                 })
                 last_fill_ns = int(times[index])
                 positions += 1
+                best_away_fair = max(best_away_fair, away_fair)
+                best_expected_return = max(
+                    best_expected_return, expected_return
+                )
                 break
     return result

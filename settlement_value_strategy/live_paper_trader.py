@@ -894,6 +894,23 @@ async def run_worker() -> None:
                         probability - fill_yes
                         if side == "yes" else fill_yes - probability
                     )
+                fill_expected_return = fill_ev / (
+                    predictor.config.bet_size + fee
+                )
+                existing_away_fair = [
+                    position.settlement_probability for position in positions
+                ]
+                existing_expected_returns = [
+                    (
+                        position.contracts
+                        * (position.settlement_probability - position.entry_price)
+                        - position.entry_fee
+                    ) / (
+                        position.contracts * position.entry_price
+                        + position.entry_fee
+                    )
+                    for position in positions
+                ]
                 if not execution_within_window(
                     row["signal_time"], decision_time,
                     predictor.config.maximum_fill_delay_seconds,
@@ -901,6 +918,11 @@ async def run_worker() -> None:
                     action = "SKIP_STALE_EXECUTION_WINDOW"
                 elif available + 1e-9 < contracts:
                     action = "SKIP_INSUFFICIENT_TOP_LEVEL_DEPTH"
+                elif predictor.config.conditional_stacking and positions and not (
+                    execution_probability > max(existing_away_fair)
+                    and fill_expected_return > max(existing_expected_returns)
+                ):
+                    action = "SKIP_STACK_THESIS_NOT_STRONGER"
                 elif (
                     fill_ev < predictor.config.minimum_expected_pnl
                     or fill_edge < predictor.config.minimum_probability_edge
