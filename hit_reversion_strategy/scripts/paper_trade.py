@@ -26,11 +26,10 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from trade_tape_strategy.hybrid import (  # noqa: E402
-    HIT_EVENTS,
-    anchored_event_target,
+from trade_tape_strategy.hybrid import anchored_event_target  # noqa: E402
+from trade_tape_strategy.core import (  # noqa: E402
+    TradeTapeConfig, position_contracts, trade_signal,
 )
-from trade_tape_strategy.core import TradeTapeConfig  # noqa: E402
 from trade_tape_strategy.strategy import (  # noqa: E402
     CONFIG,
     fee_aware_signal_side,
@@ -191,6 +190,18 @@ class SharedPaperPortfolio:
                 "VALUES (1, ?, ?)",
                 (starting_cash, starting_cash),
             )
+            connection.execute(
+                """CREATE TABLE IF NOT EXISTS entry_history (
+                    game_pk INTEGER NOT NULL,
+                    event_id INTEGER NOT NULL,
+                    entry_time TEXT NOT NULL,
+                    PRIMARY KEY (game_pk, event_id)
+                )"""
+            )
+            connection.execute(
+                "INSERT OR IGNORE INTO entry_history(game_pk,event_id,entry_time) "
+                "SELECT game_pk,event_id,entry_time FROM positions"
+            )
 
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.path, timeout=30)
@@ -206,11 +217,11 @@ class SharedPaperPortfolio:
                 "SELECT cash FROM portfolio WHERE id = 1"
             ).fetchone()[0])
             duplicate = connection.execute(
-                "SELECT 1 FROM positions WHERE game_pk=? AND event_id=?",
+                "SELECT 1 FROM entry_history WHERE game_pk=? AND event_id=?",
                 (game_pk, position.event_id),
             ).fetchone()
             latest = connection.execute(
-                "SELECT entry_time FROM positions WHERE game_pk=? "
+                "SELECT entry_time FROM entry_history WHERE game_pk=? "
                 "ORDER BY entry_time DESC LIMIT 1", (game_pk,),
             ).fetchone()
             cooling_down = bool(
@@ -242,6 +253,11 @@ class SharedPaperPortfolio:
                     position.anchor_fair, position.event_id,
                     position.entry_price, now,
                 ),
+            )
+            connection.execute(
+                "INSERT INTO entry_history(game_pk,event_id,entry_time) "
+                "VALUES (?,?,?)",
+                (game_pk, position.event_id, position.entry_time.isoformat()),
             )
         return True
 
@@ -664,6 +680,7 @@ def latest_completed_pitch_token(payload: dict) -> tuple | None:
                 int(at_bat) if at_bat is not None else -1,
                 int(event.get("pitchNumber") or event.get("index") or 0),
                 str(event["endTime"]),
+                str(event.get("startTime") or event["endTime"]),
             )
             latest = token
     return latest
@@ -673,6 +690,163 @@ def pitch_token_time(token: tuple | None) -> datetime | None:
     if token is None:
         return None
     return pd.to_datetime(token[2], utc=True).to_pydatetime()
+
+
+def pitch_token_start_time(token: tuple | None) -> datetime | None:
+    if token is None:
+        return None
+    value = token[3] if len(token) > 3 else token[2]
+    return pd.to_datetime(value, utc=True).to_pydatetime()
+
+
+def fetch_recent_trades() -> pd.DataFrame:
+    response = requests.get(
+        f"{KALSHI_API}/markets/trades",
+        params={"ticker": MARKET_TICKER, "limit": 1000}, timeout=5,
+    )
+    response.raise_for_status()
+    frame = pd.DataFrame(response.json().get("trades") or [])
+    required = {
+        "trade_id", "created_time", "yes_price_dollars", "count_fp",
+        "taker_outcome_side",
+    }
+    if frame.empty:
+        return pd.DataFrame(columns=sorted(required))
+    if missing := required - set(frame):
+        raise RuntimeError(f"Trade response missing {sorted(missing)}")
+    frame["created_time"] = pd.to_datetime(frame.created_time, utc=True)
+    frame["yes_price_dollars"] = pd.to_numeric(
+        frame.yes_price_dollars, errors="raise"
+    )
+    frame["count_fp"] = pd.to_numeric(frame.count_fp, errors="raise")
+    return frame.sort_values(["created_time", "trade_id"]).drop_duplicates(
+        "trade_id"
+    )
+
+
+def pre_pitch_trade_anchor(
+    trades: pd.DataFrame, pitch_start: datetime, maximum_age_seconds: float,
+) -> float | None:
+    if trades.empty:
+        return None
+    times = pd.to_datetime(trades.created_time, utc=True)
+    eligible = trades[times.lt(pd.Timestamp(pitch_start))]
+    if eligible.empty:
+        return None
+    row = eligible.iloc[-1]
+    age = (
+        pd.Timestamp(pitch_start) - pd.Timestamp(row.created_time)
+    ).total_seconds()
+    if age > maximum_age_seconds:
+        return None
+    return float(row.yes_price_dollars)
+
+
+def replay_candidate_entry(
+    trades: pd.DataFrame, candidate: EventCandidate, current_fair: float,
+    positions: list[Position], config: TradeTapeConfig,
+) -> dict | None:
+    """Replay the backtest's confirmation and later compatible entry fill."""
+    if trades.empty:
+        return None
+    target = float(anchored_event_target(
+        candidate.target, candidate.post_fair, current_fair
+    ))
+    deadline = candidate.event_time + timedelta(
+        seconds=config.maximum_event_to_entry_seconds
+    )
+    last_entry = max(
+        (position.entry_time for position in positions), default=None
+    )
+    watch_started = None
+    pending_created = None
+    confirmation_price = None
+    tape = trades.sort_values(["created_time", "trade_id"])
+    for trade in tape.itertuples(index=False):
+        when = pd.Timestamp(trade.created_time).to_pydatetime()
+        if when <= candidate.event_time or when > deadline:
+            continue
+        yes_price = float(trade.yes_price_dollars)
+        side, _ = trade_signal(target, yes_price, config.minimum_edge)
+        if config.side_filter != "both" and side != config.side_filter:
+            side = None
+        if pending_created is not None:
+            if side != candidate.side:
+                return None
+            if (
+                when > pending_created
+                and str(trade.taker_outcome_side) == candidate.side
+                and (
+                    last_entry is None
+                    or (when - last_entry).total_seconds()
+                    >= config.minimum_seconds_between_entries
+                )
+            ):
+                reversion_move = (
+                    yes_price - confirmation_price
+                    if candidate.side == "yes"
+                    else confirmation_price - yes_price
+                )
+                if reversion_move < config.minimum_reversion_move:
+                    continue
+                price = yes_price if side == "yes" else 1.0 - yes_price
+                contracts = position_contracts(price, config)
+                if float(trade.count_fp) >= contracts:
+                    return {
+                        "time": when, "side": side, "price": price,
+                        "contracts": contracts,
+                        "fee": taker_fee(contracts, price),
+                    }
+            continue
+        if side != candidate.side:
+            watch_started = None
+        elif watch_started is None:
+            watch_started = when
+        elif (when - watch_started).total_seconds() >= config.confirmation_seconds:
+            pending_created = when
+            confirmation_price = yes_price
+    return None
+
+
+def replay_position_exit(
+    trades: pd.DataFrame, position: Position, current_fair: float,
+    scanned_after: datetime | None = None,
+    pending_time: datetime | None = None,
+) -> tuple[dict | None, datetime | None, datetime]:
+    """Find the backtest-style trade after target reversion that can exit."""
+    if trades.empty:
+        return None, pending_time, scanned_after or position.entry_time
+    target = float(anchored_event_target(
+        position.anchor_target, position.anchor_fair, current_fair
+    ))
+    last_seen = scanned_after or position.entry_time
+    exit_taker_side = "no" if position.side == "yes" else "yes"
+    for trade in trades.sort_values(["created_time", "trade_id"]).itertuples(
+        index=False
+    ):
+        when = pd.Timestamp(trade.created_time).to_pydatetime()
+        if when <= (scanned_after or position.entry_time):
+            continue
+        last_seen = max(last_seen, when)
+        yes_price = float(trade.yes_price_dollars)
+        reverted = (
+            position.side == "yes" and yes_price >= target
+        ) or (
+            position.side == "no" and yes_price <= target
+        )
+        if pending_time is None:
+            if reverted:
+                pending_time = when
+            continue
+        if not reverted:
+            pending_time = None
+            continue
+        if when > pending_time and str(trade.taker_outcome_side) == exit_taker_side:
+            price = yes_price if position.side == "yes" else 1.0 - yes_price
+            if float(trade.count_fp) >= position.contracts:
+                fee = taker_fee(position.contracts, price)
+                return {"time": when, "price": price, "fee": fee}, None, last_seen
+    return None, pending_time, last_seen
 
 
 def fetch_game_snapshot() -> GameSnapshot:
@@ -847,7 +1021,10 @@ async def main() -> None:
     previous_market: float | None = None
     previous_fair: float | None = None
     previous_event_id: int | None = None
-    exit_watch_started: dict[int, datetime] = {}
+    exit_pending_trade: dict[int, datetime] = {}
+    exit_scanned_through: dict[int, datetime] = {
+        position.event_id: position.entry_time for position in positions
+    }
     while True:
         try:
             # The order book may disappear immediately after the game.  Read
@@ -889,7 +1066,10 @@ async def main() -> None:
             await asyncio.sleep(POLL_SECONDS)
             continue
         try:
-            market = await asyncio.to_thread(fetch_market_snapshot)
+            market, recent_trades = await asyncio.gather(
+                asyncio.to_thread(fetch_market_snapshot),
+                asyncio.to_thread(fetch_recent_trades),
+            )
         except Exception as error:
             print(f"Market snapshot rejected: {error}")
             await asyncio.sleep(POLL_SECONDS)
@@ -937,26 +1117,19 @@ async def main() -> None:
             target = float(anchored_event_target(
                 position.anchor_target, position.anchor_fair, fair_prob
             ))
-            should_exit = (
-                position.side == "yes" and market.bid >= target
-            ) or (
-                position.side == "no" and market.ask <= target
+            exit_fill, pending_exit, scanned_through = replay_position_exit(
+                recent_trades, position, float(fair_prob),
+                exit_scanned_through.get(position.event_id),
+                exit_pending_trade.get(position.event_id),
             )
-            watch_started = exit_watch_started.get(position.event_id)
-            if should_exit and watch_started is None:
-                exit_watch_started[position.event_id] = now
-            elif not should_exit:
-                exit_watch_started.pop(position.event_id, None)
-            watch_started = exit_watch_started.get(position.event_id)
-            confirmed_exit = (
-                should_exit
-                and watch_started is not None
-                and (now - watch_started).total_seconds()
-                >= hybrid_config.confirmation_seconds
-            )
-            if confirmed_exit:
-                price = market.bid if position.side == "yes" else 1.0 - market.ask
-                fee = taker_fee(position.contracts, price)
+            exit_scanned_through[position.event_id] = scanned_through
+            if pending_exit is None:
+                exit_pending_trade.pop(position.event_id, None)
+            else:
+                exit_pending_trade[position.event_id] = pending_exit
+            if exit_fill is not None:
+                price = exit_fill["price"]
+                fee = exit_fill["fee"]
                 closed_side = position.side
                 closed_contracts = position.contracts
                 portfolio.close_position(
@@ -973,7 +1146,8 @@ async def main() -> None:
                     flush=True,
                 )
                 closed_positions.append(position)
-                exit_watch_started.pop(position.event_id, None)
+                exit_pending_trade.pop(position.event_id, None)
+                exit_scanned_through.pop(position.event_id, None)
         if closed_positions:
             positions = [
                 position for position in positions
@@ -1006,24 +1180,42 @@ async def main() -> None:
 
             if (
                 new_event
-                and game.completed_event in HIT_EVENTS
+                and game.completed_event in hybrid_config.allowed_event_types
                 and previous_market is not None
                 and previous_fair is not None
                 and pitch_token_time(game.latest_completed_pitch_token) is not None
             ):
+                pitch_start = pitch_token_start_time(
+                    game.latest_completed_pitch_token
+                )
+                pre_event_market = (
+                    pre_pitch_trade_anchor(
+                        recent_trades, pitch_start,
+                        hybrid_config.maximum_pre_event_trade_age_seconds,
+                    )
+                    if pitch_start is not None else None
+                )
                 signed_fair_move = (
                     float(fair_prob) - previous_fair
                 ) * (
                     1.0 if game.completed_event_batting_home else -1.0
                 )
-                if signed_fair_move >= hybrid_config.minimum_fair_move:
+                if (
+                    signed_fair_move >= hybrid_config.minimum_fair_move
+                    and pre_event_market is not None
+                ):
                     target = float(anchored_event_target(
-                        previous_market, previous_fair, fair_prob
+                        pre_event_market, previous_fair, fair_prob
                     ))
                     side, edge = fee_aware_signal_side(
                         target, market.bid, market.ask,
                         hybrid_config.minimum_edge,
                     )
+                    if (
+                        hybrid_config.side_filter != "both"
+                        and side != hybrid_config.side_filter
+                    ):
+                        side = None
                     candidate = (
                         EventCandidate(
                             side=side,
@@ -1034,7 +1226,7 @@ async def main() -> None:
                             event_time=pitch_token_time(
                                 game.latest_completed_pitch_token
                             ),
-                            pre_market=previous_market,
+                            pre_market=pre_event_market,
                             pre_fair=previous_fair,
                             post_fair=fair_prob,
                             material_state=material_state(game.state),
@@ -1053,30 +1245,20 @@ async def main() -> None:
                 target = float(anchored_event_target(
                     candidate.target, candidate.post_fair, fair_prob
                 ))
-                confirmed_side, edge = fee_aware_signal_side(
-                    target, market.bid, market.ask,
-                    hybrid_config.minimum_edge,
+                fill = replay_candidate_entry(
+                    recent_trades, candidate, float(fair_prob), positions,
+                    hybrid_config,
                 )
-                confirmation_age = (
-                    now - candidate.observed_at
-                ).total_seconds()
-                if (
-                    confirmation_age >= hybrid_config.confirmation_seconds
-                    and confirmed_side == candidate.side
-                    and game.completed_event_id == candidate.event_id
-                ):
-                    price = (
-                        market.ask if candidate.side == "yes"
-                        else 1.0 - market.bid
-                    )
-                    contracts = CONFIG.bet_size / price
-                    fee = taker_fee(contracts, price)
+                if fill is not None:
+                    price = fill["price"]
+                    contracts = fill["contracts"]
+                    fee = fill["fee"]
                     proposed_position = Position(
                         side=candidate.side,
                         contracts=contracts,
                         entry_price=price,
                         entry_fee=fee,
-                        entry_time=now,
+                        entry_time=fill["time"],
                         anchor_target=candidate.target,
                         anchor_fair=candidate.post_fair,
                         event_id=candidate.event_id,

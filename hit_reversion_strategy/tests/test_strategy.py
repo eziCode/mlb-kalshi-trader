@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 import unittest
+from pathlib import Path
+import tempfile
 
 import pandas as pd
 
-from scripts.paper_trade import match_games_to_home_markets, should_surface_worker_line
+from scripts.paper_trade import (
+    EventCandidate, match_games_to_home_markets, pre_pitch_trade_anchor,
+    Position, replay_candidate_entry, replay_position_exit,
+    SharedPaperPortfolio,
+    should_surface_worker_line,
+)
 from trade_tape_strategy.core import (
     TradeTapeConfig,
     simulate_trade_tape,
@@ -13,6 +20,87 @@ from trade_tape_strategy.core import (
 
 
 class TradeTapeStrategyTests(unittest.TestCase):
+    def test_cooldown_survives_position_close_without_capping_game(self):
+        start = pd.Timestamp("2026-07-20T12:00:00Z").to_pydatetime()
+        first = Position("no", 10, .5, .1, start, .4, .4, 1)
+        too_soon = Position(
+            "no", 10, .5, .1,
+            start + pd.Timedelta(seconds=179), .4, .4, 2,
+        )
+        allowed = Position(
+            "no", 10, .5, .1,
+            start + pd.Timedelta(seconds=180), .4, .4, 3,
+        )
+        with tempfile.TemporaryDirectory() as directory:
+            portfolio = SharedPaperPortfolio(Path(directory) / "paper.sqlite3")
+            self.assertTrue(portfolio.open_position(1, "ticker", first, 180))
+            self.assertTrue(portfolio.close_position(1, 1, 10))
+            self.assertFalse(portfolio.open_position(1, "ticker", too_soon, 180))
+            self.assertTrue(portfolio.open_position(1, "ticker", allowed, 180))
+
+    def test_live_anchor_uses_last_trade_strictly_before_pitch_start(self):
+        start = pd.Timestamp("2026-07-20T12:00:05Z")
+        trades = pd.DataFrame({
+            "created_time": [
+                start - pd.Timedelta(seconds=2),
+                start, start + pd.Timedelta(seconds=1),
+            ],
+            "yes_price_dollars": [.41, .70, .80],
+        })
+        self.assertEqual(pre_pitch_trade_anchor(trades, start, 5), .41)
+        self.assertIsNone(pre_pitch_trade_anchor(trades, start, 1))
+
+    def test_live_entry_requires_later_compatible_trade_after_confirmation(self):
+        event = pd.Timestamp("2026-07-20T12:00:00Z")
+        trades = pd.DataFrame({
+            "trade_id": [1, 2, 3],
+            "created_time": [
+                event + pd.Timedelta(seconds=.1),
+                event + pd.Timedelta(seconds=1.2),
+                event + pd.Timedelta(seconds=1.3),
+            ],
+            "yes_price_dollars": [.30, .30, .30],
+            "count_fp": [100, 100, 100],
+            "taker_outcome_side": ["yes", "no", "yes"],
+        })
+        candidate = EventCandidate(
+            side="yes", target=.60, event_id=1, event_type="double",
+            observed_at=event.to_pydatetime(), event_time=event.to_pydatetime(),
+            pre_market=.5, pre_fair=.5, post_fair=.6,
+            material_state=(0, 0, 0, 0, 0), pitch_token=None,
+        )
+        config = TradeTapeConfig(
+            minimum_edge=.10, confirmation_seconds=1,
+            allowed_event_types=("double",),
+        )
+        fill = replay_candidate_entry(trades, candidate, .6, [], config)
+        self.assertIsNotNone(fill)
+        self.assertEqual(fill["time"], trades.created_time.iloc[2].to_pydatetime())
+
+    def test_live_exit_requires_trade_after_reversion_with_opposite_taker(self):
+        entry = pd.Timestamp("2026-07-20T12:00:00Z")
+        position = Position(
+            side="yes", contracts=10, entry_price=.4, entry_fee=.1,
+            entry_time=entry.to_pydatetime(), anchor_target=.6,
+            anchor_fair=.6, event_id=1,
+        )
+        trades = pd.DataFrame({
+            "trade_id": [1, 2, 3],
+            "created_time": [
+                entry + pd.Timedelta(seconds=1),
+                entry + pd.Timedelta(seconds=2),
+                entry + pd.Timedelta(seconds=3),
+            ],
+            "yes_price_dollars": [.61, .62, .63],
+            "count_fp": [100, 100, 100],
+            "taker_outcome_side": ["yes", "yes", "no"],
+        })
+        fill, pending, scanned = replay_position_exit(trades, position, .6)
+        self.assertIsNotNone(fill)
+        self.assertEqual(fill["price"], .63)
+        self.assertIsNone(pending)
+        self.assertEqual(scanned, trades.created_time.iloc[2].to_pydatetime())
+
     def test_doubleheader_pairs_all_games_before_filtering_final(self):
         games = [
             {

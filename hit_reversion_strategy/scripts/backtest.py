@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 import json
 from pathlib import Path
 import sys
@@ -39,21 +39,17 @@ def main() -> None:
     test_updates = updates[updates["game_pk"].isin(test_games)].copy()
 
     result = simulate_trade_tape(test_trades, test_updates, config)
-    deployment_enabled = bool(config.enabled and result.pnl > 0 and result.roi > 0)
-    deployment_config = TradeTapeConfig(
-        enabled=deployment_enabled,
-        minimum_edge=config.minimum_edge,
-        confirmation_seconds=config.confirmation_seconds,
-        maximum_pre_event_trade_age_seconds=(
-            config.maximum_pre_event_trade_age_seconds
-        ),
-        maximum_event_to_entry_seconds=config.maximum_event_to_entry_seconds,
-        invalidate_on_next_pitch=config.invalidate_on_next_pitch,
-        minimum_fair_move=config.minimum_fair_move,
-        minimum_seconds_between_entries=(
-            config.minimum_seconds_between_entries
-        ),
+    records = pd.DataFrame(asdict(record) for record in result.records)
+    game_pnl = records.groupby("game_pk").pnl.sum()
+    pnl_without_best_game = float(result.pnl - game_pnl.nlargest(1).sum())
+    pnl_without_top_four_games = float(
+        result.pnl - game_pnl.nlargest(min(4, len(game_pnl))).sum()
     )
+    deployment_enabled = bool(
+        config.enabled and result.trades >= 20 and result.pnl > 0
+        and result.roi > 0 and pnl_without_best_game > 0
+    )
+    deployment_config = replace(config, enabled=deployment_enabled)
     CONFIG_PATH.write_text(json.dumps(asdict(deployment_config), indent=2))
     summary = {
         "selected_config": asdict(config),
@@ -73,20 +69,21 @@ def main() -> None:
         "no_trades": result.no_trades,
         "reversion_exits": result.reversion_exits,
         "momentum_exits": result.momentum_exits,
+        "timeout_exits": result.timeout_exits,
         "settlements": result.settlements,
         "fees": result.fees,
         "capital": result.capital,
         "pnl": result.pnl,
         "roi": result.roi,
+        "pnl_without_best_game": pnl_without_best_game,
+        "pnl_without_top_four_games": pnl_without_top_four_games,
         "time_based_exit": False,
     }
     STUDY_DIR.mkdir(parents=True, exist_ok=True)
     (STUDY_DIR / "holdout_summary.json").write_text(
         json.dumps(summary, indent=2)
     )
-    pd.DataFrame(asdict(record) for record in result.records).to_csv(
-        STUDY_DIR / "holdout_trades.csv", index=False
-    )
+    records.to_csv(STUDY_DIR / "holdout_trades.csv", index=False)
 
     print("EXACT-TIMESTAMP TRADE-TAPE HYBRID")
     print(f"Live enabled:          {deployment_enabled}")

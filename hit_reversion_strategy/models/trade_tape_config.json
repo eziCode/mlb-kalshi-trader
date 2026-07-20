@@ -1,6 +1,6 @@
 {
   "enabled": false,
-  "minimum_edge": 0.075,
+  "minimum_edge": 0.01,
   "confirmation_seconds": 1.0,
   "maximum_pre_event_trade_age_seconds": 5.0,
   "maximum_event_to_entry_seconds": 10.0,
@@ -12,5 +12,12 @@
   "momentum_trailing_giveback": 0.01,
   "momentum_max_hold_seconds": 2.0,
   "minimum_momentum_trades": 3,
-  "minimum_seconds_between_entries": 30.0
+  "minimum_seconds_between_entries": 180.0,
+  "allowed_event_types": [
+    "double"
+  ],
+  "maximum_hold_seconds": 0.0,
+  "minimum_reversion_move": 0.0,
+  "side_filter": "no",
+  "position_sizing": "fixed_payout"
 }

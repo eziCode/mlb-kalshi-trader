@@ -32,7 +32,14 @@ class TradeTapeConfig:
     momentum_trailing_giveback: float = 0.01
     momentum_max_hold_seconds: float = 2.0
     minimum_momentum_trades: int = 3
-    minimum_seconds_between_entries: float = 30.0
+    minimum_seconds_between_entries: float = 180.0
+    allowed_event_types: tuple[str, ...] = (
+        "single", "double", "triple", "home_run",
+    )
+    maximum_hold_seconds: float = 0.0
+    minimum_reversion_move: float = 0.0
+    side_filter: str = "both"
+    position_sizing: str = "fixed_payout"
 
 
 @dataclass
@@ -53,6 +60,7 @@ class PendingEntry:
     candidate: Candidate
     side: str
     created_ns: int
+    confirmation_price: float
 
 
 @dataclass
@@ -109,6 +117,7 @@ class TradeTapeResult:
     no_trades: int = 0
     reversion_exits: int = 0
     momentum_exits: int = 0
+    timeout_exits: int = 0
     settlements: int = 0
     fees: float = 0.0
     capital: float = 0.0
@@ -152,6 +161,14 @@ def trade_signal(
 
 def compatible_taker(side: str, taker_outcome_side: str) -> bool:
     return side == taker_outcome_side
+
+
+def position_contracts(price: float, config: TradeTapeConfig) -> float:
+    if config.position_sizing == "fixed_payout":
+        return CONFIG.bet_size
+    if config.position_sizing == "fixed_stake":
+        return CONFIG.bet_size / price
+    raise ValueError(f"Unknown position sizing: {config.position_sizing}")
 
 
 def _dynamic_target(candidate_or_position, current_fair: float) -> float:
@@ -231,6 +248,8 @@ def simulate_trade_tape(
     maximum_entry_age_ns = int(
         config.maximum_event_to_entry_seconds * 1_000_000_000
     )
+    maximum_hold_ns = int(config.maximum_hold_seconds * 1_000_000_000)
+    allowed_events = frozenset(config.allowed_event_types)
 
     for game_pk, game_trades in trades.groupby("game_pk", sort=False):
         game_pk = int(game_pk)
@@ -282,7 +301,7 @@ def simulate_trade_tape(
                         candidate = None
                         pending_entry = None
                 current_fair = float(update.fair_after)
-                if bool(update.is_hit):
+                if bool(update.is_hit) and str(update.completed_event) in allowed_events:
                     result.observed_hits += 1
                     if pd.notna(update.completed_event):
                         batting_home = bool(update.completed_event_batting_home)
@@ -386,7 +405,12 @@ def simulate_trade_tape(
                         )
                         result.pnl += pnl
                         result.fees += exit_fee
-                        result.reversion_exits += 1
+                        result.reversion_exits += int(
+                            position.pending_exit_reason == "reversion"
+                        )
+                        result.timeout_exits += int(
+                            position.pending_exit_reason == "timeout"
+                        )
                         result.momentum_exits += int(
                             position.pending_exit_reason == "momentum_reversion"
                         )
@@ -411,7 +435,13 @@ def simulate_trade_tape(
                         closed_positions.append(position)
                         continue
                 if position.pending_exit_ns is None:
-                    if position.momentum_hold_started_ns is not None:
+                    if (
+                        maximum_hold_ns > 0
+                        and trade_ns - position.entry_ns >= maximum_hold_ns
+                    ):
+                        position.pending_exit_ns = trade_ns
+                        position.pending_exit_reason = "timeout"
+                    elif position.momentum_hold_started_ns is not None:
                         position.momentum_high_water = max(
                             float(position.momentum_high_water), held_price
                         )
@@ -445,6 +475,8 @@ def simulate_trade_tape(
             if pending_entry is not None:
                 target = _dynamic_target(pending_entry.candidate, current_fair)
                 side, _ = trade_signal(target, yes_price, config.minimum_edge)
+                if config.side_filter != "both" and side != config.side_filter:
+                    side = None
                 if side != pending_entry.side:
                     candidate = pending_entry.candidate
                     candidate.watch_side = None
@@ -460,8 +492,15 @@ def simulate_trade_tape(
                         )
                     )
                 ):
+                    reversion_move = (
+                        yes_price - pending_entry.confirmation_price
+                        if side == "yes"
+                        else pending_entry.confirmation_price - yes_price
+                    )
+                    if reversion_move < config.minimum_reversion_move:
+                        continue
                     entry_price = yes_price if side == "yes" else no_price
-                    contracts = CONFIG.bet_size / entry_price
+                    contracts = position_contracts(entry_price, config)
                     if remaining_size >= contracts:
                         entry_fee = taker_fee(contracts, entry_price)
                         position = TapePosition(
@@ -487,7 +526,7 @@ def simulate_trade_tape(
                         result.trades += 1
                         result.yes_trades += int(side == "yes")
                         result.no_trades += int(side == "no")
-                        result.capital += CONFIG.bet_size + entry_fee
+                        result.capital += contracts * entry_price + entry_fee
                         result.fees += entry_fee
                         pending_entry = None
                         candidate = None
@@ -496,6 +535,8 @@ def simulate_trade_tape(
             if candidate is not None and pending_entry is None:
                 target = _dynamic_target(candidate, current_fair)
                 side, _ = trade_signal(target, yes_price, config.minimum_edge)
+                if config.side_filter != "both" and side != config.side_filter:
+                    side = None
                 if side is None:
                     candidate.watch_side = None
                     candidate.watch_started_ns = None
@@ -507,7 +548,9 @@ def simulate_trade_tape(
                     and trade_ns - candidate.watch_started_ns >= confirmation_ns
                 ):
                     result.confirmed_signals += 1
-                    pending_entry = PendingEntry(candidate, side, trade_ns)
+                    pending_entry = PendingEntry(
+                        candidate, side, trade_ns, yes_price
+                    )
                     candidate = None
 
         for position in positions:
