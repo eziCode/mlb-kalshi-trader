@@ -29,7 +29,8 @@ candidate or position is active.
 ## Event and signal lifecycle
 
 1. Observe a newly completed plate appearance from the authoritative MLB feed.
-2. Continue only for single, double, triple, or home run.
+2. Continue for singles, doubles, and triples. Home runs are excluded because
+   they are not part of the hit-reversion thesis.
 3. Require a meaningful directional fair-value move for the batting team.
 4. Anchor to a fresh Kalshi execution observed before the event.
 5. Compare the anchored target with exact subsequent Kalshi executions.
@@ -63,10 +64,15 @@ a strictly later observed execution on the compatible taker outcome side and
 enough reported size. Therefore the simulator is causal but remains a fill
 proxy rather than a historical order-book reconstruction.
 
-The selected policy currently uses:
+The selected segmented research policy currently uses:
 
-- 7.5-point minimum target residual;
-- one-second confirmation;
+- singles, doubles, and triples;
+- both YES- and NO-side residuals;
+- separate minimum-edge, confirmation, and reversion thresholds for every
+  hit-type/side pair;
+- a later move back toward the target after confirmation;
+- fixed maximum-payout sizing of ten contracts per entry;
+- unlimited positions per game, with at least 180 seconds between entries;
 - five-second maximum pre-event anchor age;
 - ten-second event-to-entry deadline;
 - next-pitch invalidation;
@@ -163,7 +169,8 @@ docker run --rm mlb-kalshi-trader trade-tape tune
 docker run --rm mlb-kalshi-trader trade-tape backtest
 ```
 
-The frozen holdout begins June 28, 2026: 65 fills, $20.26 net PnL, and 3.02%
-ROI. Freshly downloaded exact-execution data can differ slightly; the current
-download-only reconstruction produced 63 fills and approximately 3.00% ROI.
-
+The frozen holdout begins June 28, 2026: 12 fills across 12 games, $2.68 net
+PnL, and 5.22% ROI. Removing the best game leaves $1.58 profit. The pre-holdout
+tuning period contains 69 fills, $16.04 net PnL, and 4.26% ROI. Deployment
+remains disabled because one of three tuning folds was negative and the
+holdout still has fewer than 20 fills.

@@ -12,6 +12,7 @@ from pathlib import Path
 import sys
 
 import pandas as pd
+import numpy as np
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
@@ -33,28 +34,42 @@ OUTER_HOLDOUT_START = pd.Timestamp("2026-06-28").date()
 
 _TUNE_TRADES: pd.DataFrame | None = None
 _TUNE_UPDATES: pd.DataFrame | None = None
+_TUNE_FOLDS: list[set] | None = None
 
 
 def _initialize_worker(
     tune_trades: pd.DataFrame, tune_updates: pd.DataFrame,
+    tune_folds: list[set],
 ) -> None:
-    global _TUNE_TRADES, _TUNE_UPDATES
+    global _TUNE_TRADES, _TUNE_UPDATES, _TUNE_FOLDS
     _TUNE_TRADES = tune_trades
     _TUNE_UPDATES = tune_updates
+    _TUNE_FOLDS = tune_folds
 
 
-def _evaluate_configuration(parameters: tuple[float, float]) -> dict:
-    if _TUNE_TRADES is None or _TUNE_UPDATES is None:
+def _evaluate_configuration(parameters: tuple[float, float, float]) -> dict:
+    if _TUNE_TRADES is None or _TUNE_UPDATES is None or _TUNE_FOLDS is None:
         raise RuntimeError("Tuning worker was not initialized")
-    minimum_edge, confirmation_seconds = parameters
+    minimum_edge, confirmation_seconds, minimum_reversion_move = parameters
     config = TradeTapeConfig(
         minimum_edge=minimum_edge,
         confirmation_seconds=confirmation_seconds,
+        allowed_event_types=("single", "double", "triple"),
+        minimum_reversion_move=minimum_reversion_move,
+        side_filter="both",
+        position_sizing="fixed_payout",
     )
     result = simulate_trade_tape(_TUNE_TRADES, _TUNE_UPDATES, config)
-    return {
+    game_pnl = pd.DataFrame(
+        record.__dict__ for record in result.records
+    ).groupby("game_pk").pnl.sum()
+    row = {
         "minimum_edge": minimum_edge,
         "confirmation_seconds": confirmation_seconds,
+        "minimum_reversion_move": minimum_reversion_move,
+        "event_policy": "single,double,triple",
+        "side_filter": "both",
+        "position_sizing": "fixed_payout",
         "observed_hits": result.observed_hits,
         "eligible_hit_updates": result.eligible_hit_updates,
         "rejected_fair_updates": result.rejected_fair_updates,
@@ -71,7 +86,30 @@ def _evaluate_configuration(parameters: tuple[float, float]) -> dict:
         "capital": result.capital,
         "pnl": result.pnl,
         "roi": result.roi,
+        "pnl_without_best_game": float(
+            result.pnl - game_pnl.nlargest(1).sum()
+        ),
     }
+    fold_rois = []
+    fold_pnls = []
+    fold_counts = []
+    for index, fold_dates in enumerate(_TUNE_FOLDS, 1):
+        fold_trades = _TUNE_TRADES[
+            _TUNE_TRADES.game_date.isin(fold_dates)
+        ]
+        games = set(fold_trades.game_pk)
+        fold_updates = _TUNE_UPDATES[_TUNE_UPDATES.game_pk.isin(games)]
+        fold = simulate_trade_tape(fold_trades, fold_updates, config)
+        row[f"fold_{index}_trades"] = fold.trades
+        row[f"fold_{index}_pnl"] = fold.pnl
+        row[f"fold_{index}_roi"] = fold.roi
+        fold_counts.append(fold.trades)
+        fold_pnls.append(fold.pnl)
+        fold_rois.append(fold.roi)
+    row["minimum_fold_trades"] = min(fold_counts)
+    row["profitable_folds"] = sum(value > 0 for value in fold_pnls)
+    row["worst_fold_roi"] = min(fold_rois)
+    return row
 
 
 def _process_context() -> mp.context.BaseContext:
@@ -84,6 +122,8 @@ def print_progress(index: int, total: int, row: dict) -> None:
         f"[{index}/{total}] "
         f"edge={row['minimum_edge']:.1%} "
         f"confirmation={row['confirmation_seconds']:g}s "
+        f"reversion={row['minimum_reversion_move']:.1%} "
+        f"events={row['event_policy']} "
         f"ROI={row['roi']:.2%}",
         flush=True,
     )
@@ -117,16 +157,19 @@ def main() -> None:
     tune_trades = pre_holdout[pre_holdout["game_date"] >= tuning_start].copy()
     tune_games = set(tune_trades["game_pk"].unique())
     tune_updates = updates[updates["game_pk"].isin(tune_games)].copy()
+    folds = [set(values) for values in np.array_split(
+        sorted(tune_trades.game_date.unique()), 3
+    )]
 
     configurations = [
-        (minimum_edge, confirmation_seconds)
+        (minimum_edge, confirmation_seconds, minimum_reversion_move)
         for minimum_edge in [
-            0.01, 0.015, 0.02, 0.025, 0.03, 0.04, 0.05, 0.075,
-            0.10, 0.125, 0.15, 0.20,
+            0.01, 0.025, 0.05, 0.075, 0.10, 0.125,
         ]
-        for confirmation_seconds in [1.0, 2.0, 3.0, 5.0]
+        for confirmation_seconds in [1.0, 2.0]
+        for minimum_reversion_move in [0.0, 0.01, 0.02]
     ]
-    _initialize_worker(tune_trades, tune_updates)
+    _initialize_worker(tune_trades, tune_updates, folds)
     if args.workers == 1:
         iterator = map(_evaluate_configuration, configurations)
         rows = []
@@ -147,7 +190,7 @@ def main() -> None:
             max_workers=worker_count,
             mp_context=_process_context(),
             initializer=_initialize_worker,
-            initargs=(tune_trades, tune_updates),
+            initargs=(tune_trades, tune_updates, folds),
         ) as executor:
             iterator = executor.map(
                 _evaluate_configuration, configurations, chunksize=1
@@ -158,16 +201,30 @@ def main() -> None:
 
 
     grid = pd.DataFrame(rows).sort_values(
-        ["roi", "pnl", "trades"], ascending=False
+        ["worst_fold_roi", "pnl_without_best_game", "trades"],
+        ascending=False,
     )
-    eligible = grid[grid["trades"] >= 30]
+    eligible = grid[
+        (grid.trades >= 40) & (grid.minimum_fold_trades >= 10)
+        & (grid.profitable_folds >= 2) & (grid.worst_fold_roi >= -.20)
+        & (grid.pnl_without_best_game > 0)
+    ].sort_values(
+        ["trades", "worst_fold_roi", "pnl_without_best_game"],
+        ascending=False,
+    )
     selection = eligible.iloc[0] if not eligible.empty else grid.iloc[0]
-    enabled = bool(selection["pnl"] > 0 and selection["roi"] > 0)
+    enabled = bool(
+        not eligible.empty and selection["pnl"] > 0 and selection["roi"] > 0
+    )
     config = TradeTapeConfig(
         enabled=enabled,
         minimum_edge=float(selection["minimum_edge"]),
         confirmation_seconds=float(selection["confirmation_seconds"]),
         minimum_fair_move=0.005,
+        allowed_event_types=("single", "double", "triple"),
+        minimum_reversion_move=float(selection["minimum_reversion_move"]),
+        side_filter="both",
+        position_sizing="fixed_payout",
     )
 
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
@@ -178,7 +235,11 @@ def main() -> None:
         "tuning_start": str(tuning_start),
         "tuning_end": str(max(dates)),
         "tuning_games": len(tune_games),
-        "selection_rule": "maximum net ROI among configurations with >=30 trades",
+        "selection_rule": (
+            "maximum coverage among configurations with at least 40 trades, "
+            "ten per fold, at least two of three folds profitable, worst-fold "
+            "ROI above -20%, and profit remaining without the best game"
+        ),
         "selected_config": asdict(config),
         "selected_tuning_result": selection.to_dict(),
         "outer_holdout_used": False,
