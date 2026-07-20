@@ -6,7 +6,7 @@ import asyncio
 import argparse
 import csv
 from dataclasses import dataclass
-from datetime import date, datetime, timezone
+from datetime import date, datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
@@ -14,6 +14,8 @@ import sqlite3
 import subprocess
 import sys
 import threading
+import time
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import requests
@@ -49,6 +51,7 @@ MODEL_DIR = PROJECT_ROOT / "models"
 HYBRID_CONFIG_PATH = MODEL_DIR / "trade_tape_config.json"
 KALSHI_API = "https://external-api.kalshi.com/trade-api/v2"
 MLB_API = "https://statsapi.mlb.com/api"
+SLATE_TIMEZONE = ZoneInfo(os.getenv("SLATE_TIMEZONE", "America/Chicago"))
 
 MLB_TEAM_CODES = {
     108: "LAA", 109: "ARI", 110: "BAL", 111: "BOS", 112: "CHC",
@@ -410,6 +413,10 @@ def match_games_to_home_markets(
         for (scheduled, info), (_, markets) in zip(
             scheduled_games, market_events
         ):
+            if info["row"].get("status", {}).get(
+                "abstractGameState"
+            ) == "Final":
+                continue
             home_market = markets.get(info["home"])
             if home_market is None:
                 warnings.append(
@@ -437,8 +444,7 @@ def discover_daily_games(game_date: date) -> tuple[list[DiscoveredGame], list[st
         game
         for day in schedule.json().get("dates") or []
         for game in day.get("games") or []
-        if game.get("status", {}).get("abstractGameState") != "Final"
-        and str(game.get("status", {}).get("detailedState") or "").lower()
+        if str(game.get("status", {}).get("detailedState") or "").lower()
         not in {"postponed", "cancelled", "canceled"}
     ]
 
@@ -466,7 +472,8 @@ def run_daily_coordinator(game_date: date) -> int:
     for warning in warnings:
         print(f"WARNING: {warning}")
     if not games:
-        raise RuntimeError(f"No matched MLB/Kalshi games for {game_date}")
+        print(f"No active matched MLB/Kalshi games for {game_date}")
+        return 0
     print(f"Games for {game_date} ({len(games)}):", flush=True)
     for game in games:
         print(
@@ -559,6 +566,52 @@ def run_daily_coordinator(game_date: date) -> int:
     finally:
         for _, _, handle, _ in children:
             handle.close()
+
+
+def current_slate_date() -> date:
+    return datetime.now(SLATE_TIMEZONE).date()
+
+
+def run_continuous_coordinator(start_date: date | None = None) -> int:
+    """Run today's slate, then wait for and advance to each next slate."""
+    cursor = max(start_date or current_slate_date(), current_slate_date())
+    poll_seconds = float(os.getenv("SLATE_DISCOVERY_POLL_SECONDS", "300"))
+    lookahead_days = int(os.getenv("SLATE_LOOKAHEAD_DAYS", "7"))
+    while True:
+        selected = None
+        for offset in range(lookahead_days + 1):
+            candidate = cursor + timedelta(days=offset)
+            try:
+                games, _ = discover_daily_games(candidate)
+            except Exception as error:
+                print(
+                    f"Slate discovery failed for {candidate}: {error}",
+                    flush=True,
+                )
+                continue
+            if games:
+                selected = candidate
+                break
+        if selected is None:
+            cursor = max(cursor, current_slate_date())
+            print(
+                f"No matched slate from {cursor} through "
+                f"{cursor + timedelta(days=lookahead_days)}; "
+                f"retrying in {poll_seconds:g}s",
+                flush=True,
+            )
+            time.sleep(poll_seconds)
+            continue
+        print(f"Selected next trade-tape slate: {selected}", flush=True)
+        code = run_daily_coordinator(selected)
+        if code:
+            print(
+                f"Slate {selected} exited with status {code}; retrying",
+                flush=True,
+            )
+            time.sleep(poll_seconds)
+            continue
+        cursor = selected + timedelta(days=1)
 
 
 def material_state(state: dict) -> tuple:
@@ -1086,9 +1139,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--date",
         type=date.fromisoformat,
-        default=datetime.now().astimezone().date(),
+        default=None,
         help="Local schedule date for --all-games (YYYY-MM-DD).",
     )
+    parser.add_argument("--continuous", action="store_true")
     parser.add_argument(
         "--discover-only",
         action="store_true",
@@ -1120,7 +1174,9 @@ if __name__ == "__main__":
                 f"open_positions={metrics.open_positions} db={path}"
             )
         elif args.discover_only:
-            games, warnings = discover_daily_games(args.date)
+            games, warnings = discover_daily_games(
+                args.date or current_slate_date()
+            )
             for warning in warnings:
                 print(f"WARNING: {warning}")
             for game in games:
@@ -1129,8 +1185,12 @@ if __name__ == "__main__":
                     f"{game.away_code}@{game.home_code} "
                     f"game_pk={game.game_pk} ticker={game.market_ticker}"
                 )
+        elif args.continuous:
+            raise SystemExit(run_continuous_coordinator(args.date))
         elif args.all_games:
-            raise SystemExit(run_daily_coordinator(args.date))
+            raise SystemExit(run_daily_coordinator(
+                args.date or current_slate_date()
+            ))
         else:
             asyncio.run(main())
     except KeyboardInterrupt:

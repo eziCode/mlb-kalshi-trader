@@ -25,6 +25,7 @@ import subprocess
 import sys
 import threading
 import time
+from zoneinfo import ZoneInfo
 
 from catboost import CatBoostClassifier
 import numpy as np
@@ -53,6 +54,7 @@ LOG_DIR = Path(os.getenv("PAPER_LOG_DIR", str(ROOT / "results/live")))
 KALSHI_API = "https://external-api.kalshi.com/trade-api/v2"
 MLB_API = "https://statsapi.mlb.com/api"
 MLB_PRIOR_PATH = ROOT / "model/mlb_pregame_prior.json"
+SLATE_TIMEZONE = ZoneInfo(os.getenv("SLATE_TIMEZONE", "America/Chicago"))
 
 MLB_TEAM_CODES = {
     108: "LAA", 109: "ARI", 110: "BAL", 111: "BOS", 112: "CHC",
@@ -709,7 +711,8 @@ def discover_daily_games(game_date: date) -> tuple[list[DiscoveredGame], list[st
     games = [
         game for day in response.json().get("dates") or []
         for game in day.get("games") or []
-        if game.get("status", {}).get("abstractGameState") != "Final"
+        if str(game.get("status", {}).get("detailedState") or "").lower()
+        not in {"postponed", "cancelled", "canceled"}
     ]
     events = _daily_kalshi_events(game_date)
     event_groups = {}
@@ -753,6 +756,8 @@ def discover_daily_games(game_date: date) -> tuple[list[DiscoveredGame], list[st
         for (scheduled, game, away, home), (_, by_team) in zip(
             scheduled_games, markets
         ):
+            if game.get("status", {}).get("abstractGameState") == "Final":
+                continue
             matched.append(DiscoveredGame(
                 int(game["gamePk"]), scheduled, away, home,
                 str(by_team[home]["ticker"]),
@@ -1217,19 +1222,68 @@ def run_all_games(game_date: date) -> int:
             handle.close()
 
 
+def current_slate_date() -> date:
+    return datetime.now(SLATE_TIMEZONE).date()
+
+
+def run_continuous_slates(start_date: date | None = None) -> int:
+    """Run today's slate and automatically advance to the next matched one."""
+    cursor = max(start_date or current_slate_date(), current_slate_date())
+    poll_seconds = float(os.getenv("SLATE_DISCOVERY_POLL_SECONDS", "300"))
+    lookahead_days = int(os.getenv("SLATE_LOOKAHEAD_DAYS", "7"))
+    while True:
+        selected = None
+        for offset in range(lookahead_days + 1):
+            candidate = cursor + timedelta(days=offset)
+            try:
+                games, _ = discover_daily_games(candidate)
+            except Exception as error:
+                print(
+                    f"Slate discovery failed for {candidate}: {error}",
+                    flush=True,
+                )
+                continue
+            if games:
+                selected = candidate
+                break
+        if selected is None:
+            cursor = max(cursor, current_slate_date())
+            print(
+                f"No matched slate from {cursor} through "
+                f"{cursor + timedelta(days=lookahead_days)}; "
+                f"retrying in {poll_seconds:g}s",
+                flush=True,
+            )
+            time.sleep(poll_seconds)
+            continue
+        print(f"Selected next settlement-value slate: {selected}", flush=True)
+        code = run_all_games(selected)
+        if code:
+            print(
+                f"Slate {selected} exited with status {code}; retrying",
+                flush=True,
+            )
+            time.sleep(poll_seconds)
+            continue
+        cursor = selected + timedelta(days=1)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--all-games", action="store_true")
     parser.add_argument("--discover-only", action="store_true")
     parser.add_argument("--portfolio-status", action="store_true")
-    parser.add_argument("--date", type=date.fromisoformat, default=date.today())
+    parser.add_argument("--date", type=date.fromisoformat, default=None)
+    parser.add_argument("--continuous", action="store_true")
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
     if args.discover_only:
-        discovered, discovery_warnings = discover_daily_games(args.date)
+        discovered, discovery_warnings = discover_daily_games(
+            args.date or current_slate_date()
+        )
         for warning in discovery_warnings:
             print(f"WARNING: {warning}")
         for game in discovered:
@@ -1247,7 +1301,9 @@ if __name__ == "__main__":
             f"cash=${metrics.cash:.2f} equity=${metrics.equity:.2f} "
             f"pnl=${metrics.pnl:+.2f} open_positions={metrics.open_positions}"
         )
+    elif args.continuous:
+        raise SystemExit(run_continuous_slates(args.date))
     elif args.all_games:
-        raise SystemExit(run_all_games(args.date))
+        raise SystemExit(run_all_games(args.date or current_slate_date()))
     else:
         asyncio.run(run_worker())

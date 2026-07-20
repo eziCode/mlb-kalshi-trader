@@ -4,7 +4,7 @@ import unittest
 
 import pandas as pd
 
-from scripts.paper_trade import should_surface_worker_line
+from scripts.paper_trade import match_games_to_home_markets, should_surface_worker_line
 from trade_tape_strategy.core import (
     TradeTapeConfig,
     simulate_trade_tape,
@@ -13,6 +13,38 @@ from trade_tape_strategy.core import (
 
 
 class TradeTapeStrategyTests(unittest.TestCase):
+    def test_doubleheader_pairs_all_games_before_filtering_final(self):
+        games = [
+            {
+                "gamePk": 1, "gameDate": "2026-07-20T17:00:00Z",
+                "status": {"abstractGameState": "Final"},
+                "teams": {
+                    "away": {"team": {"id": 121}},
+                    "home": {"team": {"id": 144}},
+                },
+            },
+            {
+                "gamePk": 2, "gameDate": "2026-07-20T23:00:00Z",
+                "status": {"abstractGameState": "Preview"},
+                "teams": {
+                    "away": {"team": {"id": 121}},
+                    "home": {"team": {"id": 144}},
+                },
+            },
+        ]
+        events = [{
+            "event_ticker": f"KXMLBGAME-G{number}",
+            "markets": [
+                {"ticker": f"KXMLBGAME-G{number}-NYM"},
+                {"ticker": f"KXMLBGAME-G{number}-ATL"},
+            ],
+        } for number in (1, 2)]
+        matched, warnings = match_games_to_home_markets(games, events)
+        self.assertEqual(warnings, [])
+        self.assertEqual(len(matched), 1)
+        self.assertEqual(matched[0].game_pk, 2)
+        self.assertEqual(matched[0].market_ticker, "KXMLBGAME-G2-ATL")
+
     def test_main_log_surfaces_readiness_and_trades(self):
         self.assertTrue(should_surface_worker_line("TRADER READY game_pk=1"))
         self.assertTrue(should_surface_worker_line("TRADE SELL YES"))

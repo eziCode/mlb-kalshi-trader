@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
+from datetime import date
 from pathlib import Path
 import tempfile
 import json
@@ -17,7 +18,7 @@ from settlement_value_strategy.live_paper_trader import (
     SharedPaperPortfolio, PaperPosition, build_live_decision_row,
     consecutive_pitch, execution_within_window, reconcile_final_positions,
     pregame_probability_from_rating_state, replay_fill_from_observed_trades,
-    should_surface_worker_line, wait_for_pregame_anchor,
+    should_surface_worker_line, wait_for_pregame_anchor, discover_daily_games,
 )
 
 
@@ -45,6 +46,53 @@ class PregameAnchorRetryTests(unittest.IsolatedAsyncioTestCase):
 
 
 class PipelineTests(unittest.TestCase):
+    def test_doubleheader_pairs_before_filtering_final_game(self):
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"dates": [{"games": [
+            {
+                "gamePk": 1, "gameDate": "2026-07-20T17:00:00Z",
+                "status": {"abstractGameState": "Final"},
+                "teams": {
+                    "away": {"team": {"id": 121}},
+                    "home": {"team": {"id": 144}},
+                },
+            },
+            {
+                "gamePk": 2, "gameDate": "2026-07-20T23:00:00Z",
+                "status": {"abstractGameState": "Preview"},
+                "teams": {
+                    "away": {"team": {"id": 121}},
+                    "home": {"team": {"id": 144}},
+                },
+            },
+        ]}]}
+
+        def event(name):
+            return {
+                "event_ticker": name,
+                "markets": [
+                    {"ticker": f"{name}-NYM"},
+                    {"ticker": f"{name}-ATL"},
+                ],
+            }
+
+        with (
+            patch(
+                "settlement_value_strategy.live_paper_trader.requests.get",
+                return_value=response,
+            ),
+            patch(
+                "settlement_value_strategy.live_paper_trader._daily_kalshi_events",
+                return_value=[event("KXMLBGAME-G1"), event("KXMLBGAME-G2")],
+            ),
+        ):
+            games, warnings = discover_daily_games(date(2026, 7, 20))
+        self.assertEqual(warnings, [])
+        self.assertEqual(len(games), 1)
+        self.assertEqual(games[0].game_pk, 2)
+        self.assertEqual(games[0].market_ticker, "KXMLBGAME-G2-ATL")
+
     def test_live_execution_rejects_stale_signal(self):
         signal = pd.Timestamp("2026-07-01T12:00:00Z")
         self.assertTrue(execution_within_window(
