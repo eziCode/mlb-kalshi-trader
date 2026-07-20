@@ -28,11 +28,12 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from trade_tape_strategy.hybrid import anchored_event_target  # noqa: E402
 from trade_tape_strategy.core import (  # noqa: E402
-    TradeTapeConfig, position_contracts, trade_signal,
+    TradeTapeConfig, position_contracts, segmented_trade_signal,
+    segment_value,
 )
 from trade_tape_strategy.strategy import (  # noqa: E402
     CONFIG,
-    fee_aware_signal_side,
+    estimated_round_trip_fee_per_contract,
     state_feature_frame,
     taker_fee,
 )
@@ -767,9 +768,9 @@ def replay_candidate_entry(
         if when <= candidate.event_time or when > deadline:
             continue
         yes_price = float(trade.yes_price_dollars)
-        side, _ = trade_signal(target, yes_price, config.minimum_edge)
-        if config.side_filter != "both" and side != config.side_filter:
-            side = None
+        side, _ = segmented_trade_signal(
+            target, yes_price, candidate.event_type, config
+        )
         if pending_created is not None:
             if side != candidate.side:
                 return None
@@ -787,7 +788,13 @@ def replay_candidate_entry(
                     if candidate.side == "yes"
                     else confirmation_price - yes_price
                 )
-                if reversion_move < config.minimum_reversion_move:
+                minimum_reversion_move = segment_value(
+                    config.minimum_reversion_moves_by_segment,
+                    candidate.event_type,
+                    candidate.side,
+                    config.minimum_reversion_move,
+                )
+                if reversion_move < minimum_reversion_move:
                     continue
                 price = yes_price if side == "yes" else 1.0 - yes_price
                 contracts = position_contracts(price, config)
@@ -802,7 +809,12 @@ def replay_candidate_entry(
             watch_started = None
         elif watch_started is None:
             watch_started = when
-        elif (when - watch_started).total_seconds() >= config.confirmation_seconds:
+        elif (when - watch_started).total_seconds() >= segment_value(
+            config.confirmation_seconds_by_segment,
+            candidate.event_type,
+            candidate.side,
+            config.confirmation_seconds,
+        ):
             pending_created = when
             confirmation_price = yes_price
     return None
@@ -1207,15 +1219,41 @@ async def main() -> None:
                     target = float(anchored_event_target(
                         pre_event_market, previous_fair, fair_prob
                     ))
-                    side, edge = fee_aware_signal_side(
-                        target, market.bid, market.ask,
-                        hybrid_config.minimum_edge,
-                    )
-                    if (
-                        hybrid_config.side_filter != "both"
-                        and side != hybrid_config.side_filter
-                    ):
-                        side = None
+                    event_type = str(game.completed_event)
+                    side_candidates = []
+                    for evaluated_side in ("yes", "no"):
+                        if (
+                            hybrid_config.side_filter != "both"
+                            and evaluated_side != hybrid_config.side_filter
+                        ):
+                            continue
+                        threshold = segment_value(
+                            hybrid_config.minimum_edges_by_segment,
+                            event_type,
+                            evaluated_side,
+                            hybrid_config.minimum_edge,
+                        )
+                        executable_price = (
+                            float(market.ask) if evaluated_side == "yes"
+                            else 1.0 - float(market.bid)
+                        )
+                        evaluated_edge = (
+                            target - float(market.ask)
+                            if evaluated_side == "yes"
+                            else float(market.bid) - target
+                        ) - estimated_round_trip_fee_per_contract(
+                            executable_price
+                        )
+                        if evaluated_edge >= threshold:
+                            side_candidates.append((
+                                evaluated_edge - threshold,
+                                evaluated_edge,
+                                evaluated_side,
+                            ))
+                    if side_candidates:
+                        _, edge, side = max(side_candidates)
+                    else:
+                        side, edge = None, 0.0
                     candidate = (
                         EventCandidate(
                             side=side,

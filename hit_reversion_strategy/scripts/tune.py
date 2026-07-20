@@ -54,9 +54,9 @@ def _evaluate_configuration(parameters: tuple[float, float, float]) -> dict:
     config = TradeTapeConfig(
         minimum_edge=minimum_edge,
         confirmation_seconds=confirmation_seconds,
-        allowed_event_types=("double",),
+        allowed_event_types=("single", "double", "triple"),
         minimum_reversion_move=minimum_reversion_move,
-        side_filter="no",
+        side_filter="both",
         position_sizing="fixed_payout",
     )
     result = simulate_trade_tape(_TUNE_TRADES, _TUNE_UPDATES, config)
@@ -67,8 +67,8 @@ def _evaluate_configuration(parameters: tuple[float, float, float]) -> dict:
         "minimum_edge": minimum_edge,
         "confirmation_seconds": confirmation_seconds,
         "minimum_reversion_move": minimum_reversion_move,
-        "event_policy": "double",
-        "side_filter": "no",
+        "event_policy": "single,double,triple",
+        "side_filter": "both",
         "position_sizing": "fixed_payout",
         "observed_hits": result.observed_hits,
         "eligible_hit_updates": result.eligible_hit_updates,
@@ -221,9 +221,9 @@ def main() -> None:
         minimum_edge=float(selection["minimum_edge"]),
         confirmation_seconds=float(selection["confirmation_seconds"]),
         minimum_fair_move=0.005,
-        allowed_event_types=("double",),
+        allowed_event_types=("single", "double", "triple"),
         minimum_reversion_move=float(selection["minimum_reversion_move"]),
-        side_filter="no",
+        side_filter="both",
         position_sizing="fixed_payout",
     )
 

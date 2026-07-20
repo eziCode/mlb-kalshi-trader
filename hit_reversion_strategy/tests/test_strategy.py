@@ -14,12 +14,28 @@ from scripts.paper_trade import (
 )
 from trade_tape_strategy.core import (
     TradeTapeConfig,
+    segmented_trade_signal,
     simulate_trade_tape,
     trade_signal,
 )
 
 
 class TradeTapeStrategyTests(unittest.TestCase):
+    def test_segmented_policy_supports_yes_and_no_for_every_hit_type(self):
+        segments = {
+            f"{event}:{side}": 0.01
+            for event in ("single", "double", "triple")
+            for side in ("yes", "no")
+        }
+        config = TradeTapeConfig(minimum_edges_by_segment=segments)
+        for event in ("single", "double", "triple"):
+            self.assertEqual(
+                segmented_trade_signal(.70, .30, event, config)[0], "yes"
+            )
+            self.assertEqual(
+                segmented_trade_signal(.30, .70, event, config)[0], "no"
+            )
+
     def test_cooldown_survives_position_close_without_capping_game(self):
         start = pd.Timestamp("2026-07-20T12:00:00Z").to_pydatetime()
         first = Position("no", 10, .5, .1, start, .4, .4, 1)

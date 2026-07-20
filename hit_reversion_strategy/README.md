@@ -29,8 +29,8 @@ candidate or position is active.
 ## Event and signal lifecycle
 
 1. Observe a newly completed plate appearance from the authoritative MLB feed.
-2. Continue only for the event types frozen by tuning. The current research
-   policy trades doubles only.
+2. Continue for singles, doubles, and triples. Home runs are excluded because
+   they are not part of the hit-reversion thesis.
 3. Require a meaningful directional fair-value move for the batting team.
 4. Anchor to a fresh Kalshi execution observed before the event.
 5. Compare the anchored target with exact subsequent Kalshi executions.
@@ -64,13 +64,13 @@ a strictly later observed execution on the compatible taker outcome side and
 enough reported size. Therefore the simulator is causal but remains a fill
 proxy rather than a historical order-book reconstruction.
 
-The selected higher-coverage research policy currently uses:
+The selected segmented research policy currently uses:
 
-- doubles only;
-- NO-side residuals only;
-- one-point minimum target residual;
-- one-second confirmation;
-- no continuation away from the target after confirmation;
+- singles, doubles, and triples;
+- both YES- and NO-side residuals;
+- separate minimum-edge, confirmation, and reversion thresholds for every
+  hit-type/side pair;
+- a later move back toward the target after confirmation;
 - fixed maximum-payout sizing of ten contracts per entry;
 - unlimited positions per game, with at least 180 seconds between entries;
 - five-second maximum pre-event anchor age;

@@ -33,13 +33,18 @@ class TradeTapeConfig:
     momentum_max_hold_seconds: float = 2.0
     minimum_momentum_trades: int = 3
     minimum_seconds_between_entries: float = 180.0
-    allowed_event_types: tuple[str, ...] = (
-        "single", "double", "triple", "home_run",
-    )
+    allowed_event_types: tuple[str, ...] = ("single", "double", "triple")
     maximum_hold_seconds: float = 0.0
     minimum_reversion_move: float = 0.0
     side_filter: str = "both"
     position_sizing: str = "fixed_payout"
+    minimum_edges_by_segment: dict[str, float] = field(default_factory=dict)
+    confirmation_seconds_by_segment: dict[str, float] = field(
+        default_factory=dict
+    )
+    minimum_reversion_moves_by_segment: dict[str, float] = field(
+        default_factory=dict
+    )
 
 
 @dataclass
@@ -159,6 +164,41 @@ def trade_signal(
     return None, max(yes_edge, no_edge)
 
 
+def segment_value(
+    values: dict[str, float], event_type: str, side: str, fallback: float,
+) -> float:
+    return float(values.get(f"{event_type}:{side}", fallback))
+
+
+def segmented_trade_signal(
+    target: float, yes_price: float, event_type: str, config: TradeTapeConfig,
+) -> tuple[str | None, float]:
+    """Apply independently calibrated thresholds to each hit/side segment."""
+    no_price = 1.0 - yes_price
+    edges = {
+        "yes": target - yes_price
+        - estimated_round_trip_fee_per_contract(yes_price),
+        "no": yes_price - target
+        - estimated_round_trip_fee_per_contract(no_price),
+    }
+    eligible = []
+    for side, edge in edges.items():
+        if config.side_filter != "both" and side != config.side_filter:
+            continue
+        threshold = segment_value(
+            config.minimum_edges_by_segment,
+            event_type,
+            side,
+            config.minimum_edge,
+        )
+        if edge >= threshold:
+            eligible.append((edge - threshold, edge, side))
+    if not eligible:
+        return None, max(edges.values())
+    _, edge, side = max(eligible)
+    return side, edge
+
+
 def compatible_taker(side: str, taker_outcome_side: str) -> bool:
     return side == taker_outcome_side
 
@@ -237,7 +277,6 @@ def simulate_trade_tape(
         int(game_pk): game.sort_values("pitch_end_time")
         for game_pk, game in updates.groupby("game_pk", sort=False)
     }
-    confirmation_ns = int(config.confirmation_seconds * 1_000_000_000)
     momentum_window_ns = int(config.momentum_window_seconds * 1_000_000_000)
     momentum_max_hold_ns = int(
         config.momentum_max_hold_seconds * 1_000_000_000
@@ -474,9 +513,10 @@ def simulate_trade_tape(
 
             if pending_entry is not None:
                 target = _dynamic_target(pending_entry.candidate, current_fair)
-                side, _ = trade_signal(target, yes_price, config.minimum_edge)
-                if config.side_filter != "both" and side != config.side_filter:
-                    side = None
+                side, _ = segmented_trade_signal(
+                    target, yes_price, pending_entry.candidate.event_type,
+                    config,
+                )
                 if side != pending_entry.side:
                     candidate = pending_entry.candidate
                     candidate.watch_side = None
@@ -497,7 +537,13 @@ def simulate_trade_tape(
                         if side == "yes"
                         else pending_entry.confirmation_price - yes_price
                     )
-                    if reversion_move < config.minimum_reversion_move:
+                    minimum_reversion_move = segment_value(
+                        config.minimum_reversion_moves_by_segment,
+                        pending_entry.candidate.event_type,
+                        side,
+                        config.minimum_reversion_move,
+                    )
+                    if reversion_move < minimum_reversion_move:
                         continue
                     entry_price = yes_price if side == "yes" else no_price
                     contracts = position_contracts(entry_price, config)
@@ -534,9 +580,9 @@ def simulate_trade_tape(
 
             if candidate is not None and pending_entry is None:
                 target = _dynamic_target(candidate, current_fair)
-                side, _ = trade_signal(target, yes_price, config.minimum_edge)
-                if config.side_filter != "both" and side != config.side_filter:
-                    side = None
+                side, _ = segmented_trade_signal(
+                    target, yes_price, candidate.event_type, config
+                )
                 if side is None:
                     candidate.watch_side = None
                     candidate.watch_started_ns = None
@@ -545,7 +591,14 @@ def simulate_trade_tape(
                     candidate.watch_started_ns = trade_ns
                 elif (
                     candidate.watch_started_ns is not None
-                    and trade_ns - candidate.watch_started_ns >= confirmation_ns
+                    and trade_ns - candidate.watch_started_ns >= int(
+                        segment_value(
+                            config.confirmation_seconds_by_segment,
+                            candidate.event_type,
+                            side,
+                            config.confirmation_seconds,
+                        ) * 1_000_000_000
+                    )
                 ):
                     result.confirmed_signals += 1
                     pending_entry = PendingEntry(

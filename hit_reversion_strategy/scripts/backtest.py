@@ -41,6 +41,16 @@ def main() -> None:
     result = simulate_trade_tape(test_trades, test_updates, config)
     records = pd.DataFrame(asdict(record) for record in result.records)
     game_pnl = records.groupby("game_pk").pnl.sum()
+    segment_results = {
+        f"{event_type}:{side}": {
+            "trades": int(len(segment)),
+            "pnl": float(segment.pnl.sum()),
+            "wins": int((segment.pnl > 0).sum()),
+        }
+        for (event_type, side), segment in records.groupby(
+            ["event_type", "side"]
+        )
+    }
     pnl_without_best_game = float(result.pnl - game_pnl.nlargest(1).sum())
     pnl_without_top_four_games = float(
         result.pnl - game_pnl.nlargest(min(4, len(game_pnl))).sum()
@@ -77,6 +87,7 @@ def main() -> None:
         "roi": result.roi,
         "pnl_without_best_game": pnl_without_best_game,
         "pnl_without_top_four_games": pnl_without_top_four_games,
+        "segment_results": segment_results,
         "time_based_exit": False,
     }
     STUDY_DIR.mkdir(parents=True, exist_ok=True)

@@ -1,8 +1,8 @@
 {
   "selected_config": {
     "enabled": true,
-    "minimum_edge": 0.01,
-    "confirmation_seconds": 1.0,
+    "minimum_edge": 0.075,
+    "confirmation_seconds": 2.0,
     "maximum_pre_event_trade_age_seconds": 5.0,
     "maximum_event_to_entry_seconds": 10.0,
     "invalidate_on_next_pitch": true,
@@ -15,17 +15,43 @@
     "minimum_momentum_trades": 3,
     "minimum_seconds_between_entries": 180.0,
     "allowed_event_types": [
-      "double"
+      "single",
+      "double",
+      "triple"
     ],
     "maximum_hold_seconds": 0.0,
-    "minimum_reversion_move": 0.0,
-    "side_filter": "no",
-    "position_sizing": "fixed_payout"
+    "minimum_reversion_move": 0.01,
+    "side_filter": "both",
+    "position_sizing": "fixed_payout",
+    "minimum_edges_by_segment": {
+      "single:yes": 0.1,
+      "single:no": 0.05,
+      "double:yes": 0.025,
+      "double:no": 0.025,
+      "triple:yes": 0.025,
+      "triple:no": 0.025
+    },
+    "confirmation_seconds_by_segment": {
+      "single:yes": 2.0,
+      "single:no": 2.0,
+      "double:yes": 2.0,
+      "double:no": 2.0,
+      "triple:yes": 2.0,
+      "triple:no": 2.0
+    },
+    "minimum_reversion_moves_by_segment": {
+      "single:yes": 0.01,
+      "single:no": 0.01,
+      "double:yes": 0.01,
+      "double:no": 0.01,
+      "triple:yes": 0.01,
+      "triple:no": 0.01
+    }
   },
   "deployment_config": {
-    "enabled": false,
-    "minimum_edge": 0.01,
-    "confirmation_seconds": 1.0,
+    "enabled": true,
+    "minimum_edge": 0.075,
+    "confirmation_seconds": 2.0,
     "maximum_pre_event_trade_age_seconds": 5.0,
     "maximum_event_to_entry_seconds": 10.0,
     "invalidate_on_next_pitch": true,
@@ -38,35 +64,83 @@
     "minimum_momentum_trades": 3,
     "minimum_seconds_between_entries": 180.0,
     "allowed_event_types": [
-      "double"
+      "single",
+      "double",
+      "triple"
     ],
     "maximum_hold_seconds": 0.0,
-    "minimum_reversion_move": 0.0,
-    "side_filter": "no",
-    "position_sizing": "fixed_payout"
+    "minimum_reversion_move": 0.01,
+    "side_filter": "both",
+    "position_sizing": "fixed_payout",
+    "minimum_edges_by_segment": {
+      "single:yes": 0.1,
+      "single:no": 0.05,
+      "double:yes": 0.025,
+      "double:no": 0.025,
+      "triple:yes": 0.025,
+      "triple:no": 0.025
+    },
+    "confirmation_seconds_by_segment": {
+      "single:yes": 2.0,
+      "single:no": 2.0,
+      "double:yes": 2.0,
+      "double:no": 2.0,
+      "triple:yes": 2.0,
+      "triple:no": 2.0
+    },
+    "minimum_reversion_moves_by_segment": {
+      "single:yes": 0.01,
+      "single:no": 0.01,
+      "double:yes": 0.01,
+      "double:no": 0.01,
+      "triple:yes": 0.01,
+      "triple:no": 0.01
+    }
   },
   "games": 220,
   "trade_tape_rows": 1836701,
   "state_updates": 64470,
-  "observed_hits": 652,
-  "eligible_hit_updates": 154,
-  "rejected_fair_updates": 498,
+  "observed_hits": 3029,
+  "eligible_hit_updates": 481,
+  "rejected_fair_updates": 2548,
   "invalidated_candidates": 0,
-  "expired_candidates": 111,
-  "fresh_hit_anchors": 123,
-  "confirmed_signals": 32,
-  "trades": 12,
-  "yes_trades": 0,
-  "no_trades": 12,
-  "reversion_exits": 10,
+  "expired_candidates": 379,
+  "fresh_hit_anchors": 407,
+  "confirmed_signals": 85,
+  "trades": 28,
+  "yes_trades": 12,
+  "no_trades": 16,
+  "reversion_exits": 26,
   "momentum_exits": 0,
   "timeout_exits": 0,
   "settlements": 2,
-  "fees": 2.6199999999999997,
-  "capital": 51.32,
-  "pnl": 2.6800000000000024,
-  "roi": 0.0522213561964147,
-  "pnl_without_best_game": 1.5800000000000018,
-  "pnl_without_top_four_games": -1.2600000000000002,
+  "fees": 7.81,
+  "capital": 152.97,
+  "pnl": 12.890000000000011,
+  "roi": 0.08426488854023673,
+  "pnl_without_best_game": 10.370000000000012,
+  "pnl_without_top_four_games": 4.37000000000001,
+  "segment_results": {
+    "double:no": {
+      "trades": 6,
+      "pnl": 2.9600000000000035,
+      "wins": 5
+    },
+    "double:yes": {
+      "trades": 9,
+      "pnl": -3.389999999999999,
+      "wins": 5
+    },
+    "single:no": {
+      "trades": 10,
+      "pnl": 10.660000000000004,
+      "wins": 9
+    },
+    "single:yes": {
+      "trades": 3,
+      "pnl": 2.6599999999999984,
+      "wins": 2
+    }
+  },
   "time_based_exit": false
 }
