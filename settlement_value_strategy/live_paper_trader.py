@@ -52,6 +52,7 @@ POLL_SECONDS = float(os.getenv("POLL_SECONDS", "1.0"))
 LOG_DIR = Path(os.getenv("PAPER_LOG_DIR", str(ROOT / "results/live")))
 KALSHI_API = "https://external-api.kalshi.com/trade-api/v2"
 MLB_API = "https://statsapi.mlb.com/api"
+MLB_PRIOR_PATH = ROOT / "model/mlb_pregame_prior.json"
 
 MLB_TEAM_CODES = {
     108: "LAA", 109: "ARI", 110: "BAL", 111: "BOS", 112: "CHC",
@@ -538,44 +539,21 @@ def home_fair_probability(model, pregame_prob: float, state: dict) -> float:
 
 
 def fetch_pregame_anchor() -> float:
-    response = requests.get(f"{MLB_API}/v1.1/game/{GAME_PK}/feed/live", timeout=5)
-    response.raise_for_status()
-    payload = response.json()
-    starts = [
-        pd.to_datetime(event["startTime"], utc=True).to_pydatetime()
-        for play in payload.get("liveData", {}).get("plays", {}).get("allPlays", [])
-        for event in play.get("playEvents") or []
-        if event.get("isPitch") and event.get("startTime")
-    ]
-    if not starts:
-        if payload.get("gameData", {}).get("status", {}).get(
-            "abstractGameState"
-        ) == "Live":
-            raise RuntimeError("Live game has no authoritative first-pitch time")
-        market = fetch_market_snapshot()
-        return (market.bid + market.ask) / 2
-    first_pitch = min(starts)
-    response = requests.get(
-        "https://api.elections.kalshi.com/trade-api/v2/series/"
-        f"KXMLBGAME/markets/{MARKET_TICKER}/candlesticks",
-        params={
-            "start_ts": int(first_pitch.timestamp()) - 14400,
-            "end_ts": int(first_pitch.timestamp()), "period_interval": 1,
-        }, timeout=5,
+    state = json.loads(MLB_PRIOR_PATH.read_text())
+    aliases = {"AZ": "ARI", "CWS": "CHW", "ATH": "OAK"}
+    home = aliases.get(MARKET_TICKER.rsplit("-", 1)[-1], MARKET_TICKER.rsplit("-", 1)[-1])
+    away = aliases.get(
+        AWAY_MARKET_TICKER.rsplit("-", 1)[-1],
+        AWAY_MARKET_TICKER.rsplit("-", 1)[-1],
     )
-    response.raise_for_status()
-    candles = response.json().get("candlesticks") or []
-    if not candles:
-        raise RuntimeError("No pre-first-pitch Kalshi anchor")
-    latest = candles[-1]
-    traded = latest.get("price", {}).get("close_dollars")
-    if traded is not None and 0 < float(traded) < 1:
-        return float(traded)
-    bid = float(latest["yes_bid"]["close_dollars"])
-    ask = float(latest["yes_ask"]["close_dollars"])
-    if not 0 < bid < ask < 1:
-        raise RuntimeError("Invalid pregame quote")
-    return (bid + ask) / 2
+    ratings = state["ratings"]
+    home_rating = float(ratings.get(home, state["initial_rating"]))
+    away_rating = float(ratings.get(away, state["initial_rating"]))
+    return 1.0 / (
+        1.0 + 10.0 ** (-(
+            home_rating + float(state["home_advantage"]) - away_rating
+        ) / 400.0)
+    )
 
 
 async def wait_for_pregame_anchor() -> float:

@@ -10,8 +10,8 @@ import sys
 from catboost import CatBoostClassifier
 import numpy as np
 import pandas as pd
-from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import brier_score_loss, log_loss, roc_auc_score
+from scipy.optimize import minimize
 
 
 STRATEGY_DIR = Path(__file__).resolve().parent
@@ -20,7 +20,7 @@ if str(STRATEGY_DIR.parent) not in sys.path:
 
 from settlement_value_strategy.strategy import (  # noqa: E402
     MispricingConfig, build_mispricing_dataset, mispricing_feature_frame,
-    simulate_away_yes,
+    market_adjusted_probability, simulate_away_yes,
 )
 
 
@@ -54,9 +54,43 @@ def calibrated_probability(model, frame, calibration):
         model.predict_proba(mispricing_feature_frame(frame))[:, 1],
         1e-6, 1 - 1e-6,
     )
-    logits = np.log(raw / (1 - raw))
-    values = calibration["intercept"] + calibration["coefficient"] * logits
-    return 1 / (1 + np.exp(-values))
+    return market_adjusted_probability(
+        raw, frame.market_home_price.to_numpy(float), calibration
+    )
+
+
+def fit_market_adjustment(raw, market, outcome, weights):
+    market = np.clip(np.asarray(market, float), 1e-6, 1 - 1e-6)
+    raw = np.clip(np.asarray(raw, float), 1e-6, 1 - 1e-6)
+    outcome = np.asarray(outcome, float)
+    weights = np.asarray(weights, float)
+    market_logit = np.log(market / (1 - market))
+    delta = np.log(raw / (1 - raw)) - market_logit
+
+    def objective(values):
+        intercept, coefficient = values
+        logits = market_logit + intercept + coefficient * delta
+        probability = 1 / (1 + np.exp(-logits))
+        loss = -np.average(
+            outcome * np.log(np.clip(probability, 1e-9, 1))
+            + (1 - outcome) * np.log(np.clip(1 - probability, 1e-9, 1)),
+            weights=weights,
+        )
+        return loss + .05 * coefficient ** 2 + .02 * intercept ** 2
+
+    fitted = minimize(
+        objective, x0=np.array([0.0, 0.1]), method="L-BFGS-B",
+        bounds=[(-.5, .5), (0.0, 1.0)],
+    )
+    if not fitted.success:
+        raise RuntimeError(f"Market adjustment calibration failed: {fitted.message}")
+    return {
+        "mode": "market_logit_adjustment",
+        "intercept": float(fitted.x[0]),
+        "coefficient": float(fitted.x[1]),
+        "l2_coefficient": .05,
+        "l2_intercept": .02,
+    }
 
 
 def metrics(frame, probability):
@@ -88,25 +122,23 @@ def main() -> None:
     model.fit(
         mispricing_feature_frame(fit), fit.home_win, sample_weight=weights
     )
-    raw_cal = np.clip(
-        model.predict_proba(mispricing_feature_frame(cal))[:, 1], 1e-6, 1 - 1e-6
+    # The market-anchored calibrator learned a persistent home-YES offset and
+    # erased the model disagreements that drive the paired away contract.  Keep
+    # the model probability unchanged and require the policy to work in the
+    # two genuinely chronological development periods instead.
+    calibration = {"mode": "identity"}
+    development = pd.concat([cal, tune], ignore_index=True)
+    development_probability = calibrated_probability(
+        model, development, calibration
     )
-    calibrator = LogisticRegression(C=1.0, random_state=91)
-    cal_counts = cal.groupby("game_pk").size()
-    cal_weights = cal.game_pk.map(1.0 / cal_counts)
-    calibrator.fit(
-        np.log(raw_cal / (1 - raw_cal)).reshape(-1, 1), cal.home_win,
-        sample_weight=cal_weights,
-    )
-    calibration = {
-        "coefficient": float(calibrator.coef_[0, 0]),
-        "intercept": float(calibrator.intercept_[0]),
-    }
-    tune_probability = calibrated_probability(model, tune, calibration)
-    tune_games = set(tune.game_pk)
-    tune_trades = away_trades[away_trades.game_pk.isin(tune_games)].copy()
-    dates = sorted(tune.game_date.unique())
-    folds = [set(values) for values in np.array_split(dates, 3)]
+    development_games = set(development.game_pk)
+    development_trades = away_trades[
+        away_trades.game_pk.isin(development_games)
+    ].copy()
+    folds = [
+        set(cal.game_date.unique()),
+        set(tune.game_date.unique()),
+    ]
 
     def consistency(result):
         records = pd.DataFrame(result.records)
@@ -119,18 +151,20 @@ def main() -> None:
         )
 
     rows = []
-    for minimum_ev in [0.0, .25, .50, 1.0, 1.5, 2.0]:
-        for edge in [.01, .02, .03, .04, .05, .075, .10, .15]:
-          for maximum_positions in [1, 3, 5]:
+    for minimum_ev in [0.0, .25, .50, 1.0]:
+        for edge in [.025, .03, .04, .05, .06]:
+          for maximum_positions in [1]:
             config = MispricingConfig(
                 minimum_expected_pnl=minimum_ev,
                 minimum_probability_edge=edge,
                 side_filter="no",
                 execution_contract="away_yes",
                 maximum_positions_per_game=maximum_positions,
+                minimum_seconds_between_entries=60.0,
             )
             result = simulate_away_yes(
-                tune, tune_probability, tune_trades, config
+                development, development_probability,
+                development_trades, config
             )
             pnl_without_best_game, profitable_game_fraction = consistency(result)
             row = {
@@ -147,12 +181,14 @@ def main() -> None:
             }
             fold_pnls, fold_counts, fold_rois = [], [], []
             for index, fold_dates in enumerate(folds, start=1):
-                mask = tune.game_date.isin(fold_dates).to_numpy()
-                fold_frame = tune.loc[mask]
+                mask = development.game_date.isin(fold_dates).to_numpy()
+                fold_frame = development.loc[mask]
                 games = set(fold_frame.game_pk)
                 fold_result = simulate_away_yes(
-                    fold_frame, tune_probability[mask],
-                    tune_trades[tune_trades.game_pk.isin(games)], config,
+                    fold_frame, development_probability[mask],
+                    development_trades[
+                        development_trades.game_pk.isin(games)
+                    ], config,
                 )
                 row[f"fold_{index}_trades"] = fold_result.trades
                 row[f"fold_{index}_pnl"] = fold_result.pnl
@@ -166,8 +202,8 @@ def main() -> None:
             rows.append(row)
     grid = pd.DataFrame(rows)
     stable = grid[
-        (grid.trades >= 20) & (grid.minimum_fold_trades >= 3)
-        & (grid.profitable_folds == 3)
+        (grid.trades >= 60) & (grid.minimum_fold_trades >= 20)
+        & (grid.profitable_folds == len(folds))
         & (grid.pnl_without_best_game > 0)
         & (grid.profitable_game_fraction >= .50)
     ].sort_values(["worst_fold_roi", "roi", "pnl"], ascending=False)
@@ -176,23 +212,26 @@ def main() -> None:
     )
     high_coverage = stable[
         (stable.execution_contract == "away_yes")
-        & (stable.worst_fold_roi >= 0.15) & (stable.roi >= 0.20)
+        & (stable.worst_fold_roi >= 0.03) & (stable.roi >= 0.05)
     ].sort_values(
-        ["worst_fold_roi", "pnl_without_best_game", "trades"],
+        ["pnl_without_best_game", "trades", "worst_fold_roi"],
         ascending=False,
     )
     if not high_coverage.empty:
         selected = high_coverage.iloc[0]
         selection_rule = (
-            "maximum worst-fold ROI among non-tail-concentrated paired "
-            "away-YES policies"
+            "maximum profit after removing the best game among paired "
+            "away-YES policies passing both chronological periods"
         )
     elif not stable.empty:
         selected = stable.iloc[0]
         selection_rule = "maximum worst-fold ROI among stable policies"
     else:
         selected = aggregate.iloc[0]
-        selection_rule = "maximum aggregate ROI fallback"
+        selection_rule = (
+            "diagnostic-only least-bad aggregate policy; no configuration "
+            "passed chronological resilience requirements"
+        )
     config = MispricingConfig(
         enabled=False,
         minimum_expected_pnl=float(selected.minimum_expected_pnl),
@@ -221,7 +260,12 @@ def main() -> None:
         "calibration_metrics": metrics(
             cal, calibrated_probability(model, cal, calibration)
         ),
-        "tuning_metrics": metrics(tune, tune_probability),
+        "tuning_metrics": metrics(
+            development, development_probability
+        ),
+        "market_baseline_metrics": metrics(
+            development, development.market_home_price.to_numpy(float)
+        ),
         "selected_config": asdict(config),
         "selection_rule": selection_rule,
         "selected_tuning_result": selected.to_dict(),

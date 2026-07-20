@@ -21,6 +21,19 @@ def _expit(value):
     return 1.0 / (1.0 + np.exp(-value))
 
 
+def market_adjusted_probability(raw_probability, market_probability, calibration):
+    """Apply the frozen probability transform used by training and live code."""
+    if calibration.get("mode") == "identity":
+        return np.clip(np.asarray(raw_probability, dtype=float), 1e-6, 1 - 1e-6)
+    market_logit = _logit(market_probability)
+    model_delta = _logit(raw_probability) - market_logit
+    return _expit(
+        market_logit
+        + float(calibration["intercept"])
+        + float(calibration["coefficient"]) * model_delta
+    )
+
+
 def anchored_event_target(pre_market, pre_fair, post_fair):
     return _expit(_logit(pre_market) + _logit(post_fair) - _logit(pre_fair))
 
@@ -87,8 +100,8 @@ class MispricingConfig:
     minimum_probability_edge: float = 0.03
     bet_size: float = 10.0
     side_filter: str = "both"
-    minimum_seconds_between_entries: float = 30.0
-    execution_contract: str = "away_yes"
+    minimum_seconds_between_entries: float = 60.0
+    execution_contract: str = "home_both"
     maximum_positions_per_game: int = 5
     conditional_stacking: bool = True
 
@@ -277,7 +290,10 @@ def simulate_mispricing(
         sizes = tape.count_fp.to_numpy(float)
         taker_sides = tape.taker_outcome_side.astype(str).to_numpy()
         last_fill_ns: int | None = None
+        positions = 0
         for row in game.sort_values("signal_time").itertuples(index=False):
+            if positions >= config.maximum_positions_per_game:
+                break
             yes_ev, no_ev = signal_economics(
                 row.fair_probability, row.market_home_price, config.bet_size
             )
@@ -343,6 +359,7 @@ def simulate_mispricing(
                     "pnl": pnl,
                 })
                 last_fill_ns = int(times[i])
+                positions += 1
                 break
     return result
 

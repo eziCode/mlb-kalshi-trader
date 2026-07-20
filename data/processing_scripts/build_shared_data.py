@@ -237,6 +237,7 @@ def build_shared(
     settlement_model_train_end: date | None = None,
     settlement_model_output: Path | None = None,
     settlement_state_output: Path | None = None,
+    settlement_pregame_priors: Path | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     states = load_pitch_states(pitch_states)
     pitch_times, feed_games = feed_rows(feed_cache)
@@ -372,36 +373,17 @@ def build_shared(
             ]],
             on=["game_pk", "game_date"], how="inner",
         ).sort_values(["game_pk", "at_bat_number", "pitch_number"])
-        fit = settlement[
-            pd.to_datetime(settlement.game_date).dt.date
-            < settlement_model_train_end
-        ].copy()
-        if fit.empty:
-            raise RuntimeError(
-                "No state rows precede settlement model cutoff "
-                f"{settlement_model_train_end}"
-            )
-        batting_home = fit.inning_topbot.astype(int)
-        batting_win = np.where(
-            batting_home.eq(1), fit.home_win, 1 - fit.home_win
+        if settlement_pregame_priors is None:
+            raise ValueError("Settlement MLB pregame priors are required")
+        priors = pd.read_parquet(
+            settlement_pregame_priors, columns=["game_pk", "pregame_prob"]
         )
-        counts = fit.groupby("game_pk").game_pk.transform("size")
+        settlement = settlement.drop(columns="pregame_prob").merge(
+            priors, on="game_pk", how="inner"
+        )
         settlement_model = CatBoostClassifier(
-            iterations=350, depth=4, learning_rate=.03, l2_leaf_reg=15,
-            loss_function="Logloss", random_seed=42, verbose=False,
-            allow_writing_files=False, thread_count=-1,
         )
-        print(
-            f"Training settlement state model on {fit.game_pk.nunique():,} "
-            f"games strictly before {settlement_model_train_end}...",
-            flush=True,
-        )
-        settlement_model.fit(
-            settlement_state_frame(fit), batting_win,
-            sample_weight=(1.0 / counts).to_numpy(),
-        )
-        settlement_model_output.parent.mkdir(parents=True, exist_ok=True)
-        settlement_model.save_model(settlement_model_output)
+        settlement_model.load_model(settlement_model_output)
         batting_probability = settlement_model.predict_proba(
             settlement_state_frame(settlement), thread_count=-1
         )[:, 1]
@@ -467,6 +449,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--settlement-model-train-end", type=date.fromisoformat)
     parser.add_argument("--settlement-model-output", type=Path)
     parser.add_argument("--settlement-state-output", type=Path)
+    parser.add_argument("--settlement-pregame-priors", type=Path)
     return parser.parse_args()
 
 
@@ -476,4 +459,5 @@ if __name__ == "__main__":
         args.pitch_states, args.feed_cache, args.trade_dir,
         args.model, args.output_dir, args.settlement_model_train_end,
         args.settlement_model_output, args.settlement_state_output,
+        args.settlement_pregame_priors,
     )

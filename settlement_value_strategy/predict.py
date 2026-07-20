@@ -10,7 +10,8 @@ import numpy as np
 import pandas as pd
 
 from settlement_value_strategy.strategy import (
-    MispricingConfig, mispricing_feature_frame, model_signal,
+    MispricingConfig, market_adjusted_probability, mispricing_feature_frame,
+    model_signal,
 )
 
 
@@ -40,12 +41,9 @@ class MispricingPredictor:
             )[:, 1],
             1e-6, 1 - 1e-6,
         )
-        logits = np.log(raw / (1 - raw))
-        values = (
-            self.calibration["intercept"]
-            + self.calibration["coefficient"] * logits
+        return market_adjusted_probability(
+            raw, rows["market_home_price"].to_numpy(float), self.calibration
         )
-        return 1 / (1 + np.exp(-values))
 
     def decision(self, row: dict) -> dict:
         frame = pd.DataFrame([row])

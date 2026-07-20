@@ -2,16 +2,52 @@ from __future__ import annotations
 
 import unittest
 
+import numpy as np
 import pandas as pd
 
 from settlement_value_strategy.strategy import (
     MISPRICING_FEATURES, MispricingConfig, mispricing_feature_frame,
-    model_signal, signal_economics, simulate_mispricing,
+    market_adjusted_probability, model_signal, signal_economics, simulate_mispricing,
     simulate_away_yes,
 )
 
 
 class MispricingTests(unittest.TestCase):
+    def test_identity_probability_transform_preserves_raw_forecast(self):
+        actual = market_adjusted_probability(
+            [.2, .8], [.7, .3], {"mode": "identity"}
+        )
+        np.testing.assert_allclose(actual, [.2, .8])
+
+    def test_two_sided_policy_can_trade_yes_then_no_after_sixty_seconds(self):
+        start = pd.Timestamp("2026-06-01T12:00:00Z")
+        frame = pd.DataFrame({
+            "game_pk": [1, 1], "signal_time": [start, start + pd.Timedelta(seconds=70)],
+            "next_update_time": [
+                start + pd.Timedelta(seconds=5), start + pd.Timedelta(seconds=75),
+            ],
+            "market_home_price": [.40, .60], "home_win": [1, 1],
+        })
+        trades = pd.DataFrame({
+            "game_pk": [1, 1], "trade_id": [1, 2],
+            "created_time": [
+                start + pd.Timedelta(seconds=1), start + pd.Timedelta(seconds=71),
+            ],
+            "yes_price_dollars": [.41, .59],
+            "no_price_dollars": [.59, .41], "count_fp": [100, 100],
+            "taker_outcome_side": ["yes", "no"],
+        })
+        result = simulate_mispricing(
+            frame, [.80, .20], trades,
+            MispricingConfig(
+                minimum_expected_pnl=0, minimum_probability_edge=0,
+                side_filter="both", maximum_positions_per_game=3,
+                minimum_seconds_between_entries=60,
+            ),
+        )
+        self.assertEqual(result.trades, 2)
+        self.assertEqual([row["side"] for row in result.records], ["yes", "no"])
+
     def test_away_execution_requires_eligible_no_model_signal(self):
         config = MispricingConfig(
             minimum_expected_pnl=.5, minimum_probability_edge=.04,

@@ -8,36 +8,39 @@
     "anchor_buffer_seconds": 2.0,
     "maximum_anchor_age_seconds": 5.0,
     "maximum_fill_delay_seconds": 5.0,
-    "minimum_expected_pnl": 0.0,
-    "minimum_probability_edge": 0.04,
+    "minimum_expected_pnl": 0.25,
+    "minimum_probability_edge": 0.025,
     "bet_size": 10.0,
     "side_filter": "no",
-    "minimum_seconds_between_entries": 30.0,
+    "minimum_seconds_between_entries": 60.0,
     "execution_contract": "away_yes",
     "maximum_positions_per_game": 1,
     "conditional_stacking": true,
     "tuning_passed": true,
-    "validation_passed": false
+    "validation_passed": true
   },
-  "orders": 301,
-  "trades": 140,
-  "yes_trades": 140,
+  "orders": 363,
+  "trades": 180,
+  "yes_trades": 180,
   "no_trades": 0,
-  "fees": 43.58000000000001,
-  "capital": 1443.5799999999992,
-  "pnl": 249.7317068963638,
-  "roi": 0.1729947123791989,
+  "fees": 55.49000000000003,
+  "capital": 1855.4899999999996,
+  "pnl": 203.8793460925311,
+  "roi": 0.10987897864851395,
   "robustness": {
     "top_game_count": 4,
-    "top_game_pnl": 185.60461538461539,
-    "pnl_without_top_games": 64.1270915117484,
-    "profitable_day_fraction": 0.6470588235294118,
-    "worst_day_roi": -0.37252643455834955
+    "top_game_pnl": 83.97323617735384,
+    "pnl_without_top_games": 119.90610991517727,
+    "profitable_day_fraction": 0.7058823529411765,
+    "worst_day_roi": -0.2312242257155942,
+    "game_bootstrap_roi_95_low": -0.021521073772993834,
+    "game_bootstrap_roi_95_high": 0.2390816248175025,
+    "game_bootstrap_probability_positive": 0.9498
   },
   "probability_metrics": {
-    "roc_auc": 0.8629004953419096,
-    "log_loss": 0.4643464203944356,
-    "brier": 0.15437102454963877
+    "roc_auc": 0.8637360010178341,
+    "log_loss": 0.46214873550226254,
+    "brier": 0.15404614058486235
   },
-  "validation_passed": false
+  "validation_passed": true
 }

@@ -57,11 +57,10 @@ execution tape. `shared/away_market_trades.parquet` contains the independently
 traded paired away-team YES contract. `shared/state_updates.parquet` contains
 causal completed-pitch state transitions for hit reversion.
 
-Settlement value uses `settlement_value/state_updates.parquet`, scored by a
-chronology-safe batting-perspective state model trained strictly before its
-training cutoff. This keeps the trade tapes shared while preventing holdout
-outcomes and the hit-reversion feature contract from leaking into settlement
-features.
+Settlement value uses `settlement_value/state_updates.parquet`, scored by an
+MLB-only batting-perspective state model trained on pitch-clock-era seasons
+from 2023 through its strict training cutoff. The 2023–2024 rows train only
+this local state model and are never joined to Kalshi trades.
 
 The hit-reversion strategy consumes these files directly. The settlement-value
 strategy turns them into model-specific decision rows and a compact causal

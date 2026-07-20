@@ -190,8 +190,8 @@ class PipelineTests(unittest.TestCase):
             "runner_on_third": [0, 0],
         })
         features = state_model_frame(frame)
-        self.assertEqual(features.pregame_batting_prob.tolist(), [.40, .60])
         self.assertEqual(features.batting_score_diff.tolist(), [-2, 2])
+        self.assertNotIn("pregame_prob", features.columns)
         model = CatBoostClassifier()
         model.load_model(
             MispricingPredictor().root / "model/local_win_expectancy.cbm"

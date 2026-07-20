@@ -17,7 +17,8 @@ if str(STRATEGY_DIR.parent) not in sys.path:
     sys.path.insert(0, str(STRATEGY_DIR.parent))
 
 from settlement_value_strategy.strategy import (  # noqa: E402
-    MispricingConfig, mispricing_feature_frame, simulate_away_yes,
+    MispricingConfig, market_adjusted_probability, mispricing_feature_frame,
+    simulate_away_yes, simulate_mispricing,
 )
 
 
@@ -35,7 +36,12 @@ def main() -> None:
     })
     calibration = json.loads((MODEL_DIR / "calibration.json").read_text())
     frame = pd.read_parquet(DATA_DIR / "decision_rows.parquet")
-    trades = pd.read_parquet(DATA_DIR / "away_execution_trades.parquet")
+    tape_name = (
+        "away_execution_trades.parquet"
+        if config.execution_contract == "away_yes"
+        else "execution_trades.parquet"
+    )
+    trades = pd.read_parquet(DATA_DIR / tape_name)
     frame["game_date"] = pd.to_datetime(frame.game_date).dt.date
     trades["game_date"] = pd.to_datetime(trades.game_date).dt.date
     frame = frame[frame.game_date >= HOLDOUT_START].copy()
@@ -46,11 +52,15 @@ def main() -> None:
     raw = np.clip(
         model.predict_proba(mispricing_feature_frame(frame))[:, 1], 1e-6, 1 - 1e-6
     )
-    logits = np.log(raw / (1 - raw))
-    probability = 1 / (1 + np.exp(-(
-        calibration["intercept"] + calibration["coefficient"] * logits
-    )))
-    result = simulate_away_yes(frame, probability, trades, config)
+    probability = market_adjusted_probability(
+        raw, frame.market_home_price.to_numpy(float), calibration
+    )
+    simulator = (
+        simulate_away_yes
+        if config.execution_contract == "away_yes"
+        else simulate_mispricing
+    )
+    result = simulator(frame, probability, trades, config)
     records = pd.DataFrame(result.records)
     if records.empty:
         game_pnl = pd.Series(dtype=float)
@@ -76,6 +86,27 @@ def main() -> None:
         "profitable_day_fraction": profitable_day_fraction,
         "worst_day_roi": worst_day_roi,
     }
+    if len(game_pnl):
+        game_capital = records.groupby("game_pk").apply(
+            lambda group: float(
+                config.bet_size * len(group) + group.entry_fee.sum()
+            ),
+            include_groups=False,
+        )
+        rng = np.random.default_rng(20260720)
+        indices = rng.integers(0, len(game_pnl), size=(10_000, len(game_pnl)))
+        pnl_values = game_pnl.to_numpy(float)[indices].sum(axis=1)
+        capital_values = game_capital.to_numpy(float)[indices].sum(axis=1)
+        bootstrap_roi = pnl_values / capital_values
+        robustness["game_bootstrap_roi_95_low"] = float(
+            np.quantile(bootstrap_roi, .025)
+        )
+        robustness["game_bootstrap_roi_95_high"] = float(
+            np.quantile(bootstrap_roi, .975)
+        )
+        robustness["game_bootstrap_probability_positive"] = float(
+            np.mean(bootstrap_roi > 0)
+        )
     passed = bool(
         result.trades >= 20
         and result.pnl > 0
