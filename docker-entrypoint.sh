@@ -15,7 +15,7 @@ Strategies and operations:
   mispricing prepare          Rebuild prepared data from normalized inputs
   mispricing pipeline         Prepare, train, then backtest
   mispricing paper            Score a JSONL decision stream
-  mispricing live-paper       Run the live paper trader
+  mispricing live-paper       Continuously run today's and future slates
   mispricing portfolio-status Show the live paper portfolio balance
 
   trade-tape [backtest]       Run the exact-timestamp holdout backtest
@@ -23,7 +23,7 @@ Strategies and operations:
   trade-tape build-dataset    Rebuild state updates and processed tape
   trade-tape tune             Tune the strategy policy
   trade-tape pipeline         Train, build, tune, then backtest
-  trade-tape paper            Run the live paper trader
+  trade-tape paper            Continuously run today's and future slates
   trade-tape portfolio-status Show the live paper portfolio balance
 
 Aliases: trade_tape, portable, and portable-trade-tape select trade-tape.
@@ -60,7 +60,8 @@ run_mispricing() {
             exec python -m settlement_value_strategy.paper_trader "$@"
             ;;
         live-paper|live_paper)
-            exec python -m settlement_value_strategy.live_paper_trader "$@"
+            exec python -m settlement_value_strategy.live_paper_trader \
+                --continuous "$@"
             ;;
         portfolio-status|portfolio_status|status)
             exec python -m settlement_value_strategy.live_paper_trader \
@@ -101,7 +102,7 @@ run_trade_tape() {
             exec python scripts/backtest.py
             ;;
         paper|live-paper|live_paper)
-            exec python scripts/paper_trade.py "$@"
+            exec python scripts/paper_trade.py --continuous "$@"
             ;;
         portfolio-status|portfolio_status|status)
             exec python scripts/paper_trade.py --portfolio-status "$@"

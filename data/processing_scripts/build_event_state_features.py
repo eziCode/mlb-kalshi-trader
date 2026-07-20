@@ -40,8 +40,7 @@ def load_statcast():
 
     dfs = []
 
-    for year in [2025, 2026]:
-        path = STATCAST_DIR / f"{year}.parquet"
+    for path in sorted(STATCAST_DIR.glob("*.parquet")):
         print(f"Loading {path}")
 
         df = pd.read_parquet(path)
@@ -66,8 +65,7 @@ def load_mlb_timestamps() -> pd.DataFrame:
     ready to left-join onto the Statcast frame.
     """
     dfs = []
-    for year in [2025, 2026]:
-        path = TIMESTAMP_DIR / f"pitch_timestamps_{year}.parquet"
+    for path in sorted(TIMESTAMP_DIR.glob("pitch_timestamps_*.parquet")):
         if not path.exists():
             print(f"  WARNING: timestamp file not found, skipping: {path}")
             continue
@@ -246,6 +244,10 @@ def select_features(df):
         "inning_topbot",
         "outs_when_up",
         "score_diff",
+        "home_score",
+        "away_score",
+        "post_home_score",
+        "post_away_score",
         "runner_state",
         "balls",
         "strikes",

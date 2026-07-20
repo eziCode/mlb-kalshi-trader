@@ -1,6 +1,7 @@
 # scripts/download_mlb_statcast.py
 
 from pathlib import Path
+import argparse
 from datetime import datetime
 from pybaseball import statcast
 import pandas as pd
@@ -13,7 +14,6 @@ PROJECT_ROOT = Path(__file__).resolve().parents[2]
 OUTPUT_DIR = PROJECT_ROOT / "data/raw/mlb_statcast"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-START_2025 = datetime(2025, 4, 16)
 TODAY = datetime.today()
 
 
@@ -94,27 +94,15 @@ def download_season(year, start_date, end_date):
 
 
 def main():
-
-    # 2025: April 16 through Dec 31
-    download_season(
-        2025,
-        START_2025,
-        datetime(2025, 12, 31)
-    )
-
-    # 2026: Jan 1 through today (or Dec 31 if run after 2026)
-    if TODAY.year >= 2026:
-
-        end_2026 = min(
-            TODAY,
-            datetime(2026, 12, 31)
-        )
-
-        download_season(
-            2026,
-            datetime(2026, 1, 1),
-            end_2026
-        )
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--start-season", type=int, default=2023)
+    parser.add_argument("--end-season", type=int, default=TODAY.year)
+    args = parser.parse_args()
+    for year in range(args.start_season, args.end_season + 1):
+        end = min(TODAY, datetime(year, 12, 31))
+        if end.year != year:
+            continue
+        download_season(year, datetime(year, 3, 1), end)
 
 
 if __name__ == "__main__":

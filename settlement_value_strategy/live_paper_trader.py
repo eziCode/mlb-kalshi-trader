@@ -25,6 +25,7 @@ import subprocess
 import sys
 import threading
 import time
+from zoneinfo import ZoneInfo
 
 from catboost import CatBoostClassifier
 import numpy as np
@@ -40,7 +41,7 @@ if str(REPOSITORY_ROOT) not in sys.path:
 from settlement_value_strategy.build_normalized_raw import state_model_frame
 from settlement_value_strategy.predict import MispricingPredictor
 from settlement_value_strategy.strategy import (
-    MISPRICING_FEATURES, anchored_event_target, signal_economics, taker_fee,
+    MISPRICING_FEATURES, anchored_event_target, taker_fee,
 )
 
 
@@ -52,6 +53,8 @@ POLL_SECONDS = float(os.getenv("POLL_SECONDS", "1.0"))
 LOG_DIR = Path(os.getenv("PAPER_LOG_DIR", str(ROOT / "results/live")))
 KALSHI_API = "https://external-api.kalshi.com/trade-api/v2"
 MLB_API = "https://statsapi.mlb.com/api"
+MLB_PRIOR_PATH = ROOT / "model/mlb_pregame_prior.json"
+SLATE_TIMEZONE = ZoneInfo(os.getenv("SLATE_TIMEZONE", "America/Chicago"))
 
 MLB_TEAM_CODES = {
     108: "LAA", 109: "ARI", 110: "BAL", 111: "BOS", 112: "CHC",
@@ -426,13 +429,83 @@ def build_live_decision_row(
 
 
 def execution_within_window(
-    signal_time: object, decision_time: datetime, maximum_delay: float,
+    signal_time: object, execution_time: datetime, maximum_delay: float,
 ) -> bool:
     age = (
-        decision_time
+        execution_time
         - pd.Timestamp(signal_time).to_pydatetime()
     ).total_seconds()
-    return 0.0 <= age <= maximum_delay
+    # Backtest fills use searchsorted(..., side="right"), so equality is not
+    # executable: the observed quote must be strictly later than the signal.
+    return 0.0 < age < maximum_delay
+
+
+def replay_fill_from_observed_trades(
+    trades: pd.DataFrame, signal_time: object, execution_probability: float,
+    positions: list[PaperPosition], execution_side: str, config,
+) -> dict | None:
+    """Apply the backtest's post-signal compatible-trade fill contract."""
+    if trades.empty:
+        return None
+    signal = pd.Timestamp(signal_time)
+    deadline = signal + pd.Timedelta(seconds=config.maximum_fill_delay_seconds)
+    earliest = signal
+    if positions:
+        latest = max(pd.Timestamp(position.entry_time) for position in positions)
+        earliest = max(
+            earliest,
+            latest + pd.Timedelta(
+                seconds=config.minimum_seconds_between_entries
+            ),
+        )
+    comparable = [
+        position for position in positions if position.side == execution_side
+    ]
+    best_probability = max(
+        (position.settlement_probability for position in comparable),
+        default=float("-inf"),
+    )
+    best_return = max((
+        (
+            position.contracts
+            * (position.settlement_probability - position.entry_price)
+            - position.entry_fee
+        ) / (
+            position.contracts * position.entry_price + position.entry_fee
+        )
+        for position in comparable
+    ), default=float("-inf"))
+    tape = trades.sort_values(["created_time", "trade_id"])
+    times = pd.to_datetime(tape.created_time, utc=True)
+    eligible = tape[
+        times.gt(signal) & times.ge(earliest) & times.lt(deadline)
+        & tape.taker_outcome_side.astype(str).eq("yes")
+    ]
+    for trade in eligible.itertuples(index=False):
+        price = float(trade.yes_price_dollars)
+        contracts = config.bet_size / price
+        if float(trade.count_fp) < contracts:
+            continue
+        fee = taker_fee(contracts, price)
+        edge = execution_probability - price
+        expected = contracts * edge - fee
+        expected_return = expected / (config.bet_size + fee)
+        if (
+            expected < config.minimum_expected_pnl
+            or edge < config.minimum_probability_edge
+        ):
+            continue
+        if config.conditional_stacking and not (
+            execution_probability > best_probability
+            and expected_return > best_return
+        ):
+            continue
+        return {
+            "time": pd.Timestamp(trade.created_time).to_pydatetime(),
+            "price": price, "contracts": contracts, "fee": fee,
+            "edge": edge, "expected_pnl": expected,
+        }
+    return None
 
 
 def fetch_market_snapshot(ticker: str | None = None) -> MarketSnapshot:
@@ -537,45 +610,35 @@ def home_fair_probability(model, pregame_prob: float, state: dict) -> float:
     return batting if int(state["inning_topbot"]) == 1 else 1.0 - batting
 
 
-def fetch_pregame_anchor() -> float:
-    response = requests.get(f"{MLB_API}/v1.1/game/{GAME_PK}/feed/live", timeout=5)
-    response.raise_for_status()
-    payload = response.json()
-    starts = [
-        pd.to_datetime(event["startTime"], utc=True).to_pydatetime()
-        for play in payload.get("liveData", {}).get("plays", {}).get("allPlays", [])
-        for event in play.get("playEvents") or []
-        if event.get("isPitch") and event.get("startTime")
-    ]
-    if not starts:
-        if payload.get("gameData", {}).get("status", {}).get(
-            "abstractGameState"
-        ) == "Live":
-            raise RuntimeError("Live game has no authoritative first-pitch time")
-        market = fetch_market_snapshot()
-        return (market.bid + market.ask) / 2
-    first_pitch = min(starts)
-    response = requests.get(
-        "https://api.elections.kalshi.com/trade-api/v2/series/"
-        f"KXMLBGAME/markets/{MARKET_TICKER}/candlesticks",
-        params={
-            "start_ts": int(first_pitch.timestamp()) - 14400,
-            "end_ts": int(first_pitch.timestamp()), "period_interval": 1,
-        }, timeout=5,
+def pregame_probability_from_rating_state(
+    state: dict, home_code: str, away_code: str,
+) -> float:
+    ratings = state["ratings"]
+    aliases = {
+        "ARI": "AZ", "CHW": "CWS", "OAK": "ATH",
+        "KCR": "KC", "SDP": "SD", "SFG": "SF",
+        "TBR": "TB", "WAS": "WSH",
+    }
+
+    def rating(code: str) -> float:
+        code = str(code).upper()
+        key = code if code in ratings else aliases.get(code, code)
+        return float(ratings.get(key, state["initial_rating"]))
+
+    home_rating = rating(home_code)
+    away_rating = rating(away_code)
+    return 1.0 / (
+        1.0 + 10.0 ** (-(
+            home_rating + float(state["home_advantage"]) - away_rating
+        ) / 400.0)
     )
-    response.raise_for_status()
-    candles = response.json().get("candlesticks") or []
-    if not candles:
-        raise RuntimeError("No pre-first-pitch Kalshi anchor")
-    latest = candles[-1]
-    traded = latest.get("price", {}).get("close_dollars")
-    if traded is not None and 0 < float(traded) < 1:
-        return float(traded)
-    bid = float(latest["yes_bid"]["close_dollars"])
-    ask = float(latest["yes_ask"]["close_dollars"])
-    if not 0 < bid < ask < 1:
-        raise RuntimeError("Invalid pregame quote")
-    return (bid + ask) / 2
+
+
+def fetch_pregame_anchor() -> float:
+    state = json.loads(MLB_PRIOR_PATH.read_text())
+    home = MARKET_TICKER.rsplit("-", 1)[-1]
+    away = AWAY_MARKET_TICKER.rsplit("-", 1)[-1]
+    return pregame_probability_from_rating_state(state, home, away)
 
 
 async def wait_for_pregame_anchor() -> float:
@@ -648,7 +711,8 @@ def discover_daily_games(game_date: date) -> tuple[list[DiscoveredGame], list[st
     games = [
         game for day in response.json().get("dates") or []
         for game in day.get("games") or []
-        if game.get("status", {}).get("abstractGameState") != "Final"
+        if str(game.get("status", {}).get("detailedState") or "").lower()
+        not in {"postponed", "cancelled", "canceled"}
     ]
     events = _daily_kalshi_events(game_date)
     event_groups = {}
@@ -692,6 +756,8 @@ def discover_daily_games(game_date: date) -> tuple[list[DiscoveredGame], list[st
         for (scheduled, game, away, home), (_, by_team) in zip(
             scheduled_games, markets
         ):
+            if game.get("status", {}).get("abstractGameState") == "Final":
+                continue
             matched.append(DiscoveredGame(
                 int(game["gamePk"]), scheduled, away, home,
                 str(by_team[home]["ticker"]),
@@ -705,7 +771,7 @@ async def run_worker() -> None:
         raise RuntimeError("Set MLB_GAME_PK and KALSHI_MARKET_TICKER")
     predictor = MispricingPredictor()
     if (
-        predictor.config.execution_contract == "away_yes"
+        predictor.config.execution_contract in {"away_yes", "paired_both"}
         and not AWAY_MARKET_TICKER
     ):
         raise RuntimeError("Set KALSHI_AWAY_MARKET_TICKER for away YES routing")
@@ -791,10 +857,11 @@ async def run_worker() -> None:
             await asyncio.sleep(POLL_SECONDS)
             continue
         try:
-            market, trades, away_market = await asyncio.gather(
+            market, trades, away_market, away_trades = await asyncio.gather(
                 asyncio.to_thread(fetch_market_snapshot, MARKET_TICKER),
                 asyncio.to_thread(fetch_recent_trades),
                 asyncio.to_thread(fetch_market_snapshot, AWAY_MARKET_TICKER),
+                asyncio.to_thread(fetch_recent_trades, AWAY_MARKET_TICKER),
             )
         except Exception as error:
             print(f"Market snapshot rejected: {error}", flush=True)
@@ -865,76 +932,50 @@ async def run_worker() -> None:
             ):
                 route_away_yes = (
                     predictor.config.execution_contract == "away_yes"
+                    or (
+                        predictor.config.execution_contract == "paired_both"
+                        and decision["side"] == "no"
+                    )
                 )
-                side = "no" if route_away_yes else str(decision["side"])
+                side = str(decision["side"])
                 execution_side = "away_yes" if route_away_yes else side
-                price = (
-                    away_market.ask if route_away_yes
-                    else market.ask if side == "yes" else 1.0 - market.bid
-                )
-                contracts = predictor.config.bet_size / price
-                available = (
-                    away_market.ask_size if route_away_yes
-                    else market.ask_size if side == "yes" else market.bid_size
-                )
-                fee = taker_fee(contracts, price)
                 probability = float(decision["settlement_probability"])
-                if route_away_yes:
-                    execution_probability = 1.0 - probability
-                    fill_edge = execution_probability - price
-                    fill_ev = contracts * fill_edge - fee
-                else:
-                    execution_probability = probability
-                    fill_yes = market.ask if side == "yes" else market.bid
-                    yes_ev, no_ev = signal_economics(
-                        probability, fill_yes, predictor.config.bet_size
-                    )
-                    fill_ev = yes_ev if side == "yes" else no_ev
-                    fill_edge = (
-                        probability - fill_yes
-                        if side == "yes" else fill_yes - probability
-                    )
-                fill_expected_return = fill_ev / (
-                    predictor.config.bet_size + fee
+                execution_probability = (
+                    1.0 - probability if route_away_yes else probability
                 )
-                existing_away_fair = [
-                    position.settlement_probability for position in positions
-                ]
-                existing_expected_returns = [
-                    (
-                        position.contracts
-                        * (position.settlement_probability - position.entry_price)
-                        - position.entry_fee
-                    ) / (
-                        position.contracts * position.entry_price
-                        + position.entry_fee
+                execution_tape = away_trades if route_away_yes else trades
+                fill = replay_fill_from_observed_trades(
+                    execution_tape, row["signal_time"], execution_probability,
+                    positions, execution_side, predictor.config,
+                )
+                deadline = (
+                    pd.Timestamp(row["signal_time"])
+                    + pd.Timedelta(
+                        seconds=predictor.config.maximum_fill_delay_seconds
                     )
-                    for position in positions
-                ]
-                if not execution_within_window(
-                    row["signal_time"], decision_time,
-                    predictor.config.maximum_fill_delay_seconds,
-                ):
-                    action = "SKIP_STALE_EXECUTION_WINDOW"
-                elif available + 1e-9 < contracts:
-                    action = "SKIP_INSUFFICIENT_TOP_LEVEL_DEPTH"
-                elif predictor.config.conditional_stacking and positions and not (
-                    execution_probability > max(existing_away_fair)
-                    and fill_expected_return > max(existing_expected_returns)
-                ):
-                    action = "SKIP_STACK_THESIS_NOT_STRONGER"
-                elif (
-                    fill_ev < predictor.config.minimum_expected_pnl
-                    or fill_edge < predictor.config.minimum_probability_edge
-                ):
-                    action = "SKIP_EXECUTABLE_PRICE_FAILED_THRESHOLDS"
+                )
+                if fill is None and pd.Timestamp.now(tz="UTC") < deadline:
+                    await asyncio.sleep(POLL_SECONDS)
+                    continue
+                if fill is None:
+                    action = "SKIP_NO_COMPATIBLE_POST_SIGNAL_FILL"
                 else:
+                    price = fill["price"]
+                    contracts = fill["contracts"]
+                    fee = fill["fee"]
+                    fill_edge = fill["edge"]
+                    fill_ev = fill["expected_pnl"]
+                    execution_time = fill["time"]
                     proposed = PaperPosition(
                         execution_side, contracts, price, fee,
-                        decision_time, execution_probability,
+                        execution_time, execution_probability,
                         str(token),
                     )
-                    if len(positions) >= predictor.config.maximum_positions_per_game:
+                    if (
+                        predictor.config.maximum_positions_per_game > 0
+                        and len(positions)
+                        >= predictor.config.maximum_positions_per_game
+                    ):
                         action = "SKIP_MAXIMUM_GAME_POSITIONS"
                         handled_tokens.add(token)
                         previous_game = game
@@ -1181,19 +1222,68 @@ def run_all_games(game_date: date) -> int:
             handle.close()
 
 
+def current_slate_date() -> date:
+    return datetime.now(SLATE_TIMEZONE).date()
+
+
+def run_continuous_slates(start_date: date | None = None) -> int:
+    """Run today's slate and automatically advance to the next matched one."""
+    cursor = max(start_date or current_slate_date(), current_slate_date())
+    poll_seconds = float(os.getenv("SLATE_DISCOVERY_POLL_SECONDS", "300"))
+    lookahead_days = int(os.getenv("SLATE_LOOKAHEAD_DAYS", "7"))
+    while True:
+        selected = None
+        for offset in range(lookahead_days + 1):
+            candidate = cursor + timedelta(days=offset)
+            try:
+                games, _ = discover_daily_games(candidate)
+            except Exception as error:
+                print(
+                    f"Slate discovery failed for {candidate}: {error}",
+                    flush=True,
+                )
+                continue
+            if games:
+                selected = candidate
+                break
+        if selected is None:
+            cursor = max(cursor, current_slate_date())
+            print(
+                f"No matched slate from {cursor} through "
+                f"{cursor + timedelta(days=lookahead_days)}; "
+                f"retrying in {poll_seconds:g}s",
+                flush=True,
+            )
+            time.sleep(poll_seconds)
+            continue
+        print(f"Selected next settlement-value slate: {selected}", flush=True)
+        code = run_all_games(selected)
+        if code:
+            print(
+                f"Slate {selected} exited with status {code}; retrying",
+                flush=True,
+            )
+            time.sleep(poll_seconds)
+            continue
+        cursor = selected + timedelta(days=1)
+
+
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--all-games", action="store_true")
     parser.add_argument("--discover-only", action="store_true")
     parser.add_argument("--portfolio-status", action="store_true")
-    parser.add_argument("--date", type=date.fromisoformat, default=date.today())
+    parser.add_argument("--date", type=date.fromisoformat, default=None)
+    parser.add_argument("--continuous", action="store_true")
     return parser.parse_args()
 
 
 if __name__ == "__main__":
     args = parse_args()
     if args.discover_only:
-        discovered, discovery_warnings = discover_daily_games(args.date)
+        discovered, discovery_warnings = discover_daily_games(
+            args.date or current_slate_date()
+        )
         for warning in discovery_warnings:
             print(f"WARNING: {warning}")
         for game in discovered:
@@ -1211,7 +1301,9 @@ if __name__ == "__main__":
             f"cash=${metrics.cash:.2f} equity=${metrics.equity:.2f} "
             f"pnl=${metrics.pnl:+.2f} open_positions={metrics.open_positions}"
         )
+    elif args.continuous:
+        raise SystemExit(run_continuous_slates(args.date))
     elif args.all_games:
-        raise SystemExit(run_all_games(args.date))
+        raise SystemExit(run_all_games(args.date or current_slate_date()))
     else:
         asyncio.run(run_worker())

@@ -80,8 +80,9 @@ def main() -> None:
     steps: list[tuple[str, list[str]]] = []
     if not args.skip_downloads and not args.skip_mlb_downloads:
         steps.append((
-            "Download Statcast pitch data",
-            [python, str(DOWNLOADERS / "download_mlb_statcast.py")],
+            "Download pitch-clock-era Statcast data for local win modeling",
+            [python, str(DOWNLOADERS / "download_mlb_statcast.py"),
+             "--start-season", "2023"],
         ))
         timestamp_command = [
             python, str(DOWNLOADERS / "download_mlb_pitch_timestamps.py")
@@ -95,6 +96,15 @@ def main() -> None:
         "Build causal MLB pitch-state features",
         [python, str(PROCESSORS / "build_event_state_features.py")],
     ))
+    if args.strategy in {"mispricing", "both"}:
+        steps.append((
+            "Train MLB-only local game-state probability model",
+            [
+                python, "-m",
+                "settlement_value_strategy.train_local_state_model",
+                "--start-season", "2023", "--train-end", "2026-06-17",
+            ],
+        ))
     if not args.skip_downloads:
         trade_command = [
             python, str(DOWNLOADERS / "download_live_kalshi_market_logs.py"),
@@ -114,6 +124,8 @@ def main() -> None:
             str(ROOT / "settlement_value_strategy/model/local_win_expectancy.cbm"),
             "--settlement-state-output",
             str(ROOT / "data/settlement_value/state_updates.parquet"),
+            "--settlement-pregame-priors",
+            str(ROOT / "data/settlement_value/mlb_pregame_priors.parquet"),
         ]
     steps.append(("Build shared strategy inputs", shared_command))
     if args.strategy in {"mispricing", "both"}:

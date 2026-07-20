@@ -2,16 +2,92 @@ from __future__ import annotations
 
 import unittest
 
+import numpy as np
 import pandas as pd
 
 from settlement_value_strategy.strategy import (
     MISPRICING_FEATURES, MispricingConfig, mispricing_feature_frame,
-    model_signal, signal_economics, simulate_mispricing,
-    simulate_away_yes,
+    market_adjusted_probability, model_signal, signal_economics, simulate_mispricing,
+    simulate_away_yes, simulate_paired_both,
 )
 
 
 class MispricingTests(unittest.TestCase):
+    def test_identity_probability_transform_preserves_raw_forecast(self):
+        actual = market_adjusted_probability(
+            [.2, .8], [.7, .3], {"mode": "identity"}
+        )
+        np.testing.assert_allclose(actual, [.2, .8])
+
+    def test_paired_both_routes_home_and_away_signals_with_cooldown(self):
+        start = pd.Timestamp("2026-06-01T12:00:00Z")
+        frame = pd.DataFrame({
+            "game_pk": [1, 1],
+            "signal_time": [start, start + pd.Timedelta(seconds=210)],
+            "next_update_time": [
+                start + pd.Timedelta(seconds=5),
+                start + pd.Timedelta(seconds=215),
+            ],
+            "market_home_price": [.40, .60], "home_win": [1, 1],
+        })
+        home = pd.DataFrame({
+            "game_pk": [1], "trade_id": [1],
+            "created_time": [start + pd.Timedelta(seconds=1)],
+            "yes_price_dollars": [.41], "count_fp": [100],
+            "taker_outcome_side": ["yes"],
+        })
+        away = pd.DataFrame({
+            "game_pk": [1], "trade_id": [2],
+            "created_time": [start + pd.Timedelta(seconds=211)],
+            "yes_price_dollars": [.41], "count_fp": [100],
+            "taker_outcome_side": ["yes"],
+        })
+        result = simulate_paired_both(
+            frame, [.80, .20], home, away,
+            MispricingConfig(
+                minimum_expected_pnl=0, minimum_probability_edge=0,
+                side_filter="both", execution_contract="paired_both",
+                maximum_positions_per_game=0,
+                minimum_seconds_between_entries=200,
+            ),
+        )
+        self.assertEqual(result.trades, 2)
+        self.assertEqual(result.yes_trades, 1)
+        self.assertEqual(result.no_trades, 1)
+        self.assertEqual(
+            [row["execution_contract"] for row in result.records],
+            ["home_yes", "away_yes"],
+        )
+
+    def test_two_sided_policy_can_trade_yes_then_no_after_sixty_seconds(self):
+        start = pd.Timestamp("2026-06-01T12:00:00Z")
+        frame = pd.DataFrame({
+            "game_pk": [1, 1], "signal_time": [start, start + pd.Timedelta(seconds=70)],
+            "next_update_time": [
+                start + pd.Timedelta(seconds=5), start + pd.Timedelta(seconds=75),
+            ],
+            "market_home_price": [.40, .60], "home_win": [1, 1],
+        })
+        trades = pd.DataFrame({
+            "game_pk": [1, 1], "trade_id": [1, 2],
+            "created_time": [
+                start + pd.Timedelta(seconds=1), start + pd.Timedelta(seconds=71),
+            ],
+            "yes_price_dollars": [.41, .59],
+            "no_price_dollars": [.59, .41], "count_fp": [100, 100],
+            "taker_outcome_side": ["yes", "no"],
+        })
+        result = simulate_mispricing(
+            frame, [.80, .20], trades,
+            MispricingConfig(
+                minimum_expected_pnl=0, minimum_probability_edge=0,
+                side_filter="both", maximum_positions_per_game=3,
+                minimum_seconds_between_entries=60,
+            ),
+        )
+        self.assertEqual(result.trades, 2)
+        self.assertEqual([row["side"] for row in result.records], ["yes", "no"])
+
     def test_away_execution_requires_eligible_no_model_signal(self):
         config = MispricingConfig(
             minimum_expected_pnl=.5, minimum_probability_edge=.04,

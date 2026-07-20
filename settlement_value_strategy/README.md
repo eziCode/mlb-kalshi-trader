@@ -69,10 +69,8 @@ fit on a later chronological interval.
 ## Entry, fill, and settlement
 
 For a fixed dollar stake, the strategy computes expected PnL after Kalshi’s
-rounded taker fee. The validated policy expresses an away-team view by buying
-YES on the paired away-team market instead of buying NO on the home-team
-market. The two contracts settle identically, but the away YES book provides
-independent prices, liquidity, and fill opportunities. It requires:
+rounded taker fee. Each signal independently chooses YES or NO on the home-team
+market according to the larger fee-adjusted expected value. It requires:
 
 - the configured side filter;
 - minimum probability edge;
@@ -82,8 +80,9 @@ independent prices, liquidity, and fill opportunities. It requires:
 All thresholds are rechecked at the eventual fill price. There is no early
 exit in this strategy; profit and loss are determined by final game settlement.
 
-The selected consistency-aware policy requires a 4-point minimum edge on a
-$10 stake and caps exposure at one away-YES position per game. The tuner
+The policy buys home YES for home-team signals and routes away-team signals to
+the paired away-YES market. It does not impose a per-game position cap; fills
+must be separated by at least 200 seconds. The tuner
 rejects policies whose tuning profit disappears after removing their best game
 or whose game-level win rate is below 50%, then ranks the survivors by their
 worst chronological fold.
@@ -128,11 +127,12 @@ Training chronology is fixed:
 - tune thresholds and side June 22-27;
 - evaluate the outer development holdout from June 28 onward.
 
-The settlement-specific local state model is trained only on games strictly
-before June 17 and uses a batting-team feature contract in both preprocessing
-and live inference. This prevents holdout outcomes from leaking into
-`fair_before` and `fair_after` and prevents the former home-versus-batting
-feature mismatch.
+The settlement-specific local state model is trained from MLB-only game states
+from the 2023 pitch-clock season onward, using only games strictly before June
+17, 2026. It does not require historical Kalshi data or a synthetic pregame
+market prior. Its batting-team feature contract is identical in preprocessing
+and live inference. Kalshi-linked rows remain exclusive to settlement-model
+training and execution replay.
 
 `train` rewrites the model, calibration, policy configuration, tuning grid,
 and training summary. `backtest` rewrites holdout summaries and trade records.
@@ -193,9 +193,9 @@ docker run --rm mlb-kalshi-trader mispricing pipeline
 docker run --rm mlb-kalshi-trader mispricing backtest
 ```
 
-The consistency-aware development holdout contains 140 fills across 220
-available games, $249.73 net PnL, and 17.30% ROI. Removing the four best games
-still leaves $64.13 profit and 64.7% of days are profitable. It remains marked
-unvalidated because the worst day loses 37.3% of deployed capital, slightly
-beyond the conservative robustness gate. Deployment remains disabled pending
-genuinely independent forward paper validation.
+The current reference uses the raw settlement forecast because the former
+market-logit adjustment introduced a persistent home-YES bias. The two-sided
+replay contains 53 holdout fills—40 home YES and 13 away signals routed as away
+YES—producing $66.66 net PnL and 12.19% ROI. Additional same-side positions are
+allowed only when both settlement probability and expected return improve.
+Deployment stays disabled pending stronger forward paper evidence.

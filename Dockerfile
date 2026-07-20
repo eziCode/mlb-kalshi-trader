@@ -18,7 +18,8 @@ COPY settlement_value_strategy/requirements.txt /tmp/mispricing-requirements.txt
 COPY hit_reversion_strategy/requirements.txt /tmp/trade-tape-requirements.txt
 RUN pip install --no-cache-dir \
       -r /tmp/mispricing-requirements.txt \
-      -r /tmp/trade-tape-requirements.txt
+      -r /tmp/trade-tape-requirements.txt \
+      'tzdata>=2025.2'
 
 COPY settlement_value_strategy /app/settlement_value_strategy
 COPY hit_reversion_strategy /app/hit_reversion_strategy

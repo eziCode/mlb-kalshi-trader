@@ -8,8 +8,8 @@ are $10 and are held to settlement.
 ## Chronology
 
 - Model fit: before June 17, 2026
-- Calibration: June 17-21
-- Policy tuning: June 22-27
+- First policy-validation period: June 17-21
+- Second policy-validation period: June 22-27
 - Outer development holdout: June 28 onward
 
 ## Reproduce results
@@ -28,9 +28,18 @@ and training summary. `backtest` rewrites holdout summaries and trade logs.
 
 ## Frozen reference
 
-The frozen policy is NO-only and requires at least ten percentage points of
-edge and $2 of predicted net settlement value. Its recorded holdout contains
-44 trades, $75.97 net PnL, 16.68% ROI, ROC AUC 0.870, and Brier score 0.148.
+The frozen policy trades both settlement directions: home signals buy home
+YES, while away signals buy the independently traded paired away-YES contract.
+It does not cap the number of $10 positions per game and requires at least 200
+seconds between fills. Candidate thresholds must trade both directions, be profitable in both
+chronological policy periods, and remain profitable after removing their best
+game.
+
+The selected development policy produced 30 fills, $48.44 net PnL, and 15.68%
+ROI across its two policy-validation periods. The later development holdout
+produced 53 fills, $66.66 net PnL, and 12.19% ROI. Removing the four best games
+leaves a small positive result, but statistical uncertainty remains high, so
+validation and deployment remain disabled.
 
 This is development validation rather than a pristine final test. Deployment
 remains disabled pending forward paper performance on newly collected games.

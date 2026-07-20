@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
+from datetime import date
 from pathlib import Path
 import tempfile
 import json
@@ -16,7 +17,8 @@ from settlement_value_strategy.build_normalized_raw import pitch_times, state_mo
 from settlement_value_strategy.live_paper_trader import (
     SharedPaperPortfolio, PaperPosition, build_live_decision_row,
     consecutive_pitch, execution_within_window, reconcile_final_positions,
-    should_surface_worker_line, wait_for_pregame_anchor,
+    pregame_probability_from_rating_state, replay_fill_from_observed_trades,
+    should_surface_worker_line, wait_for_pregame_anchor, discover_daily_games,
 )
 
 
@@ -44,14 +46,101 @@ class PregameAnchorRetryTests(unittest.IsolatedAsyncioTestCase):
 
 
 class PipelineTests(unittest.TestCase):
+    def test_doubleheader_pairs_before_filtering_final_game(self):
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"dates": [{"games": [
+            {
+                "gamePk": 1, "gameDate": "2026-07-20T17:00:00Z",
+                "status": {"abstractGameState": "Final"},
+                "teams": {
+                    "away": {"team": {"id": 121}},
+                    "home": {"team": {"id": 144}},
+                },
+            },
+            {
+                "gamePk": 2, "gameDate": "2026-07-20T23:00:00Z",
+                "status": {"abstractGameState": "Preview"},
+                "teams": {
+                    "away": {"team": {"id": 121}},
+                    "home": {"team": {"id": 144}},
+                },
+            },
+        ]}]}
+
+        def event(name):
+            return {
+                "event_ticker": name,
+                "markets": [
+                    {"ticker": f"{name}-NYM"},
+                    {"ticker": f"{name}-ATL"},
+                ],
+            }
+
+        with (
+            patch(
+                "settlement_value_strategy.live_paper_trader.requests.get",
+                return_value=response,
+            ),
+            patch(
+                "settlement_value_strategy.live_paper_trader._daily_kalshi_events",
+                return_value=[event("KXMLBGAME-G1"), event("KXMLBGAME-G2")],
+            ),
+        ):
+            games, warnings = discover_daily_games(date(2026, 7, 20))
+        self.assertEqual(warnings, [])
+        self.assertEqual(len(games), 1)
+        self.assertEqual(games[0].game_pk, 2)
+        self.assertEqual(games[0].market_ticker, "KXMLBGAME-G2-ATL")
+
     def test_live_execution_rejects_stale_signal(self):
         signal = pd.Timestamp("2026-07-01T12:00:00Z")
         self.assertTrue(execution_within_window(
+            signal, (signal + pd.Timedelta(seconds=4.999)).to_pydatetime(), 5,
+        ))
+        self.assertFalse(execution_within_window(
             signal, (signal + pd.Timedelta(seconds=5)).to_pydatetime(), 5,
         ))
         self.assertFalse(execution_within_window(
             signal, (signal + pd.Timedelta(seconds=5.001)).to_pydatetime(), 5,
         ))
+        self.assertFalse(execution_within_window(
+            signal, signal.to_pydatetime(), 5,
+        ))
+
+    def test_live_pregame_prior_uses_saved_rating_team_codes(self):
+        state = {
+            "ratings": {"AZ": 1600, "CWS": 1400, "ATH": 1300},
+            "initial_rating": 1500, "home_advantage": 0,
+        }
+        exact = pregame_probability_from_rating_state(state, "AZ", "CWS")
+        aliased = pregame_probability_from_rating_state(
+            state, "ARI", "CHW"
+        )
+        self.assertAlmostEqual(exact, aliased)
+        self.assertGreater(exact, .5)
+
+    def test_live_fill_uses_backtest_compatible_post_signal_trade(self):
+        signal = pd.Timestamp("2026-07-01T12:00:00Z")
+        trades = pd.DataFrame({
+            "trade_id": [1, 2, 3],
+            "created_time": [
+                signal, signal + pd.Timedelta(seconds=1),
+                signal + pd.Timedelta(seconds=2),
+            ],
+            "yes_price_dollars": [.40, .41, .42],
+            "count_fp": [100, 100, 100],
+            "taker_outcome_side": ["yes", "no", "yes"],
+        })
+        config = MispricingPredictor().config
+        fill = replay_fill_from_observed_trades(
+            trades, signal, .80, [], "yes", config,
+        )
+        self.assertIsNotNone(fill)
+        self.assertEqual(fill["price"], .42)
+        self.assertEqual(
+            pd.Timestamp(fill["time"]), signal + pd.Timedelta(seconds=2)
+        )
 
     def test_startup_reconciles_positions_from_final_games(self):
         now = pd.Timestamp("2026-07-01T12:00:00Z").to_pydatetime()
@@ -190,8 +279,8 @@ class PipelineTests(unittest.TestCase):
             "runner_on_third": [0, 0],
         })
         features = state_model_frame(frame)
-        self.assertEqual(features.pregame_batting_prob.tolist(), [.40, .60])
         self.assertEqual(features.batting_score_diff.tolist(), [-2, 2])
+        self.assertNotIn("pregame_prob", features.columns)
         model = CatBoostClassifier()
         model.load_model(
             MispricingPredictor().root / "model/local_win_expectancy.cbm"
