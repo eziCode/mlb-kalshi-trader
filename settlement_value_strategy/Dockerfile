@@ -1,4 +1,4 @@
-FROM python:3.13-slim
+FROM python:3.12-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
@@ -12,7 +12,8 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 WORKDIR /app
 COPY settlement_value_strategy/requirements.txt /app/requirements.txt
-RUN pip install --no-cache-dir -r /app/requirements.txt
+RUN pip install --no-cache-dir -r /app/requirements.txt 'tzdata>=2025.2'
 COPY settlement_value_strategy /app/settlement_value_strategy
+COPY data/settlement_value /app/data/settlement_value
 
 ENTRYPOINT ["python", "-m", "settlement_value_strategy.backtest"]

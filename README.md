@@ -114,6 +114,14 @@ Build one image from the repository root:
 docker build -t mlb-kalshi-trader .
 ```
 
+The optional strategy-only images also use the repository root as their build
+context so their frozen backtest data is included:
+
+```bash
+docker build -f settlement_value_strategy/Dockerfile -t settlement-value .
+docker build -f hit_reversion_strategy/Dockerfile -t hit-reversion .
+```
+
 Select the strategy in the container command:
 
 ```bash
