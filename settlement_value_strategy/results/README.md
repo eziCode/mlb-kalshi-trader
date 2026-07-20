@@ -28,15 +28,18 @@ and training summary. `backtest` rewrites holdout summaries and trade logs.
 
 ## Frozen reference
 
-The frozen policy takes only an away-team settlement view and routes it to the
-independently traded away-YES contract. It uses at most one $10 position per
-game. Candidate thresholds must be profitable in both chronological policy
-periods and remain profitable after removing their best game.
+The frozen policy trades both settlement directions: home signals buy home
+YES, while away signals buy the independently traded paired away-YES contract.
+It does not cap the number of $10 positions per game and requires at least 200
+seconds between fills. Candidate thresholds must trade both directions, be profitable in both
+chronological policy periods, and remain profitable after removing their best
+game.
 
-The selected development policy produced 115 fills, $111.07 net PnL, and
-9.37% ROI across its two policy-validation periods. The later development
-holdout produced 180 fills, $203.88 net PnL, and 10.99% ROI. Removing the four
-best holdout games leaves $119.91, and 70.6% of holdout days were profitable.
+The selected development policy produced 30 fills, $48.44 net PnL, and 15.68%
+ROI across its two policy-validation periods. The later development holdout
+produced 53 fills, $66.66 net PnL, and 12.19% ROI. Removing the four best games
+leaves a small positive result, but statistical uncertainty remains high, so
+validation and deployment remain disabled.
 
 This is development validation rather than a pristine final test. Deployment
 remains disabled pending forward paper performance on newly collected games.

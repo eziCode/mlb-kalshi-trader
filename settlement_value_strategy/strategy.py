@@ -100,9 +100,9 @@ class MispricingConfig:
     minimum_probability_edge: float = 0.03
     bet_size: float = 10.0
     side_filter: str = "both"
-    minimum_seconds_between_entries: float = 60.0
+    minimum_seconds_between_entries: float = 200.0
     execution_contract: str = "home_both"
-    maximum_positions_per_game: int = 5
+    maximum_positions_per_game: int = 0  # Zero means unlimited.
     conditional_stacking: bool = True
 
 
@@ -292,7 +292,10 @@ def simulate_mispricing(
         last_fill_ns: int | None = None
         positions = 0
         for row in game.sort_values("signal_time").itertuples(index=False):
-            if positions >= config.maximum_positions_per_game:
+            if (
+                config.maximum_positions_per_game > 0
+                and positions >= config.maximum_positions_per_game
+            ):
                 break
             yes_ev, no_ev = signal_economics(
                 row.fair_probability, row.market_home_price, config.bet_size
@@ -398,7 +401,10 @@ def simulate_away_yes(
         best_away_fair = float("-inf")
         best_expected_return = float("-inf")
         for row in game.sort_values("signal_time").itertuples(index=False):
-            if positions >= config.maximum_positions_per_game:
+            if (
+                config.maximum_positions_per_game > 0
+                and positions >= config.maximum_positions_per_game
+            ):
                 break
             model_side, _, _, model_eligible = model_signal(
                 float(row.fair_probability),
@@ -483,5 +489,128 @@ def simulate_away_yes(
                 best_expected_return = max(
                     best_expected_return, expected_return
                 )
+                break
+    return result
+
+
+def simulate_paired_both(
+    frame: pd.DataFrame,
+    probabilities,
+    home_trades: pd.DataFrame,
+    away_trades: pd.DataFrame,
+    config: MispricingConfig,
+) -> MispricingResult:
+    """Buy home YES for home signals and paired away YES for away signals."""
+    work = frame.copy()
+    work["fair_probability"] = np.asarray(probabilities, float)
+    result = MispricingResult(signals=len(work))
+    home_by_game = {
+        int(game): group.sort_values(["created_time", "trade_id"])
+        for game, group in home_trades.groupby("game_pk", sort=False)
+    }
+    away_by_game = {
+        int(game): group.sort_values(["created_time", "trade_id"])
+        for game, group in away_trades.groupby("game_pk", sort=False)
+    }
+    for game_pk, game in work.groupby("game_pk", sort=False):
+        tapes = {
+            "yes": home_by_game.get(int(game_pk)),
+            "no": away_by_game.get(int(game_pk)),
+        }
+        if tapes["yes"] is None and tapes["no"] is None:
+            continue
+        last_fill_ns: int | None = None
+        positions = 0
+        best_probability = {"yes": float("-inf"), "no": float("-inf")}
+        best_expected_return = {"yes": float("-inf"), "no": float("-inf")}
+        for row in game.sort_values("signal_time").itertuples(index=False):
+            if (
+                config.maximum_positions_per_game > 0
+                and positions >= config.maximum_positions_per_game
+            ):
+                break
+            model_side, _, _, eligible = model_signal(
+                float(row.fair_probability),
+                float(row.market_home_price),
+                config,
+            )
+            if not eligible:
+                continue
+            tape = tapes[model_side]
+            if tape is None or tape.empty:
+                continue
+            times = pd.to_datetime(
+                tape.created_time, utc=True
+            ).array.as_unit("ns").asi8
+            prices = tape.yes_price_dollars.to_numpy(float)
+            sizes = tape.count_fp.to_numpy(float)
+            taker_sides = tape.taker_outcome_side.astype(str).to_numpy()
+            signal_ns = pd.Timestamp(row.signal_time).value
+            deadline = signal_ns + int(config.maximum_fill_delay_seconds * 1e9)
+            if pd.notna(row.next_update_time):
+                deadline = min(deadline, pd.Timestamp(row.next_update_time).value)
+            start = int(np.searchsorted(times, signal_ns, side="right"))
+            if last_fill_ns is not None:
+                next_allowed = last_fill_ns + int(
+                    config.minimum_seconds_between_entries * 1e9
+                )
+                start = max(
+                    start,
+                    int(np.searchsorted(times, next_allowed, side="left")),
+                )
+            stop = int(np.searchsorted(times, deadline, side="left"))
+            execution_probability = (
+                float(row.fair_probability)
+                if model_side == "yes"
+                else 1.0 - float(row.fair_probability)
+            )
+            result.orders += 1
+            for index in range(start, stop):
+                if not compatible_taker("yes", taker_sides[index]):
+                    continue
+                price = float(prices[index])
+                contracts = config.bet_size / price
+                if sizes[index] < contracts:
+                    continue
+                fee = taker_fee(contracts, price)
+                edge = execution_probability - price
+                expected = contracts * edge - fee
+                expected_return = expected / (config.bet_size + fee)
+                if (
+                    expected < config.minimum_expected_pnl
+                    or edge < config.minimum_probability_edge
+                ):
+                    continue
+                if config.conditional_stacking and not (
+                    execution_probability > best_probability[model_side]
+                    and expected_return > best_expected_return[model_side]
+                ):
+                    continue
+                won = (
+                    (model_side == "yes" and int(row.home_win) == 1)
+                    or (model_side == "no" and int(row.home_win) == 0)
+                )
+                pnl = (contracts if won else 0.0) - config.bet_size - fee
+                result.trades += 1
+                result.yes_trades += int(model_side == "yes")
+                result.no_trades += int(model_side == "no")
+                result.fees += fee
+                result.capital += config.bet_size + fee
+                result.pnl += pnl
+                result.records.append({
+                    **row._asdict(), "model_side": model_side,
+                    "side": "yes" if model_side == "yes" else "away_yes",
+                    "execution_contract": (
+                        "home_yes" if model_side == "yes" else "away_yes"
+                    ),
+                    "fill_time": pd.Timestamp(times[index], tz="UTC"),
+                    "fill_price": price, "contracts": contracts,
+                    "entry_fee": fee, "predicted_expected_pnl": expected,
+                    "pnl": pnl,
+                })
+                last_fill_ns = int(times[index])
+                positions += 1
+                best_probability[model_side] = execution_probability
+                best_expected_return[model_side] = expected_return
                 break
     return result

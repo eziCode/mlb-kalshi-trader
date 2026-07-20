@@ -20,7 +20,7 @@ if str(STRATEGY_DIR.parent) not in sys.path:
 
 from settlement_value_strategy.strategy import (  # noqa: E402
     MispricingConfig, build_mispricing_dataset, mispricing_feature_frame,
-    market_adjusted_probability, simulate_away_yes,
+    market_adjusted_probability, simulate_paired_both,
 )
 
 
@@ -132,8 +132,11 @@ def main() -> None:
         model, development, calibration
     )
     development_games = set(development.game_pk)
-    development_trades = away_trades[
+    development_away_trades = away_trades[
         away_trades.game_pk.isin(development_games)
+    ].copy()
+    development_home_trades = trades[
+        trades.game_pk.isin(development_games)
     ].copy()
     folds = [
         set(cal.game_date.unique()),
@@ -151,27 +154,28 @@ def main() -> None:
         )
 
     rows = []
-    for minimum_ev in [0.0, .25, .50, 1.0]:
-        for edge in [.025, .03, .04, .05, .06]:
-          for maximum_positions in [1]:
+    for minimum_ev in [2.0, 2.25, 2.5, 2.75, 3.0]:
+        for edge in [.10, .125, .15]:
+          for maximum_positions in [0]:
             config = MispricingConfig(
                 minimum_expected_pnl=minimum_ev,
                 minimum_probability_edge=edge,
-                side_filter="no",
-                execution_contract="away_yes",
+                side_filter="both",
+                execution_contract="paired_both",
                 maximum_positions_per_game=maximum_positions,
-                minimum_seconds_between_entries=60.0,
+                minimum_seconds_between_entries=200.0,
+                conditional_stacking=True,
             )
-            result = simulate_away_yes(
+            result = simulate_paired_both(
                 development, development_probability,
-                development_trades, config
+                development_home_trades, development_away_trades, config
             )
             pnl_without_best_game, profitable_game_fraction = consistency(result)
             row = {
                 "minimum_expected_pnl": minimum_ev,
                 "minimum_probability_edge": edge,
-                "side_filter": "no",
-                "execution_contract": "away_yes",
+                "side_filter": "both",
+                "execution_contract": "paired_both",
                 "maximum_positions_per_game": maximum_positions,
                 "trades": result.trades, "yes_trades": result.yes_trades,
                 "no_trades": result.no_trades, "pnl": result.pnl,
@@ -184,13 +188,18 @@ def main() -> None:
                 mask = development.game_date.isin(fold_dates).to_numpy()
                 fold_frame = development.loc[mask]
                 games = set(fold_frame.game_pk)
-                fold_result = simulate_away_yes(
+                fold_result = simulate_paired_both(
                     fold_frame, development_probability[mask],
-                    development_trades[
-                        development_trades.game_pk.isin(games)
+                    development_home_trades[
+                        development_home_trades.game_pk.isin(games)
+                    ],
+                    development_away_trades[
+                        development_away_trades.game_pk.isin(games)
                     ], config,
                 )
                 row[f"fold_{index}_trades"] = fold_result.trades
+                row[f"fold_{index}_yes_trades"] = fold_result.yes_trades
+                row[f"fold_{index}_no_trades"] = fold_result.no_trades
                 row[f"fold_{index}_pnl"] = fold_result.pnl
                 row[f"fold_{index}_roi"] = fold_result.roi
                 fold_counts.append(fold_result.trades)
@@ -202,7 +211,9 @@ def main() -> None:
             rows.append(row)
     grid = pd.DataFrame(rows)
     stable = grid[
-        (grid.trades >= 60) & (grid.minimum_fold_trades >= 20)
+        (grid.trades >= 30) & (grid.minimum_fold_trades >= 10)
+        & (grid.yes_trades >= 10) & (grid.no_trades >= 5)
+        & (grid.fold_1_no_trades >= 3) & (grid.fold_2_no_trades >= 3)
         & (grid.profitable_folds == len(folds))
         & (grid.pnl_without_best_game > 0)
         & (grid.profitable_game_fraction >= .50)
@@ -211,17 +222,17 @@ def main() -> None:
         ["roi", "pnl", "trades"], ascending=False
     )
     high_coverage = stable[
-        (stable.execution_contract == "away_yes")
-        & (stable.worst_fold_roi >= 0.03) & (stable.roi >= 0.05)
+        (stable.execution_contract == "paired_both")
+        & (stable.worst_fold_roi >= 0.05) & (stable.roi >= 0.05)
     ].sort_values(
-        ["pnl_without_best_game", "trades", "worst_fold_roi"],
+        ["worst_fold_roi", "pnl_without_best_game", "trades"],
         ascending=False,
     )
     if not high_coverage.empty:
         selected = high_coverage.iloc[0]
         selection_rule = (
-            "maximum profit after removing the best game among paired "
-            "away-YES policies passing both chronological periods"
+            "maximum worst-period ROI among two-sided paired-market policies "
+            "passing coverage and concentration gates"
         )
     elif not stable.empty:
         selected = stable.iloc[0]
@@ -239,6 +250,8 @@ def main() -> None:
         side_filter=str(selected.side_filter),
         execution_contract=str(selected.execution_contract),
         maximum_positions_per_game=int(selected.maximum_positions_per_game),
+        minimum_seconds_between_entries=200.0,
+        conditional_stacking=True,
     )
     MODEL_DIR.mkdir(parents=True, exist_ok=True)
     STUDY_DIR.mkdir(parents=True, exist_ok=True)

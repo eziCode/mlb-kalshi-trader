@@ -18,7 +18,7 @@ if str(STRATEGY_DIR.parent) not in sys.path:
 
 from settlement_value_strategy.strategy import (  # noqa: E402
     MispricingConfig, market_adjusted_probability, mispricing_feature_frame,
-    simulate_away_yes, simulate_mispricing,
+    simulate_away_yes, simulate_mispricing, simulate_paired_both,
 )
 
 
@@ -42,11 +42,18 @@ def main() -> None:
         else "execution_trades.parquet"
     )
     trades = pd.read_parquet(DATA_DIR / tape_name)
+    away_trades = (
+        pd.read_parquet(DATA_DIR / "away_execution_trades.parquet")
+        if config.execution_contract == "paired_both"
+        else None
+    )
     frame["game_date"] = pd.to_datetime(frame.game_date).dt.date
     trades["game_date"] = pd.to_datetime(trades.game_date).dt.date
     frame = frame[frame.game_date >= HOLDOUT_START].copy()
     games = set(frame.game_pk)
     trades = trades[trades.game_pk.isin(games)].copy()
+    if away_trades is not None:
+        away_trades = away_trades[away_trades.game_pk.isin(games)].copy()
     model = CatBoostClassifier()
     model.load_model(MODEL_DIR / "settlement_value.cbm")
     raw = np.clip(
@@ -55,12 +62,17 @@ def main() -> None:
     probability = market_adjusted_probability(
         raw, frame.market_home_price.to_numpy(float), calibration
     )
-    simulator = (
-        simulate_away_yes
-        if config.execution_contract == "away_yes"
-        else simulate_mispricing
-    )
-    result = simulator(frame, probability, trades, config)
+    if config.execution_contract == "paired_both":
+        result = simulate_paired_both(
+            frame, probability, trades, away_trades, config
+        )
+    else:
+        simulator = (
+            simulate_away_yes
+            if config.execution_contract == "away_yes"
+            else simulate_mispricing
+        )
+        result = simulator(frame, probability, trades, config)
     records = pd.DataFrame(result.records)
     if records.empty:
         game_pnl = pd.Series(dtype=float)

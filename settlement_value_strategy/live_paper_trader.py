@@ -683,7 +683,7 @@ async def run_worker() -> None:
         raise RuntimeError("Set MLB_GAME_PK and KALSHI_MARKET_TICKER")
     predictor = MispricingPredictor()
     if (
-        predictor.config.execution_contract == "away_yes"
+        predictor.config.execution_contract in {"away_yes", "paired_both"}
         and not AWAY_MARKET_TICKER
     ):
         raise RuntimeError("Set KALSHI_AWAY_MARKET_TICKER for away YES routing")
@@ -843,8 +843,12 @@ async def run_worker() -> None:
             ):
                 route_away_yes = (
                     predictor.config.execution_contract == "away_yes"
+                    or (
+                        predictor.config.execution_contract == "paired_both"
+                        and decision["side"] == "no"
+                    )
                 )
-                side = "no" if route_away_yes else str(decision["side"])
+                side = str(decision["side"])
                 execution_side = "away_yes" if route_away_yes else side
                 price = (
                     away_market.ask if route_away_yes
@@ -875,8 +879,13 @@ async def run_worker() -> None:
                 fill_expected_return = fill_ev / (
                     predictor.config.bet_size + fee
                 )
+                comparable_positions = [
+                    position for position in positions
+                    if position.side == execution_side
+                ]
                 existing_away_fair = [
-                    position.settlement_probability for position in positions
+                    position.settlement_probability
+                    for position in comparable_positions
                 ]
                 existing_expected_returns = [
                     (
@@ -887,7 +896,7 @@ async def run_worker() -> None:
                         position.contracts * position.entry_price
                         + position.entry_fee
                     )
-                    for position in positions
+                    for position in comparable_positions
                 ]
                 if not execution_within_window(
                     row["signal_time"], decision_time,
@@ -896,9 +905,13 @@ async def run_worker() -> None:
                     action = "SKIP_STALE_EXECUTION_WINDOW"
                 elif available + 1e-9 < contracts:
                     action = "SKIP_INSUFFICIENT_TOP_LEVEL_DEPTH"
-                elif predictor.config.conditional_stacking and positions and not (
+                elif (
+                    predictor.config.conditional_stacking
+                    and comparable_positions
+                    and not (
                     execution_probability > max(existing_away_fair)
                     and fill_expected_return > max(existing_expected_returns)
+                    )
                 ):
                     action = "SKIP_STACK_THESIS_NOT_STRONGER"
                 elif (
@@ -912,7 +925,11 @@ async def run_worker() -> None:
                         decision_time, execution_probability,
                         str(token),
                     )
-                    if len(positions) >= predictor.config.maximum_positions_per_game:
+                    if (
+                        predictor.config.maximum_positions_per_game > 0
+                        and len(positions)
+                        >= predictor.config.maximum_positions_per_game
+                    ):
                         action = "SKIP_MAXIMUM_GAME_POSITIONS"
                         handled_tokens.add(token)
                         previous_game = game

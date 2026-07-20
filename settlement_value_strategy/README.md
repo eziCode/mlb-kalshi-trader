@@ -80,8 +80,9 @@ market according to the larger fee-adjusted expected value. It requires:
 All thresholds are rechecked at the eventual fill price. There is no early
 exit in this strategy; profit and loss are determined by final game settlement.
 
-The policy routes an away-team settlement view to the paired away-YES market
-and permits at most one position per game. The tuner
+The policy buys home YES for home-team signals and routes away-team signals to
+the paired away-YES market. It does not impose a per-game position cap; fills
+must be separated by at least 200 seconds. The tuner
 rejects policies whose tuning profit disappears after removing their best game
 or whose game-level win rate is below 50%, then ranks the survivors by their
 worst chronological fold.
@@ -193,9 +194,8 @@ docker run --rm mlb-kalshi-trader mispricing backtest
 ```
 
 The current reference uses the raw settlement forecast because the former
-market-logit adjustment introduced a persistent home-YES bias and removed the
-disagreements needed by the execution policy. Results remain development
-evidence rather than a pristine independent test. Deployment stays disabled
-pending forward paper validation on newly collected games. The frozen replay
-contains 180 holdout fills, $203.88 net PnL, and 10.99% ROI; it remains
-profitable after removing its four best games.
+market-logit adjustment introduced a persistent home-YES bias. The two-sided
+replay contains 53 holdout fills—40 home YES and 13 away signals routed as away
+YES—producing $66.66 net PnL and 12.19% ROI. Additional same-side positions are
+allowed only when both settlement probability and expected return improve.
+Deployment stays disabled pending stronger forward paper evidence.
