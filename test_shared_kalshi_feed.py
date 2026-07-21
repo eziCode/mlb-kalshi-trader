@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding, rsa
@@ -77,6 +78,15 @@ class SharedKalshiFeedTests(unittest.TestCase):
         payload = feed.STATE.payload("TEST")
         self.assertIn("TEST", feed.STATE.requested)
         self.assertIsNone(payload["snapshot"])
+
+    def test_market_endpoint_fails_closed_while_websocket_is_disconnected(self):
+        feed._set_snapshot("TEST", .40, .42, 10, 10)
+        feed.STATE.connected = False
+        handler = feed.Handler.__new__(feed.Handler)
+        handler.path = "/markets/TEST"
+        with patch.object(handler, "_reply") as reply:
+            handler.do_GET()
+        self.assertEqual(reply.call_args.args[0], 503)
 
     def test_auth_headers_sign_the_websocket_handshake(self):
         key = rsa.generate_private_key(public_exponent=65537, key_size=2048)

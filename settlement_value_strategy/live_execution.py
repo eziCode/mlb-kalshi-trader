@@ -133,10 +133,21 @@ class LiveRiskLedger:
                 contracts REAL NOT NULL DEFAULT 0,
                 price REAL NOT NULL DEFAULT 0,
                 fee REAL NOT NULL DEFAULT 0,
+                settlement_probability REAL NOT NULL DEFAULT 0,
                 status TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
             )""")
+            columns = {
+                row[1] for row in connection.execute(
+                    "PRAGMA table_info(live_orders)"
+                ).fetchall()
+            }
+            if "settlement_probability" not in columns:
+                connection.execute(
+                    "ALTER TABLE live_orders ADD COLUMN "
+                    "settlement_probability REAL NOT NULL DEFAULT 0"
+                )
 
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.path, timeout=30)
@@ -157,6 +168,7 @@ class LiveRiskLedger:
     def reserve(
         self, trigger_key: str, game_pk: int, ticker: str, budget: float,
         minimum_seconds_between_entries: float,
+        settlement_probability: float = 0.0,
     ) -> str | None:
         digest = hashlib.sha256(f"{ticker}|{trigger_key}".encode()).hexdigest()[:24]
         client_id = f"sv-{digest}"
@@ -180,11 +192,24 @@ class LiveRiskLedger:
                 return None
             stamp = now.isoformat()
             connection.execute(
-                "INSERT INTO live_orders VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+                """INSERT INTO live_orders (
+                    client_order_id,trigger_key,game_pk,ticker,reserved_capital,
+                    committed_capital,contracts,price,fee,
+                    settlement_probability,status,created_at,updated_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
                 (client_id, trigger_key, game_pk, ticker, budget, 0.0, 0.0,
-                 0.0, 0.0, "pending", stamp, stamp),
+                 0.0, 0.0, settlement_probability, "pending", stamp, stamp),
             )
         return client_id
+
+    def filled_for_game(self, game_pk: int) -> list[dict]:
+        with closing(self._connect()) as connection:
+            connection.row_factory = sqlite3.Row
+            rows = connection.execute(
+                "SELECT * FROM live_orders WHERE game_pk=? AND status='filled'",
+                (game_pk,),
+            ).fetchall()
+        return [dict(row) for row in rows]
 
     def finish(self, fill: LiveFill) -> None:
         status = "filled" if fill.filled else "not_filled"
@@ -232,11 +257,12 @@ class LiveExecutor:
         price: float, settlement_probability: float,
         original_bet_size: float, original_minimum_expected_pnl: float,
         minimum_seconds_between_entries: float,
+        minimum_probability_edge: float = 0.0,
     ) -> LiveFill:
         count = contracts_for_budget(price, self.per_order_budget)
         client_id = self.ledger.reserve(
             trigger_key, game_pk, ticker, self.per_order_budget,
-            minimum_seconds_between_entries,
+            minimum_seconds_between_entries, settlement_probability,
         )
         if client_id is None:
             return LiveFill(False, "", ticker, reason="risk_limit_cooldown_or_duplicate")
@@ -244,7 +270,11 @@ class LiveExecutor:
         capital = count * price + fee
         scaled_minimum = original_minimum_expected_pnl * capital / original_bet_size
         expected = count * (settlement_probability - price) - fee
-        if count <= 0 or expected + 1e-9 < scaled_minimum:
+        if (
+            count <= 0
+            or settlement_probability - price < minimum_probability_edge
+            or expected + 1e-9 < scaled_minimum
+        ):
             fill = LiveFill(False, client_id, ticker, reason="scaled_value_check")
             self.ledger.finish(fill)
             return fill

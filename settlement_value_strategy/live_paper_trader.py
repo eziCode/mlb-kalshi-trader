@@ -1,7 +1,7 @@
 """Live paper trader for the calibrated event-agnostic mispricing strategy.
 
-This module never submits an order.  It polls the public MLB live feed, the
-public Kalshi trade feed, and the public Kalshi order book.  Model features
+Paper mode never submits an order. Guarded live mode can submit tightly capped
+fill-or-kill orders. The module polls MLB and Kalshi feeds. Model features
 are created only after a completed pitch and only from trades observable at
 the configured signal delay.  Paper positions are held to settlement, which
 matches the backtest contract.
@@ -250,6 +250,35 @@ class SharedPaperPortfolio:
             )
             for row in rows
         ]
+
+    def recover_live_position(
+        self, game_pk: int, ticker: str, position: PaperPosition,
+    ) -> bool:
+        """Durably import an exchange fill exactly once after a crash/restart."""
+        cost = position.contracts * position.entry_price + position.entry_fee
+        with closing(self._connect()) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            now = datetime.now(timezone.utc).isoformat()
+            cursor = connection.execute(
+                """INSERT OR IGNORE INTO positions (
+                    game_pk,market_ticker,side,contracts,entry_price,entry_fee,
+                    entry_time,settlement_probability,trigger_pitch,mark_price,
+                    updated_at
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+                (
+                    game_pk, ticker, position.side, position.contracts,
+                    position.entry_price, position.entry_fee,
+                    position.entry_time.isoformat(),
+                    position.settlement_probability, position.trigger_pitch,
+                    position.entry_price, now,
+                ),
+            )
+            if cursor.rowcount:
+                connection.execute(
+                    "UPDATE portfolio SET cash=cash-? WHERE id=1", (cost,)
+                )
+                return True
+        return False
 
     def open_game_pks(self) -> list[int]:
         with closing(self._connect()) as connection:
@@ -586,6 +615,10 @@ def fetch_mlb_payload(
 ) -> tuple[dict, datetime]:
     if os.getenv("MLB_FEED_URL"):
         wrapper = get_shared_game(game_pk, timeout=timeout)
+        if int(wrapper.get("failures") or 0) > 0:
+            raise RuntimeError(
+                f"Shared MLB feed is degraded: {wrapper.get('last_error')}"
+            )
         return (
             wrapper["payload"],
             pd.to_datetime(wrapper["received_at"], utc=True).to_pydatetime(),
@@ -844,6 +877,24 @@ async def run_worker() -> None:
                 "fill_expected_pnl", "fill_edge", "action", "cash", "equity",
                 "portfolio_pnl", *MISPRICING_FEATURES,
             ])
+    if live_executor is not None:
+        for fill in live_executor.ledger.filled_for_game(int(GAME_PK)):
+            fill_ticker = str(fill["ticker"])
+            recovered = PaperPosition(
+                "away_yes" if fill_ticker == AWAY_MARKET_TICKER else "yes",
+                float(fill["contracts"]), float(fill["price"]),
+                float(fill["fee"]),
+                pd.to_datetime(fill["created_at"], utc=True).to_pydatetime(),
+                float(fill["settlement_probability"]),
+                str(fill["trigger_key"]),
+            )
+            if portfolio.recover_live_position(
+                int(GAME_PK), fill_ticker, recovered
+            ):
+                print(
+                    f"Recovered untracked live fill {fill['client_order_id']} "
+                    f"for game {GAME_PK}", flush=True,
+                )
     positions = portfolio.load_positions(int(GAME_PK))
     if positions:
         print(f"Recovered {len(positions)} open position(s) for game {GAME_PK}")
@@ -1008,11 +1059,65 @@ async def run_worker() -> None:
                     execution_ticker = (
                         AWAY_MARKET_TICKER if route_away_yes else MARKET_TICKER
                     )
+                    trigger_key = f"{GAME_PK}:{token}"
+                    if (
+                        predictor.config.maximum_positions_per_game > 0
+                        and len(positions)
+                        >= predictor.config.maximum_positions_per_game
+                    ):
+                        action = "SKIP_MAXIMUM_GAME_POSITIONS"
+                        handled_tokens.add(token)
+                        previous_game = game
+                        await asyncio.sleep(POLL_SECONDS)
+                        continue
                     if live_executor is not None:
                         executable_market = away_market if route_away_yes else market
+                        actual_edge = execution_probability - executable_market.ask
+                        if actual_edge < predictor.config.minimum_probability_edge:
+                            action = "LIVE_SKIP_ACTUAL_EDGE_CHECK"
+                            handled_tokens.add(token)
+                            previous_game = game
+                            await asyncio.sleep(POLL_SECONDS)
+                            continue
+                        actual_contracts = (
+                            live_executor.per_order_budget / executable_market.ask
+                        )
+                        actual_fee = taker_fee(
+                            actual_contracts, executable_market.ask
+                        )
+                        actual_return = (
+                            actual_contracts * actual_edge - actual_fee
+                        ) / (live_executor.per_order_budget + actual_fee)
+                        comparable = [
+                            item for item in positions
+                            if item.side == execution_side
+                        ]
+                        best_probability = max(
+                            (item.settlement_probability for item in comparable),
+                            default=float("-inf"),
+                        )
+                        best_return = max((
+                            (
+                                item.contracts * (
+                                    item.settlement_probability - item.entry_price
+                                ) - item.entry_fee
+                            ) / (
+                                item.contracts * item.entry_price + item.entry_fee
+                            )
+                            for item in comparable
+                        ), default=float("-inf"))
+                        if predictor.config.conditional_stacking and not (
+                            execution_probability > best_probability
+                            and actual_return > best_return
+                        ):
+                            action = "LIVE_SKIP_ACTUAL_STACKING_CHECK"
+                            handled_tokens.add(token)
+                            previous_game = game
+                            await asyncio.sleep(POLL_SECONDS)
+                            continue
                         live_fill = await asyncio.to_thread(
                             live_executor.execute,
-                            trigger_key=f"{GAME_PK}:{token}",
+                            trigger_key=trigger_key,
                             game_pk=int(GAME_PK),
                             ticker=str(execution_ticker),
                             price=float(executable_market.ask),
@@ -1023,6 +1128,9 @@ async def run_worker() -> None:
                             ),
                             minimum_seconds_between_entries=(
                                 predictor.config.minimum_seconds_between_entries
+                            ),
+                            minimum_probability_edge=(
+                                predictor.config.minimum_probability_edge
                             ),
                         )
                         if not live_fill.filled:
@@ -1045,24 +1153,17 @@ async def run_worker() -> None:
                     proposed = PaperPosition(
                         execution_side, contracts, price, fee,
                         execution_time, execution_probability,
-                        str(token),
+                        trigger_key if live_executor is not None else str(token),
                     )
-                    if (
-                        predictor.config.maximum_positions_per_game > 0
-                        and len(positions)
-                        >= predictor.config.maximum_positions_per_game
-                    ):
-                        action = "SKIP_MAXIMUM_GAME_POSITIONS"
-                        handled_tokens.add(token)
-                        previous_game = game
-                        await asyncio.sleep(POLL_SECONDS)
-                        continue
-                    if portfolio.open_position(
-                        int(GAME_PK),
-                        AWAY_MARKET_TICKER if route_away_yes else MARKET_TICKER,
-                        proposed,
-                        predictor.config.minimum_seconds_between_entries,
-                    ):
+                    position_opened = (
+                        portfolio.recover_live_position(
+                            int(GAME_PK), str(execution_ticker), proposed
+                        ) if live_executor is not None else portfolio.open_position(
+                            int(GAME_PK), str(execution_ticker), proposed,
+                            predictor.config.minimum_seconds_between_entries,
+                        )
+                    )
+                    if position_opened:
                         positions.append(proposed)
                         action = f"OPEN_{execution_side.upper()}"
                         print(
@@ -1075,6 +1176,10 @@ async def run_worker() -> None:
                             flush=True,
                         )
                     else:
+                        if live_executor is not None:
+                            raise RuntimeError(
+                                "Filled live order could not be persisted locally"
+                            )
                         action = "SKIP_CASH_COOLDOWN_OR_DUPLICATE_SIGNAL"
         handled_tokens.add(token)
         metrics = portfolio.metrics()
