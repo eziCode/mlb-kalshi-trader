@@ -17,6 +17,7 @@ import threading
 import time
 from zoneinfo import ZoneInfo
 
+import numpy as np
 import pandas as pd
 import requests
 from catboost import CatBoostClassifier
@@ -37,7 +38,6 @@ from trade_tape_strategy.core import (  # noqa: E402
 from trade_tape_strategy.strategy import (  # noqa: E402
     CONFIG,
     estimated_round_trip_fee_per_contract,
-    state_feature_frame,
     taker_fee,
 )
 from shared_kalshi_feed import get_market as get_shared_market  # noqa: E402
@@ -53,6 +53,13 @@ LOG_DIR = Path(os.getenv(
 ))
 MODEL_DIR = PROJECT_ROOT / "models"
 HYBRID_CONFIG_PATH = MODEL_DIR / "trade_tape_config.json"
+STATE_MODEL_PATH = (
+    REPOSITORY_ROOT
+    / "settlement_value_strategy/model/local_win_expectancy.cbm"
+)
+MLB_PRIOR_PATH = (
+    REPOSITORY_ROOT / "settlement_value_strategy/model/mlb_pregame_prior.json"
+)
 KALSHI_API = "https://external-api.kalshi.com/trade-api/v2"
 MLB_API = "https://statsapi.mlb.com/api"
 SLATE_TIMEZONE = ZoneInfo(os.getenv("SLATE_TIMEZONE", "America/Chicago"))
@@ -771,6 +778,9 @@ def replay_candidate_entry(
     deadline = candidate.event_time + timedelta(
         seconds=config.maximum_event_to_entry_seconds
     )
+    observable_start = max(candidate.event_time, candidate.observed_at)
+    if observable_start >= deadline:
+        return None
     last_entry = max(
         (position.entry_time for position in positions), default=None
     )
@@ -780,7 +790,7 @@ def replay_candidate_entry(
     tape = trades.sort_values(["created_time", "trade_id"])
     for trade in tape.itertuples(index=False):
         when = pd.Timestamp(trade.created_time).to_pydatetime()
-        if when <= candidate.event_time or when > deadline:
+        if when <= observable_start or when > deadline:
             continue
         yes_price = float(trade.yes_price_dollars)
         side, _ = segmented_trade_signal(
@@ -947,6 +957,73 @@ def first_pitch_time(payload: dict) -> datetime | None:
     return min(values) if values else None
 
 
+def state_model_frame(frame: pd.DataFrame) -> pd.DataFrame:
+    """Build the batting-perspective feature contract used in research."""
+    batting_home = frame.inning_topbot.astype(int)
+    result = pd.DataFrame(index=frame.index)
+    result["pregame_batting_prob"] = np.where(
+        batting_home.eq(1), frame.pregame_prob, 1.0 - frame.pregame_prob
+    )
+    result["inning"] = frame.inning
+    result["batting_team_is_home"] = batting_home
+    result["outs_when_up"] = frame.outs_when_up
+    result["batting_score_diff"] = np.where(
+        batting_home.eq(1), frame.score_diff, -frame.score_diff
+    )
+    for name in (
+        "balls", "strikes", "runner_on_first", "runner_on_second",
+        "runner_on_third",
+    ):
+        result[name] = frame[name]
+    return result.astype(float)
+
+
+def home_fair_probability(
+    model: CatBoostClassifier, pregame_prob: float, state: dict,
+) -> float:
+    frame = pd.DataFrame([{**state, "pregame_prob": pregame_prob}])
+    batting = float(model.predict_proba(
+        state_model_frame(frame), thread_count=1,
+    )[0, 1])
+    return batting if int(state["inning_topbot"]) == 1 else 1.0 - batting
+
+
+def pregame_probability_from_rating_state(
+    rating_state: dict, home_code: str, away_code: str,
+) -> float:
+    aliases = {
+        "ARI": "AZ", "CHW": "CWS", "OAK": "ATH", "KCR": "KC",
+        "SDP": "SD", "SFG": "SF", "TBR": "TB", "WAS": "WSH",
+    }
+
+    def rating(code: str) -> float:
+        code = str(code).upper()
+        key = code if code in rating_state["ratings"] else aliases.get(code, code)
+        return float(rating_state["ratings"].get(
+            key, rating_state["initial_rating"]
+        ))
+
+    difference = (
+        rating(home_code) + float(rating_state["home_advantage"])
+        - rating(away_code)
+    )
+    return 1.0 / (1.0 + 10.0 ** (-difference / 400.0))
+
+
+def fetch_model_pregame_prior() -> float:
+    response = requests.get(
+        f"{MLB_API}/v1.1/game/{GAME_PK}/feed/live", timeout=5
+    )
+    response.raise_for_status()
+    teams = response.json().get("gameData", {}).get("teams", {})
+    home_id = int(teams.get("home", {}).get("id"))
+    away_id = int(teams.get("away", {}).get("id"))
+    rating_state = json.loads(MLB_PRIOR_PATH.read_text())
+    return pregame_probability_from_rating_state(
+        rating_state, MLB_TEAM_CODES[home_id], MLB_TEAM_CODES[away_id]
+    )
+
+
 def fetch_pregame_anchor() -> float:
     feed_response = requests.get(
         f"{MLB_API}/v1.1/game/{GAME_PK}/feed/live", timeout=5
@@ -1010,7 +1087,7 @@ async def main() -> None:
             "there are no safe default games or markets."
         )
     state_model = CatBoostClassifier()
-    state_model.load_model(MODEL_DIR / "local_win_expectancy.cbm")
+    state_model.load_model(STATE_MODEL_PATH)
     hybrid_config = TradeTapeConfig(**json.loads(HYBRID_CONFIG_PATH.read_text()))
     allow_unvalidated = os.getenv("ALLOW_UNVALIDATED_HYBRID") == "1"
     if not hybrid_config.enabled and not allow_unvalidated:
@@ -1029,8 +1106,8 @@ async def main() -> None:
         portfolio_path,
         float(os.getenv("PAPER_STARTING_CASH", "1000")),
     )
-    pregame_prob = await wait_for_pregame_anchor()
-    print(f"Pregame Kalshi anchor: {pregame_prob:.1%}")
+    pregame_prob = await asyncio.to_thread(fetch_model_pregame_prior)
+    print(f"MLB-only model pregame prior: {pregame_prob:.1%}")
     print(
         f"Hybrid threshold={hybrid_config.minimum_edge:.1%}, "
         f"confirmation={hybrid_config.confirmation_seconds:g} seconds, "
@@ -1123,9 +1200,9 @@ async def main() -> None:
             await asyncio.sleep(POLL_SECONDS)
             continue
 
-        values = {**game.state, "pregame_prob": pregame_prob}
-        state_row = pd.DataFrame([values])
-        fair_prob = state_model.predict_proba(state_feature_frame(state_row))[0, 1]
+        fair_prob = home_fair_probability(
+            state_model, pregame_prob, game.state
+        )
         action = "HOLD"
         edge = float("nan")
         target = float("nan")

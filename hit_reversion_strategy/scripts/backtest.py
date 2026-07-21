@@ -22,6 +22,9 @@ from trade_tape_strategy.core import (  # noqa: E402
 
 
 DATA_DIR = REPOSITORY_ROOT / "data/shared"
+STATE_UPDATES_PATH = (
+    REPOSITORY_ROOT / "data/settlement_value/state_updates.parquet"
+)
 MODEL_DIR = PROJECT_ROOT / "models"
 CONFIG_PATH = MODEL_DIR / "trade_tape_config.json"
 STUDY_DIR = PROJECT_ROOT / "artifacts"
@@ -31,7 +34,7 @@ OUTER_HOLDOUT_START = pd.Timestamp("2026-06-28").date()
 def main() -> None:
     config = TradeTapeConfig(**json.loads(CONFIG_PATH.read_text()))
     trades = pd.read_parquet(DATA_DIR / "home_market_trades.parquet")
-    updates = pd.read_parquet(DATA_DIR / "state_updates.parquet")
+    updates = pd.read_parquet(STATE_UPDATES_PATH)
     trades["game_date"] = pd.to_datetime(trades["game_date"]).dt.date
     updates["game_date"] = pd.to_datetime(updates["game_date"]).dt.date
     test_trades = trades[trades["game_date"] >= OUTER_HOLDOUT_START].copy()
@@ -89,6 +92,7 @@ def main() -> None:
         "pnl_without_top_four_games": pnl_without_top_four_games,
         "segment_results": segment_results,
         "time_based_exit": False,
+        "state_model": "MLB-only batting-perspective local win expectancy",
     }
     STUDY_DIR.mkdir(parents=True, exist_ok=True)
     (STUDY_DIR / "holdout_summary.json").write_text(
