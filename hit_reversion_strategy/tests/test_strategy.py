@@ -9,7 +9,7 @@ import pandas as pd
 from scripts.paper_trade import (
     EventCandidate, match_games_to_home_markets, pre_pitch_trade_anchor,
     Position, replay_candidate_entry, replay_position_exit,
-    SharedPaperPortfolio,
+    SharedPaperPortfolio, state_model_frame,
     should_surface_worker_line,
 )
 from trade_tape_strategy.core import (
@@ -92,6 +92,51 @@ class TradeTapeStrategyTests(unittest.TestCase):
         fill = replay_candidate_entry(trades, candidate, .6, [], config)
         self.assertIsNotNone(fill)
         self.assertEqual(fill["time"], trades.created_time.iloc[2].to_pydatetime())
+
+    def test_live_entry_cannot_replay_trades_seen_before_event_observation(self):
+        event = pd.Timestamp("2026-07-20T12:00:00Z")
+        observed = event + pd.Timedelta(seconds=2)
+        times = [
+            event + pd.Timedelta(seconds=.1),
+            event + pd.Timedelta(seconds=.2),
+            event + pd.Timedelta(seconds=.3),
+            observed + pd.Timedelta(seconds=.1),
+            observed + pd.Timedelta(seconds=.2),
+            observed + pd.Timedelta(seconds=.3),
+        ]
+        trades = pd.DataFrame({
+            "trade_id": range(1, 7), "created_time": times,
+            "yes_price_dollars": [.30] * 6, "count_fp": [100] * 6,
+            "taker_outcome_side": ["yes"] * 6,
+        })
+        candidate = EventCandidate(
+            side="yes", target=.60, event_id=1, event_type="double",
+            observed_at=observed.to_pydatetime(),
+            event_time=event.to_pydatetime(), pre_market=.5,
+            pre_fair=.5, post_fair=.6, material_state=(0, 0, 0, 0, 0),
+            pitch_token=None,
+        )
+        config = TradeTapeConfig(
+            minimum_edge=.10, confirmation_seconds=0,
+            allowed_event_types=("double",),
+        )
+        fill = replay_candidate_entry(trades, candidate, .6, [], config)
+        self.assertIsNotNone(fill)
+        self.assertEqual(fill["time"], times[-1].to_pydatetime())
+        self.assertIsNone(replay_candidate_entry(
+            trades.iloc[:3], candidate, .6, [], config
+        ))
+
+    def test_batting_model_features_convert_home_state_consistently(self):
+        frame = state_model_frame(pd.DataFrame([{
+            "pregame_prob": .60, "inning": 9, "inning_topbot": 0,
+            "outs_when_up": 1, "score_diff": 2, "balls": 1,
+            "strikes": 2, "runner_on_first": 0, "runner_on_second": 1,
+            "runner_on_third": 0,
+        }]))
+        self.assertEqual(frame.loc[0, "pregame_batting_prob"], .40)
+        self.assertEqual(frame.loc[0, "batting_score_diff"], -2)
+        self.assertEqual(frame.loc[0, "batting_team_is_home"], 0)
 
     def test_live_exit_requires_trade_after_reversion_with_opposite_taker(self):
         entry = pd.Timestamp("2026-07-20T12:00:00Z")

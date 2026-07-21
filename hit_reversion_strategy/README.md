@@ -101,9 +101,10 @@ Run data setup from the repository root:
 .venv/bin/python setup_data.py trade-tape
 ```
 
-Normalized executions and state updates are written to `data/shared/`. Local
-win-model training inputs live under `data/hit_reversion/`; there is no data
-folder inside this strategy directory.
+Normalized executions are written to `data/shared/`. State probabilities use
+the MLB-only batting-perspective win model and leakage-free updates under
+`data/settlement_value/`, shared with the settlement-value strategy so live
+and research calculations use the same feature contract and pregame prior.
 
 Tune on pre-holdout dates, then evaluate the fixed outer holdout. The worker processes share the read-only tuning frames on macOS and Linux; use `--workers 1` for sequential debugging:
 
@@ -116,13 +117,6 @@ The tuner rewrites `models/trade_tape_config.json`. The backtest rewrites the
 holdout artifacts and refuses to enable deployment unless the loaded policy
 was already enabled and remains profitable.
 
-Optionally rebuild the local win-expectancy model:
-
-```bash
-(cd hit_reversion_strategy && \
-  ../.venv/bin/python scripts/train_win_model.py)
-```
-
 ## Tests
 
 ```bash
@@ -131,7 +125,8 @@ Optionally rebuild the local win-expectancy model:
 ```
 
 Tests cover confirmation, candidate expiry, next-pitch invalidation, exact
-later-trade fill timing, reversion exits, and momentum-delayed exits.
+later-trade fill timing, rejection of trades preceding live event observation,
+state-model feature parity, reversion exits, and momentum-delayed exits.
 
 ## Live paper trading
 
@@ -169,8 +164,9 @@ docker run --rm mlb-kalshi-trader trade-tape tune
 docker run --rm mlb-kalshi-trader trade-tape backtest
 ```
 
-The frozen holdout begins June 28, 2026: 12 fills across 12 games, $2.68 net
-PnL, and 5.22% ROI. Removing the best game leaves $1.58 profit. The pre-holdout
-tuning period contains 69 fills, $16.04 net PnL, and 4.26% ROI. Deployment
-remains disabled because one of three tuning folds was negative and the
-holdout still has fewer than 20 fills.
+The frozen holdout begins June 28, 2026: 136 fills across 220 games (0.62 per
+game), $23.05 net PnL, and 2.90% ROI. Removing the best game leaves $18.12;
+removing the best four leaves $5.09. The selected pre-holdout policy produced
+719 fills across 918 games (0.78 per game), $81.38 net PnL, and 2.00% ROI.
+Two of three chronological tuning folds were profitable and the losing fold
+was -0.56% ROI. Deployment remains enabled by the frozen holdout gate.

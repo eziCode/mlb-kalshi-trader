@@ -42,10 +42,17 @@ def evaluate(parameters):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--pre-holdout", action="store_true")
+    parser.add_argument(
+        "--state-updates",
+        type=Path,
+        default=REPOSITORY_ROOT / "data/shared/state_updates.parquet",
+        help="State-update parquet to evaluate (defaults to the hit model).",
+    )
+    parser.add_argument("--workers", type=int, default=4)
     args = parser.parse_args()
     data = REPOSITORY_ROOT / "data/shared"
     trades = pd.read_parquet(data / "home_market_trades.parquet")
-    updates = pd.read_parquet(data / "state_updates.parquet")
+    updates = pd.read_parquet(args.state_updates)
     trades["game_date"] = pd.to_datetime(trades.game_date).dt.date
     start = pd.Timestamp("2026-06-28").date()
     if args.pre_holdout:
@@ -62,7 +69,7 @@ def main():
         for edge in (0.025, 0.05, 0.075, 0.10, 0.125, 0.15)
     ]
     with ProcessPoolExecutor(
-        max_workers=8, initializer=initialize, initargs=(trades, updates)
+        max_workers=args.workers, initializer=initialize, initargs=(trades, updates)
     ) as executor:
         for row in executor.map(evaluate, parameters):
             event, side, edge, count, pnl, roi = row

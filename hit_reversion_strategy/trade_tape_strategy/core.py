@@ -413,15 +413,17 @@ def simulate_trade_tape(
                 ) or (
                     position.side == "no" and yes_price <= target
                 )
-                position.held_price_history.append((trade_ns, held_price))
-                position.held_price_history = [
-                    point for point in position.held_price_history
-                    if point[0] >= trade_ns - momentum_window_ns
-                ]
-                velocity = _price_velocity(
-                    position.held_price_history, trade_ns, momentum_window_ns,
-                    config.minimum_momentum_trades,
-                )
+                velocity = None
+                if config.momentum_exit_enabled:
+                    position.held_price_history.append((trade_ns, held_price))
+                    position.held_price_history = [
+                        point for point in position.held_price_history
+                        if point[0] >= trade_ns - momentum_window_ns
+                    ]
+                    velocity = _price_velocity(
+                        position.held_price_history, trade_ns,
+                        momentum_window_ns, config.minimum_momentum_trades,
+                    )
                 exit_taker_side = "no" if position.side == "yes" else "yes"
                 if position.pending_exit_ns is not None:
                     if (

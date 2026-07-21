@@ -27,6 +27,9 @@ from trade_tape_strategy.core import (  # noqa: E402
 
 
 DATA_DIR = REPOSITORY_ROOT / "data/shared"
+STATE_UPDATES_PATH = (
+    REPOSITORY_ROOT / "data/settlement_value/state_updates.parquet"
+)
 MODEL_DIR = PROJECT_ROOT / "models"
 CONFIG_PATH = MODEL_DIR / "trade_tape_config.json"
 STUDY_DIR = PROJECT_ROOT / "artifacts"
@@ -54,6 +57,10 @@ def _evaluate_configuration(parameters: tuple[float, float, float]) -> dict:
     config = TradeTapeConfig(
         minimum_edge=minimum_edge,
         confirmation_seconds=confirmation_seconds,
+        maximum_pre_event_trade_age_seconds=10.0,
+        maximum_event_to_entry_seconds=20.0,
+        minimum_fair_move=0.0,
+        minimum_seconds_between_entries=60.0,
         allowed_event_types=("single", "double", "triple"),
         minimum_reversion_move=minimum_reversion_move,
         side_filter="both",
@@ -147,7 +154,7 @@ def parse_args() -> argparse.Namespace:
 def main() -> None:
     args = parse_args()
     trades = pd.read_parquet(DATA_DIR / "home_market_trades.parquet")
-    updates = pd.read_parquet(DATA_DIR / "state_updates.parquet")
+    updates = pd.read_parquet(STATE_UPDATES_PATH)
     trades["game_date"] = pd.to_datetime(trades["game_date"]).dt.date
     updates["game_date"] = pd.to_datetime(updates["game_date"]).dt.date
 
@@ -163,11 +170,9 @@ def main() -> None:
 
     configurations = [
         (minimum_edge, confirmation_seconds, minimum_reversion_move)
-        for minimum_edge in [
-            0.01, 0.025, 0.05, 0.075, 0.10, 0.125,
-        ]
-        for confirmation_seconds in [1.0, 2.0]
-        for minimum_reversion_move in [0.0, 0.01, 0.02]
+        for minimum_edge in [0.025, 0.035, 0.045, 0.05, 0.075]
+        for confirmation_seconds in [0.0, 1.0]
+        for minimum_reversion_move in [0.0, 0.01]
     ]
     _initialize_worker(tune_trades, tune_updates, folds)
     if args.workers == 1:
@@ -205,7 +210,8 @@ def main() -> None:
         ascending=False,
     )
     eligible = grid[
-        (grid.trades >= 40) & (grid.minimum_fold_trades >= 10)
+        (grid.trades >= len(tune_games) * 0.5)
+        & (grid.minimum_fold_trades >= len(tune_games) / 3 * 0.35)
         & (grid.profitable_folds >= 2) & (grid.worst_fold_roi >= -.20)
         & (grid.pnl_without_best_game > 0)
     ].sort_values(
@@ -220,7 +226,10 @@ def main() -> None:
         enabled=enabled,
         minimum_edge=float(selection["minimum_edge"]),
         confirmation_seconds=float(selection["confirmation_seconds"]),
-        minimum_fair_move=0.005,
+        maximum_pre_event_trade_age_seconds=10.0,
+        maximum_event_to_entry_seconds=20.0,
+        minimum_fair_move=0.0,
+        minimum_seconds_between_entries=60.0,
         allowed_event_types=("single", "double", "triple"),
         minimum_reversion_move=float(selection["minimum_reversion_move"]),
         side_filter="both",
@@ -236,13 +245,15 @@ def main() -> None:
         "tuning_end": str(max(dates)),
         "tuning_games": len(tune_games),
         "selection_rule": (
-            "maximum coverage among configurations with at least 40 trades, "
-            "ten per fold, at least two of three folds profitable, worst-fold "
+            "maximum coverage among configurations with at least 0.5 trades "
+            "per game overall and 0.35 per game in every fold, at least two "
+            "of three folds profitable, worst-fold "
             "ROI above -20%, and profit remaining without the best game"
         ),
         "selected_config": asdict(config),
         "selected_tuning_result": selection.to_dict(),
         "outer_holdout_used": False,
+        "state_model": "MLB-only batting-perspective local win expectancy",
         "execution_model": (
             "strictly later compatible taker-side trade with sufficient reported size"
         ),
