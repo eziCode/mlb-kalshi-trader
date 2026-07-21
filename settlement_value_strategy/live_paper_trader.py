@@ -43,6 +43,7 @@ from settlement_value_strategy.predict import MispricingPredictor
 from settlement_value_strategy.strategy import (
     MISPRICING_FEATURES, anchored_event_target, taker_fee,
 )
+from shared_kalshi_feed import get_market as get_shared_market
 
 
 GAME_PK_TEXT = os.getenv("MLB_GAME_PK")
@@ -510,6 +511,14 @@ def replay_fill_from_observed_trades(
 
 def fetch_market_snapshot(ticker: str | None = None) -> MarketSnapshot:
     ticker = ticker or MARKET_TICKER
+    if os.getenv("KALSHI_FEED_URL"):
+        payload = get_shared_market(str(ticker))
+        snapshot = payload["snapshot"]
+        return MarketSnapshot(
+            pd.to_datetime(snapshot["received_at"], utc=True).to_pydatetime(),
+            float(snapshot["bid"]), float(snapshot["ask"]),
+            float(snapshot["bid_size"]), float(snapshot["ask_size"]),
+        )
     response = requests.get(
         f"{KALSHI_API}/markets/{ticker}/orderbook", timeout=5
     )
@@ -530,12 +539,15 @@ def fetch_market_snapshot(ticker: str | None = None) -> MarketSnapshot:
 
 def fetch_recent_trades(ticker: str | None = None) -> pd.DataFrame:
     ticker = ticker or MARKET_TICKER
-    response = requests.get(
-        f"{KALSHI_API}/markets/trades",
-        params={"ticker": ticker, "limit": 1000}, timeout=5,
-    )
-    response.raise_for_status()
-    rows = response.json().get("trades") or []
+    if os.getenv("KALSHI_FEED_URL"):
+        rows = get_shared_market(str(ticker)).get("trades") or []
+    else:
+        response = requests.get(
+            f"{KALSHI_API}/markets/trades",
+            params={"ticker": ticker, "limit": 1000}, timeout=5,
+        )
+        response.raise_for_status()
+        rows = response.json().get("trades") or []
     frame = pd.DataFrame(rows)
     required = {
         "trade_id", "created_time", "yes_price_dollars", "count_fp",

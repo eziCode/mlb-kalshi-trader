@@ -142,28 +142,50 @@ docker run --rm \
 
 ## Paper trading
 
-Both live paper traders require public network access. See the strategy
-READMEs for single-game, all-game, discovery, logging, and safety options:
+Production-style paper trading runs both strategies in one container behind a
+single authenticated Kalshi WebSocket. Put the Kalshi RSA private key in
+`secrets/kalshi-private.key` (the directory is gitignored), then start with:
+
+```bash
+docker volume create mlb-paper-state
+docker run -d \
+  --name mlb-paper \
+  --restart unless-stopped \
+  -e KALSHI_API_KEY_ID=YOUR_KEY_ID \
+  -e KALSHI_PRIVATE_KEY_PATH=/run/secrets/kalshi-private.key \
+  -e SLATE_TIMEZONE=America/Chicago \
+  -e PAPER_STARTING_CASH=1000 \
+  -v "$PWD/secrets/kalshi-private.key:/run/secrets/kalshi-private.key:ro" \
+  -v "$PWD/paper_logs:/app/paper_logs" \
+  -v mlb-paper-state:/app/state \
+  mlb-kalshi-trader paper-both --date YYYY-MM-DD
+```
+
+The shared feed performs bounded REST bootstrap/recovery calls, then supplies
+top-of-book snapshots and exact trades from one WebSocket to every isolated
+game worker. See the strategy READMEs for single-strategy diagnostic modes:
 
 - [`settlement_value_strategy/README.md`](settlement_value_strategy/README.md)
 - [`hit_reversion_strategy/README.md`](hit_reversion_strategy/README.md)
 
-Both strategies use the same container layout:
+The combined runtime uses this container layout:
 
 ```text
 /app/settlement_value_strategy
 /app/hit_reversion_strategy
 /app/paper_logs
+/app/state/settlement-value
+/app/state/hit-reversion
 ```
 
 Query a running container without referring to its internal Python script:
 
 ```bash
 docker exec \
-  -e PAPER_PORTFOLIO_DB=/app/paper_logs/settlement_value_portfolio_YYYY-MM-DD.sqlite3 \
-  settlement-value-paper /app/docker-entrypoint.sh mispricing portfolio-status
+  -e PAPER_PORTFOLIO_DB=/app/state/settlement-value/settlement_value_portfolio_YYYY-MM-DD.sqlite3 \
+  mlb-paper /bin/sh /app/docker-entrypoint.sh mispricing portfolio-status
 
 docker exec \
-  -e PAPER_PORTFOLIO_DB=/app/paper_logs/hit_reversion_portfolio_YYYY-MM-DD.sqlite3 \
-  hit-reversion-paper /app/docker-entrypoint.sh trade-tape portfolio-status
+  -e PAPER_PORTFOLIO_DB=/app/state/hit-reversion/hit_reversion_portfolio_YYYY-MM-DD.sqlite3 \
+  mlb-paper /bin/sh /app/docker-entrypoint.sh trade-tape portfolio-status
 ```

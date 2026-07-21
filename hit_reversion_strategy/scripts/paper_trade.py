@@ -23,8 +23,11 @@ from catboost import CatBoostClassifier
 
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
+REPOSITORY_ROOT = PROJECT_ROOT.parent
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
 
 from trade_tape_strategy.hybrid import anchored_event_target  # noqa: E402
 from trade_tape_strategy.core import (  # noqa: E402
@@ -37,6 +40,7 @@ from trade_tape_strategy.strategy import (  # noqa: E402
     state_feature_frame,
     taker_fee,
 )
+from shared_kalshi_feed import get_market as get_shared_market  # noqa: E402
 
 
 GAME_PK_TEXT = os.getenv("MLB_GAME_PK")
@@ -653,6 +657,13 @@ def is_next_completed_event(
 
 
 def fetch_market_snapshot() -> MarketSnapshot:
+    if os.getenv("KALSHI_FEED_URL"):
+        payload = get_shared_market(str(MARKET_TICKER))
+        snapshot = payload["snapshot"]
+        return MarketSnapshot(
+            pd.to_datetime(snapshot["received_at"], utc=True).to_pydatetime(),
+            float(snapshot["bid"]), float(snapshot["ask"]),
+        )
     response = requests.get(
         f"{KALSHI_API}/markets/{MARKET_TICKER}/orderbook", timeout=5
     )
@@ -701,12 +712,16 @@ def pitch_token_start_time(token: tuple | None) -> datetime | None:
 
 
 def fetch_recent_trades() -> pd.DataFrame:
-    response = requests.get(
-        f"{KALSHI_API}/markets/trades",
-        params={"ticker": MARKET_TICKER, "limit": 1000}, timeout=5,
-    )
-    response.raise_for_status()
-    frame = pd.DataFrame(response.json().get("trades") or [])
+    if os.getenv("KALSHI_FEED_URL"):
+        rows = get_shared_market(str(MARKET_TICKER)).get("trades") or []
+    else:
+        response = requests.get(
+            f"{KALSHI_API}/markets/trades",
+            params={"ticker": MARKET_TICKER, "limit": 1000}, timeout=5,
+        )
+        response.raise_for_status()
+        rows = response.json().get("trades") or []
+    frame = pd.DataFrame(rows)
     required = {
         "trade_id", "created_time", "yes_price_dollars", "count_fp",
         "taker_outcome_side",
@@ -973,6 +988,21 @@ def fetch_pregame_anchor() -> float:
     return (bid + ask) / 2.0
 
 
+async def wait_for_pregame_anchor() -> float:
+    delay = 1.0
+    while True:
+        try:
+            return await asyncio.to_thread(fetch_pregame_anchor)
+        except requests.RequestException as error:
+            print(
+                f"Pregame anchor request failed: {error}; retrying in "
+                f"{delay:g}s",
+                flush=True,
+            )
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 30.0)
+
+
 async def main() -> None:
     if GAME_PK is None or not MARKET_TICKER:
         raise RuntimeError(
@@ -999,7 +1029,7 @@ async def main() -> None:
         portfolio_path,
         float(os.getenv("PAPER_STARTING_CASH", "1000")),
     )
-    pregame_prob = await asyncio.to_thread(fetch_pregame_anchor)
+    pregame_prob = await wait_for_pregame_anchor()
     print(f"Pregame Kalshi anchor: {pregame_prob:.1%}")
     print(
         f"Hybrid threshold={hybrid_config.minimum_edge:.1%}, "

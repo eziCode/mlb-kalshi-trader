@@ -25,6 +25,8 @@ COPY settlement_value_strategy /app/settlement_value_strategy
 COPY hit_reversion_strategy /app/hit_reversion_strategy
 COPY data /app/data
 COPY setup_data.py /app/setup_data.py
+COPY shared_kalshi_feed.py /app/shared_kalshi_feed.py
+COPY combined_paper.py /app/combined_paper.py
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 
 ENTRYPOINT ["/bin/sh", "/app/docker-entrypoint.sh"]

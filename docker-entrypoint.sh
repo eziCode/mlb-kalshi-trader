@@ -8,6 +8,7 @@ usage() {
 Usage:
   docker run [docker-options] IMAGE STRATEGY [OPERATION] [operation-options]
   docker run [docker-options] IMAGE setup-data STRATEGY [setup-options]
+  docker run [docker-options] IMAGE paper-both [--date YYYY-MM-DD]
 
 Strategies and operations:
   mispricing [backtest]       Run the settlement-value holdout backtest
@@ -35,6 +36,7 @@ Examples:
   docker run --rm -e MLB_GAME_PK=... -e KALSHI_MARKET_TICKER=... \
     -e ALLOW_UNVALIDATED_MISPRICING=1 IMAGE mispricing live-paper
   docker run --rm -v "$PWD/data:/app/data" IMAGE setup-data both
+  docker run --rm IMAGE paper-both --date YYYY-MM-DD
 EOF
 }
 
@@ -122,6 +124,9 @@ strategy="${1:-help}"
 if [ "$#" -gt 0 ]; then shift; fi
 
 case "$strategy" in
+    paper-both|paper_both|combined-paper)
+        exec python "$APP_ROOT/combined_paper.py" "$@"
+        ;;
     setup-data|setup_data)
         exec python "$APP_ROOT/setup_data.py" "$@"
         ;;
