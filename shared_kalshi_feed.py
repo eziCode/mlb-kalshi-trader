@@ -271,7 +271,8 @@ class Handler(BaseHTTPRequestHandler):
         if path.startswith("/markets/"):
             ticker = unquote(path.removeprefix("/markets/"))
             payload = STATE.payload(ticker)
-            self._reply(200 if payload["snapshot"] is not None else 503, payload)
+            ready = bool(payload["connected"] and payload["snapshot"] is not None)
+            self._reply(200 if ready else 503, payload)
             return
         self._reply(404, {"error": "not found"})
 

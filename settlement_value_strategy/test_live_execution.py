@@ -80,6 +80,36 @@ class LiveExecutionTests(unittest.TestCase):
             self.assertEqual(fill.reason, "insufficient_account_balance")
             self.assertFalse(executor.client.orders)
 
+    def test_execute_rechecks_probability_edge_at_actual_price(self):
+        with tempfile.TemporaryDirectory() as directory:
+            executor = LiveExecutor.__new__(LiveExecutor)
+            executor.per_order_budget = 0.75
+            executor.maximum_capital = 15.0
+            executor.client = FakeClient()
+            executor.ledger = LiveRiskLedger(Path(directory) / "risk.db", 15.0)
+            fill = executor.execute(
+                trigger_key="1:pitch", game_pk=1, ticker="TEST",
+                price=0.76, settlement_probability=0.90,
+                original_bet_size=10.0, original_minimum_expected_pnl=0.0,
+                minimum_seconds_between_entries=200,
+                minimum_probability_edge=0.15,
+            )
+            self.assertFalse(fill.filled)
+            self.assertEqual(fill.reason, "scaled_value_check")
+            self.assertFalse(executor.client.orders)
+
+    def test_filled_orders_can_be_recovered_by_game(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = LiveRiskLedger(Path(directory) / "risk.db", 15.0)
+            client_id = ledger.reserve("1:pitch", 1, "TEST", .75, 200, .9)
+            ledger.finish(type("Fill", (), {
+                "filled": True, "capital": .75, "contracts": 1.0,
+                "price": .70, "fee": .05, "client_order_id": client_id,
+            })())
+            rows = ledger.filled_for_game(1)
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["settlement_probability"], .9)
+
 
 if __name__ == "__main__":
     unittest.main()

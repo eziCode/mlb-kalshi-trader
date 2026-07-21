@@ -228,3 +228,6 @@ docker run -d \
   -v settlement-live-state:/app/live-state \
   mlb-kalshi-trader:live mispricing live --date YYYY-MM-DD
 ```
+
+The paper-feed container binds its internal feed services on the private
+container interface. No host ports need to be published.

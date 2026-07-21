@@ -58,6 +58,10 @@ def run(game_date: date | None) -> int:
     common = os.environ.copy()
     common["KALSHI_FEED_URL"] = FEED_URL
     common["MLB_FEED_URL"] = MLB_FEED_URL
+    # Binding on the container interface keeps the feeds reachable by the
+    # separately guarded live executor when both share a private Docker network.
+    common.setdefault("KALSHI_FEED_BIND", "0.0.0.0")
+    common.setdefault("MLB_FEED_BIND", "0.0.0.0")
     common["PYTHONUNBUFFERED"] = "1"
     settlement_env = common.copy()
     settlement_env.update({
