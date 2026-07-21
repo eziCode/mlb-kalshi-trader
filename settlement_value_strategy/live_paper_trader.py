@@ -40,6 +40,9 @@ if str(REPOSITORY_ROOT) not in sys.path:
 
 from settlement_value_strategy.build_normalized_raw import state_model_frame
 from settlement_value_strategy.predict import MispricingPredictor
+from settlement_value_strategy.live_execution import (
+    LiveExecutor, REAL_MONEY_ACK,
+)
 from settlement_value_strategy.strategy import (
     MISPRICING_FEATURES, anchored_event_target, taker_fee,
 )
@@ -57,6 +60,7 @@ KALSHI_API = "https://external-api.kalshi.com/trade-api/v2"
 MLB_API = "https://statsapi.mlb.com/api"
 MLB_PRIOR_PATH = ROOT / "model/mlb_pregame_prior.json"
 SLATE_TIMEZONE = ZoneInfo(os.getenv("SLATE_TIMEZONE", "America/Chicago"))
+LIVE_MODE = os.getenv("LIVE_TRADING_ENABLED") == REAL_MONEY_ACK
 
 MLB_TEAM_CODES = {
     108: "LAA", 109: "ARI", 110: "BAL", 111: "BOS", 112: "CHC",
@@ -802,13 +806,18 @@ async def run_worker() -> None:
         and not AWAY_MARKET_TICKER
     ):
         raise RuntimeError("Set KALSHI_AWAY_MARKET_TICKER for away YES routing")
-    if not predictor.config.enabled and os.getenv(
-        "ALLOW_UNVALIDATED_MISPRICING"
-    ) != "1":
-        raise RuntimeError(
-            "Mispricing policy is disabled; set "
-            "ALLOW_UNVALIDATED_MISPRICING=1 for paper observation only"
+    if not predictor.config.enabled:
+        paper_override = os.getenv("ALLOW_UNVALIDATED_MISPRICING") == "1"
+        live_override = (
+            LIVE_MODE
+            and os.getenv("ALLOW_UNVALIDATED_LIVE")
+            == "YES_I_ACCEPT_THE_UNVALIDATED_MODEL_RISK"
         )
+        if not paper_override and not live_override:
+            raise RuntimeError(
+                "Mispricing policy is disabled; paper and live overrides are "
+                "separate and explicit"
+            )
     state_model = CatBoostClassifier()
     state_model.load_model(ROOT / "model/local_win_expectancy.cbm")
     portfolio_path = Path(os.getenv(
@@ -817,6 +826,9 @@ async def run_worker() -> None:
     ))
     portfolio = SharedPaperPortfolio(
         portfolio_path, float(os.getenv("PAPER_STARTING_CASH", "1000"))
+    )
+    live_executor = (
+        LiveExecutor(Path(os.environ["LIVE_RISK_DB"])) if LIVE_MODE else None
     )
     pregame_prob = await wait_for_pregame_anchor()
     LOG_DIR.mkdir(parents=True, exist_ok=True)
@@ -993,6 +1005,43 @@ async def run_worker() -> None:
                     fill_edge = fill["edge"]
                     fill_ev = fill["expected_pnl"]
                     execution_time = fill["time"]
+                    execution_ticker = (
+                        AWAY_MARKET_TICKER if route_away_yes else MARKET_TICKER
+                    )
+                    if live_executor is not None:
+                        executable_market = away_market if route_away_yes else market
+                        live_fill = await asyncio.to_thread(
+                            live_executor.execute,
+                            trigger_key=f"{GAME_PK}:{token}",
+                            game_pk=int(GAME_PK),
+                            ticker=str(execution_ticker),
+                            price=float(executable_market.ask),
+                            settlement_probability=execution_probability,
+                            original_bet_size=predictor.config.bet_size,
+                            original_minimum_expected_pnl=(
+                                predictor.config.minimum_expected_pnl
+                            ),
+                            minimum_seconds_between_entries=(
+                                predictor.config.minimum_seconds_between_entries
+                            ),
+                        )
+                        if not live_fill.filled:
+                            action = f"LIVE_SKIP_{live_fill.reason.upper()}"
+                            handled_tokens.add(token)
+                            previous_game = game
+                            print(
+                                f"LIVE NO FILL reason={live_fill.reason} "
+                                f"game_pk={GAME_PK} ticker={execution_ticker}",
+                                flush=True,
+                            )
+                            await asyncio.sleep(POLL_SECONDS)
+                            continue
+                        price = live_fill.price
+                        contracts = live_fill.contracts
+                        fee = live_fill.fee
+                        execution_time = datetime.now(timezone.utc)
+                        fill_edge = execution_probability - price
+                        fill_ev = contracts * fill_edge - fee
                     proposed = PaperPosition(
                         execution_side, contracts, price, fee,
                         execution_time, execution_probability,
@@ -1118,7 +1167,10 @@ def reconcile_final_positions(portfolio: SharedPaperPortfolio) -> int:
 
 
 def run_all_games(game_date: date) -> int:
-    if os.getenv("ALLOW_UNVALIDATED_MISPRICING") != "1":
+    if (
+        os.getenv("ALLOW_UNVALIDATED_MISPRICING") != "1"
+        and not LIVE_MODE
+    ):
         raise RuntimeError("Set ALLOW_UNVALIDATED_MISPRICING=1 for paper mode")
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     database = Path(os.getenv(
@@ -1196,7 +1248,8 @@ def run_all_games(game_date: date) -> int:
             start_worker(game)
         opening = portfolio.metrics()
         print(
-            f"Running {len(children)} isolated paper traders with shared "
+            f"Running {len(children)} isolated "
+            f"{'LIVE' if LIVE_MODE else 'paper'} traders with shared "
             f"cash=${opening.cash:.2f}."
         )
         return_code = 0

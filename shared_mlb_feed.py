@@ -142,7 +142,9 @@ def get_game(game_pk: int, timeout: float = 5.0) -> dict:
 
 
 def serve() -> None:
-    server = ThreadingHTTPServer(("127.0.0.1", 8766), Handler)
+    server = ThreadingHTTPServer((
+        os.getenv("MLB_FEED_BIND", "127.0.0.1"), 8766
+    ), Handler)
     print("Shared MLB feed ready", flush=True)
     try:
         server.serve_forever()

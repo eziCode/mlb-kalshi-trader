@@ -193,3 +193,38 @@ docker exec \
   -e PAPER_PORTFOLIO_DB=/app/state/hit-reversion/hit_reversion_portfolio_YYYY-MM-DD.sqlite3 \
   mlb-paper /bin/sh /app/docker-entrypoint.sh trade-tape portfolio-status
 ```
+
+### Guarded real-money settlement execution
+
+Real execution is a separate settlement-value-only container. It consumes the
+paper container's private shared feed and never starts hit-reversion execution.
+The executor uses fill-or-kill orders, checks the real available balance before
+every order, limits principal plus fees to $0.75 per fill, and durably caps
+cumulative strategy capital at $15. Both acknowledgements are intentionally
+required because the packaged model remains unvalidated and disabled.
+
+```bash
+docker network create mlb-trading
+docker volume create settlement-live-state
+mkdir -p live_logs
+
+docker run -d \
+  --name settlement-value-live \
+  --restart on-failure:3 \
+  --network mlb-trading \
+  --env-file .env \
+  -e KALSHI_PRIVATE_KEY_PATH=/run/secrets/kalshi-private.key \
+  -e KALSHI_FEED_URL=http://mlb-paper:8765 \
+  -e LIVE_TRADING_ENABLED=YES_I_UNDERSTAND_THIS_PLACES_REAL_ORDERS \
+  -e ALLOW_UNVALIDATED_LIVE=YES_I_ACCEPT_THE_UNVALIDATED_MODEL_RISK \
+  -e LIVE_MAX_TOTAL_CAPITAL=15 \
+  -e LIVE_MAX_ORDER_CAPITAL=0.75 \
+  -e LIVE_RISK_DB=/app/live-state/risk.sqlite3 \
+  -e PAPER_PORTFOLIO_DB=/app/live-state/portfolio.sqlite3 \
+  -e PAPER_STARTING_CASH=15 \
+  -e PAPER_LOG_DIR=/app/live-logs \
+  -v "$PWD/secrets/kalshi-private.key:/run/secrets/kalshi-private.key:ro" \
+  -v "$PWD/live_logs:/app/live-logs" \
+  -v settlement-live-state:/app/live-state \
+  mlb-kalshi-trader:live mispricing live --date YYYY-MM-DD
+```

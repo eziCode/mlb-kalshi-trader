@@ -17,6 +17,8 @@ Strategies and operations:
   mispricing pipeline         Prepare, train, then backtest
   mispricing paper            Score a JSONL decision stream
   mispricing live-paper       Continuously run today's and future slates
+  mispricing live             Run real settlement-value execution (guarded)
+  mispricing live-status      Show real account and strategy allocation
   mispricing portfolio-status Show the live paper portfolio balance
 
   trade-tape [backtest]       Run the exact-timestamp holdout backtest
@@ -64,6 +66,14 @@ run_mispricing() {
         live-paper|live_paper)
             exec python -m settlement_value_strategy.live_paper_trader \
                 --continuous "$@"
+            ;;
+        live)
+            exec python -m settlement_value_strategy.live_paper_trader \
+                --all-games "$@"
+            ;;
+        live-status|live_status)
+            exec python -m settlement_value_strategy.live_execution \
+                account-status "$@"
             ;;
         portfolio-status|portfolio_status|status)
             exec python -m settlement_value_strategy.live_paper_trader \

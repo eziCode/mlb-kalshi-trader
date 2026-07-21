@@ -298,7 +298,9 @@ def serve() -> None:
                if not os.getenv(name)]
     if missing:
         raise RuntimeError(f"Missing shared-feed credentials: {', '.join(missing)}")
-    server = ThreadingHTTPServer(("127.0.0.1", 8765), Handler)
+    server = ThreadingHTTPServer((
+        os.getenv("KALSHI_FEED_BIND", "127.0.0.1"), 8765
+    ), Handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
     try:
