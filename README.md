@@ -143,7 +143,8 @@ docker run --rm \
 ## Paper trading
 
 Production-style paper trading runs both strategies in one container behind a
-single authenticated Kalshi WebSocket. Put the Kalshi RSA private key in
+single authenticated Kalshi WebSocket and one adaptive, cached MLB feed.
+Put the Kalshi RSA private key in
 `secrets/kalshi-private.key` (the directory is gitignored), then start with:
 
 ```bash
@@ -161,9 +162,12 @@ docker run -d \
   mlb-kalshi-trader paper-both --date YYYY-MM-DD
 ```
 
-The shared feed performs bounded REST bootstrap/recovery calls, then supplies
+The Kalshi feed performs bounded REST bootstrap/recovery calls, then supplies
 top-of-book snapshots and exact trades from one WebSocket to every isolated
-game worker. See the strategy READMEs for single-strategy diagnostic modes:
+worker. The MLB feed polls each game once, shares that snapshot across both
+strategies, slows down before games, and applies jittered exponential backoff
+while retaining the last valid state after upstream errors.
+See the strategy READMEs for single-strategy diagnostic modes:
 
 - [`settlement_value_strategy/README.md`](settlement_value_strategy/README.md)
 - [`hit_reversion_strategy/README.md`](hit_reversion_strategy/README.md)

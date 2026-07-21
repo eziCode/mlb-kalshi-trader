@@ -41,6 +41,7 @@ from trade_tape_strategy.strategy import (  # noqa: E402
     taker_fee,
 )
 from shared_kalshi_feed import get_market as get_shared_market  # noqa: E402
+from shared_mlb_feed import get_game as get_shared_game  # noqa: E402
 
 
 GAME_PK_TEXT = os.getenv("MLB_GAME_PK")
@@ -886,12 +887,24 @@ def replay_position_exit(
     return None, pending_time, last_seen
 
 
-def fetch_game_snapshot() -> GameSnapshot:
+def fetch_mlb_payload(
+    game_pk: int, timeout: float = 5.0,
+) -> tuple[dict, datetime]:
+    if os.getenv("MLB_FEED_URL"):
+        wrapper = get_shared_game(game_pk, timeout=timeout)
+        return (
+            wrapper["payload"],
+            pd.to_datetime(wrapper["received_at"], utc=True).to_pydatetime(),
+        )
     response = requests.get(
-        f"{MLB_API}/v1.1/game/{GAME_PK}/feed/live", timeout=5
+        f"{MLB_API}/v1.1/game/{game_pk}/feed/live", timeout=timeout
     )
     response.raise_for_status()
-    payload = response.json()
+    return response.json(), datetime.now(timezone.utc)
+
+
+def fetch_game_snapshot() -> GameSnapshot:
+    payload, received_at = fetch_mlb_payload(int(GAME_PK))
     live = payload.get("liveData") or {}
     linescore = live.get("linescore") or {}
     status = payload.get("gameData", {}).get("status", {}).get(
@@ -942,7 +955,7 @@ def fetch_game_snapshot() -> GameSnapshot:
         "runner_on_third": int("third" in offense),
     }
     return GameSnapshot(
-        datetime.now(timezone.utc), status, state, home_score, away_score,
+        received_at, status, state, home_score, away_score,
         completed_event_id, completed_event, completed_event_batting_home,
         latest_completed_pitch_token(payload),
     )
@@ -1011,11 +1024,8 @@ def pregame_probability_from_rating_state(
 
 
 def fetch_model_pregame_prior() -> float:
-    response = requests.get(
-        f"{MLB_API}/v1.1/game/{GAME_PK}/feed/live", timeout=5
-    )
-    response.raise_for_status()
-    teams = response.json().get("gameData", {}).get("teams", {})
+    payload, _ = fetch_mlb_payload(int(GAME_PK))
+    teams = payload.get("gameData", {}).get("teams", {})
     home_id = int(teams.get("home", {}).get("id"))
     away_id = int(teams.get("away", {}).get("id"))
     rating_state = json.loads(MLB_PRIOR_PATH.read_text())
@@ -1024,12 +1034,22 @@ def fetch_model_pregame_prior() -> float:
     )
 
 
+async def wait_for_model_pregame_prior() -> float:
+    delay = 1.0
+    while True:
+        try:
+            return await asyncio.to_thread(fetch_model_pregame_prior)
+        except requests.RequestException as error:
+            print(
+                f"MLB model prior pending: {error}; retrying in {delay:g}s",
+                flush=True,
+            )
+            await asyncio.sleep(delay)
+            delay = min(delay * 2, 30.0)
+
+
 def fetch_pregame_anchor() -> float:
-    feed_response = requests.get(
-        f"{MLB_API}/v1.1/game/{GAME_PK}/feed/live", timeout=5
-    )
-    feed_response.raise_for_status()
-    feed = feed_response.json()
+    feed, _ = fetch_mlb_payload(int(GAME_PK))
     first_pitch = first_pitch_time(feed)
     if first_pitch is None:
         status = feed.get("gameData", {}).get("status", {}).get(
@@ -1106,7 +1126,7 @@ async def main() -> None:
         portfolio_path,
         float(os.getenv("PAPER_STARTING_CASH", "1000")),
     )
-    pregame_prob = await asyncio.to_thread(fetch_model_pregame_prior)
+    pregame_prob = await wait_for_model_pregame_prior()
     print(f"MLB-only model pregame prior: {pregame_prob:.1%}")
     print(
         f"Hybrid threshold={hybrid_config.minimum_edge:.1%}, "

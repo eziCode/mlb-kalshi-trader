@@ -16,6 +16,7 @@ import requests
 
 ROOT = Path(__file__).resolve().parent
 FEED_URL = "http://127.0.0.1:8765"
+MLB_FEED_URL = "http://127.0.0.1:8766"
 
 
 def _stop(processes: list[subprocess.Popen]) -> None:
@@ -30,18 +31,20 @@ def _stop(processes: list[subprocess.Popen]) -> None:
                 process.kill()
 
 
-def _wait_for_feed(process: subprocess.Popen) -> None:
+def _wait_for_feed(
+    process: subprocess.Popen, url: str, name: str,
+) -> None:
     deadline = time.monotonic() + 30
     while time.monotonic() < deadline:
         if process.poll() is not None:
-            raise RuntimeError(f"Shared Kalshi feed exited with {process.returncode}")
+            raise RuntimeError(f"{name} exited with {process.returncode}")
         try:
-            if requests.get(f"{FEED_URL}/health", timeout=1).ok:
+            if requests.get(f"{url}/health", timeout=1).ok:
                 return
         except requests.RequestException:
             pass
         time.sleep(0.25)
-    raise RuntimeError("Shared Kalshi feed did not become ready")
+    raise RuntimeError(f"{name} did not become ready")
 
 
 def run(game_date: date | None) -> int:
@@ -54,6 +57,7 @@ def run(game_date: date | None) -> int:
 
     common = os.environ.copy()
     common["KALSHI_FEED_URL"] = FEED_URL
+    common["MLB_FEED_URL"] = MLB_FEED_URL
     common["PYTHONUNBUFFERED"] = "1"
     settlement_env = common.copy()
     settlement_env.update({
@@ -79,7 +83,13 @@ def run(game_date: date | None) -> int:
             cwd=ROOT, env=common,
         )
         processes.append(feed)
-        _wait_for_feed(feed)
+        _wait_for_feed(feed, FEED_URL, "Shared Kalshi feed")
+        mlb_feed = subprocess.Popen(
+            [sys.executable, "-u", "-m", "shared_mlb_feed"],
+            cwd=ROOT, env=common,
+        )
+        processes.append(mlb_feed)
+        _wait_for_feed(mlb_feed, MLB_FEED_URL, "Shared MLB feed")
         date_args = ["--date", selected.isoformat()]
         settlement = subprocess.Popen(
             [sys.executable, "-u", "-m",
@@ -94,13 +104,14 @@ def run(game_date: date | None) -> int:
         )
         processes.extend([settlement, hit])
         print(
-            "Combined paper runtime started: one Kalshi WebSocket, "
-            "settlement-value + hit-reversion",
+            "Combined paper runtime started: one Kalshi WebSocket, one "
+            "adaptive MLB feed, settlement-value + hit-reversion",
             flush=True,
         )
         while True:
             for name, process in (
-                ("shared feed", feed), ("settlement-value", settlement),
+                ("shared Kalshi feed", feed), ("shared MLB feed", mlb_feed),
+                ("settlement-value", settlement),
                 ("hit-reversion", hit),
             ):
                 code = process.poll()

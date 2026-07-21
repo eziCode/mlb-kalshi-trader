@@ -44,6 +44,7 @@ from settlement_value_strategy.strategy import (
     MISPRICING_FEATURES, anchored_event_target, taker_fee,
 )
 from shared_kalshi_feed import get_market as get_shared_market
+from shared_mlb_feed import get_game as get_shared_game
 
 
 GAME_PK_TEXT = os.getenv("MLB_GAME_PK")
@@ -576,10 +577,24 @@ def _latest_pitch(payload: dict) -> tuple[int, int, str] | None:
     return latest
 
 
-def fetch_game_snapshot() -> GameSnapshot:
-    response = requests.get(f"{MLB_API}/v1.1/game/{GAME_PK}/feed/live", timeout=5)
+def fetch_mlb_payload(
+    game_pk: int, timeout: float = 5.0,
+) -> tuple[dict, datetime]:
+    if os.getenv("MLB_FEED_URL"):
+        wrapper = get_shared_game(game_pk, timeout=timeout)
+        return (
+            wrapper["payload"],
+            pd.to_datetime(wrapper["received_at"], utc=True).to_pydatetime(),
+        )
+    response = requests.get(
+        f"{MLB_API}/v1.1/game/{game_pk}/feed/live", timeout=timeout
+    )
     response.raise_for_status()
-    payload = response.json()
+    return response.json(), datetime.now(timezone.utc)
+
+
+def fetch_game_snapshot() -> GameSnapshot:
+    payload, received_at = fetch_mlb_payload(int(GAME_PK))
     linescore = payload.get("liveData", {}).get("linescore") or {}
     status = payload.get("gameData", {}).get("status", {}).get(
         "abstractGameState", "Preview"
@@ -609,7 +624,7 @@ def fetch_game_snapshot() -> GameSnapshot:
         "runner_on_third": int("third" in offense),
     }
     return GameSnapshot(
-        datetime.now(timezone.utc), status, state, home, away,
+        received_at, status, state, home, away,
         _latest_pitch(payload),
     )
 
@@ -1064,11 +1079,7 @@ def reconcile_final_positions(portfolio: SharedPaperPortfolio) -> int:
     settled = 0
     for game_pk in portfolio.open_game_pks():
         try:
-            response = requests.get(
-                f"{MLB_API}/v1.1/game/{game_pk}/feed/live", timeout=15
-            )
-            response.raise_for_status()
-            payload = response.json()
+            payload, _ = fetch_mlb_payload(game_pk, timeout=15)
         except requests.RequestException as error:
             print(
                 f"WARNING: could not reconcile game {game_pk}: {error}",

@@ -26,6 +26,7 @@ COPY hit_reversion_strategy /app/hit_reversion_strategy
 COPY data /app/data
 COPY setup_data.py /app/setup_data.py
 COPY shared_kalshi_feed.py /app/shared_kalshi_feed.py
+COPY shared_mlb_feed.py /app/shared_mlb_feed.py
 COPY combined_paper.py /app/combined_paper.py
 COPY docker-entrypoint.sh /app/docker-entrypoint.sh
 
