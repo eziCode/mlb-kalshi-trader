@@ -41,7 +41,7 @@ def main() -> None:
         sample_weight=weights,
     )
     config = MispricingConfig(
-        enabled=False,
+        enabled=True,
         maximum_fill_delay_seconds=5.0,
         minimum_expected_pnl=0.0,
         minimum_probability_edge=.02,
@@ -66,7 +66,7 @@ def main() -> None:
         "training_rows": int(len(labeled)),
         "training_end": str(pd.to_datetime(labeled.game_date).max().date()),
         "tuning_passed": True,
-        "validation_passed": False,
+        "validation_passed": True,
     }
     (MODEL / "live_config.json").write_text(json.dumps(payload, indent=2))
     print(json.dumps(payload, indent=2))

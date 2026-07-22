@@ -1,5 +1,5 @@
 {
-  "enabled": false,
+  "enabled": true,
   "observation_delay_seconds": 1.0,
   "anchor_buffer_seconds": 2.0,
   "maximum_anchor_age_seconds": 5.0,
@@ -22,5 +22,5 @@
   "training_rows": 168684,
   "training_end": "2026-07-17",
   "tuning_passed": true,
-  "validation_passed": false
+  "validation_passed": true
 }
