@@ -1,3 +1,7 @@
 {
-  "mode": "identity"
+  "mode": "market_logit_adjustment",
+  "intercept": 0.02689276216306952,
+  "coefficient": 0.06947294020984951,
+  "l2_coefficient": 0.05,
+  "l2_intercept": 0.02
 }

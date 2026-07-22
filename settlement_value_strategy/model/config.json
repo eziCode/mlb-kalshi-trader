@@ -4,14 +4,14 @@
   "anchor_buffer_seconds": 2.0,
   "maximum_anchor_age_seconds": 5.0,
   "maximum_fill_delay_seconds": 5.0,
-  "minimum_expected_pnl": 2.25,
-  "minimum_probability_edge": 0.15,
+  "minimum_expected_pnl": 2.0,
+  "minimum_probability_edge": 0.1,
   "bet_size": 10.0,
   "side_filter": "both",
   "minimum_seconds_between_entries": 200.0,
   "execution_contract": "paired_both",
   "maximum_positions_per_game": 0,
   "conditional_stacking": true,
-  "tuning_passed": true,
+  "tuning_passed": false,
   "validation_passed": false
 }

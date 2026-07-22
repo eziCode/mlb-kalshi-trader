@@ -68,6 +68,23 @@ fit on a later chronological interval.
 
 ## Entry, fill, and settlement
 
+The paper deployment uses the market-anchored latency model in
+`model/live_config.json`.  It predicts the causal 3-10 second post-pitch market
+log-odds move and adds that bounded residual to the observed market logit.  It
+does not use the legacy unrestricted winner classifier as an absolute fair
+probability.  Retrain it with:
+
+```bash
+python -m settlement_value_strategy.train_latency
+```
+
+The walk-forward research harness is
+`python -m settlement_value_strategy.research_latency`.  Real-money execution
+must remain disabled until a fresh forward-paper interval passes; the saved
+live configuration therefore keeps `validation_passed` false.  Executions from
+45 through 55 cents are excluded because this maximum-fee/maximum-uncertainty
+band was negative in pre-final walk-forward results.
+
 For a fixed dollar stake, the strategy computes expected PnL after Kalshi’s
 rounded taker fee. Each signal independently chooses YES or NO on the home-team
 market according to the larger fee-adjusted expected value. It requires:
