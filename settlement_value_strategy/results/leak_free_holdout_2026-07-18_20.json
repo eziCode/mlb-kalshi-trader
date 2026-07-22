@@ -1,0 +1,26 @@
+{
+  "holdout": "2026-07-18 through 2026-07-20",
+  "decision_rows": 8554,
+  "eligible_games": 43,
+  "orders": 122,
+  "trades": 27,
+  "traded_games": 22,
+  "trades_per_traded_game": 1.2272727272727273,
+  "fees": 7.02,
+  "capital": 277.02,
+  "pnl": 29.404814974675173,
+  "roi": 0.10614690265928516,
+  "win_rate": 0.7037037037037037,
+  "profitable_game_fraction": 0.7272727272727273,
+  "mean_game_roi": 0.1171538483166541,
+  "median_game_roi": 0.30975769482645715,
+  "pnl_without_top_4_games": -6.145104456820757,
+  "profitable_day_fraction": 1.0,
+  "daily_pnl": {
+    "2026-07-18": 5.197985664088307,
+    "2026-07-19": 20.862765931221496,
+    "2026-07-20": 3.344063379365373
+  },
+  "home_trades": 14,
+  "away_trades": 13
+}
