@@ -104,6 +104,17 @@ class MispricingConfig:
     execution_contract: str = "home_both"
     maximum_positions_per_game: int = 0  # Zero means unlimited.
     conditional_stacking: bool = True
+    excluded_price_min: float = 0.0
+    excluded_price_max: float = 0.0
+
+
+def execution_price_allowed(price: float, config: MispricingConfig) -> bool:
+    """Reject a configured closed interval of execution prices."""
+    if config.excluded_price_max <= config.excluded_price_min:
+        return True
+    return not (
+        config.excluded_price_min <= price <= config.excluded_price_max
+    )
 
 
 @dataclass
@@ -329,6 +340,8 @@ def simulate_mispricing(
                 if not compatible_taker(side, taker_sides[i]):
                     continue
                 price = float(yes[i] if side == "yes" else no[i])
+                if not execution_price_allowed(price, config):
+                    continue
                 contracts = config.bet_size / price
                 if sizes[i] < contracts:
                     continue
@@ -447,6 +460,8 @@ def simulate_away_yes(
                 if not compatible_taker("yes", taker_sides[index]):
                     continue
                 price = float(prices[index])
+                if not execution_price_allowed(price, config):
+                    continue
                 contracts = config.bet_size / price
                 if sizes[index] < contracts:
                     continue
@@ -569,6 +584,8 @@ def simulate_paired_both(
                 if not compatible_taker("yes", taker_sides[index]):
                     continue
                 price = float(prices[index])
+                if not execution_price_allowed(price, config):
+                    continue
                 contracts = config.bet_size / price
                 if sizes[index] < contracts:
                     continue

@@ -44,7 +44,8 @@ from settlement_value_strategy.live_execution import (
     LiveExecutor, REAL_MONEY_ACK,
 )
 from settlement_value_strategy.strategy import (
-    MISPRICING_FEATURES, anchored_event_target, taker_fee,
+    MISPRICING_FEATURES, anchored_event_target, execution_price_allowed,
+    taker_fee,
 )
 from shared_kalshi_feed import get_market as get_shared_market
 from shared_mlb_feed import get_game as get_shared_game
@@ -518,6 +519,8 @@ def replay_fill_from_observed_trades(
     ]
     for trade in eligible.itertuples(index=False):
         price = float(trade.yes_price_dollars)
+        if not execution_price_allowed(price, config):
+            continue
         contracts = config.bet_size / price
         if float(trade.count_fp) < contracts:
             continue

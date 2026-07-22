@@ -1,0 +1,2758 @@
+{
+  "target": "causal 3-10 second home-market logit move",
+  "features": [
+    "market_home_price",
+    "market_logit",
+    "local_fair_after",
+    "local_fair_before",
+    "fair_logit_move",
+    "market_logit_move",
+    "anchored_state_target",
+    "market_target_residual",
+    "inning_after",
+    "inning_topbot_after",
+    "outs_when_up_after",
+    "score_diff_after",
+    "balls_after",
+    "strikes_after",
+    "runner_on_first_after",
+    "runner_on_second_after",
+    "runner_on_third_after",
+    "delta_inning",
+    "delta_outs",
+    "delta_score_diff",
+    "delta_balls",
+    "delta_strikes",
+    "delta_runner_on_first",
+    "delta_runner_on_second",
+    "delta_runner_on_third",
+    "anchor_age_seconds",
+    "observation_delay_seconds",
+    "pre_trade_count_2s",
+    "pre_volume_2s",
+    "pre_flow_imbalance_2s",
+    "pre_price_volatility_2s"
+  ],
+  "rows": {
+    "april": 35421,
+    "may": 41434,
+    "early_june": 25225,
+    "late_june": 18686,
+    "early_july": 24577,
+    "final": 5534
+  },
+  "eligible_configurations": 3,
+  "selected": {
+    "shrinkage": 1.0,
+    "minimum_probability_edge": 0.02,
+    "maximum_positions_per_game": 2,
+    "april": {
+      "trades": 346,
+      "games": 245,
+      "pnl": 219.99393460550186,
+      "roi": 0.06167080188423566,
+      "win_rate": 0.6040462427745664,
+      "pnl_without_top_4_games": 78.12456262482553,
+      "profitable_day_fraction": 0.5333333333333333,
+      "worst_day_pnl": -33.475610823074426
+    },
+    "may": {
+      "trades": 339,
+      "games": 238,
+      "pnl": 275.2085534180622,
+      "roi": 0.07885473741731899,
+      "win_rate": 0.6253687315634219,
+      "pnl_without_top_4_games": 44.18958989116766,
+      "profitable_day_fraction": 0.5161290322580645,
+      "worst_day_pnl": -51.775145083749194
+    },
+    "early_june": {
+      "trades": 170,
+      "games": 119,
+      "pnl": 9.583213573470136,
+      "roi": 0.0054825444511971905,
+      "win_rate": 0.6058823529411764,
+      "pnl_without_top_4_games": -90.57871224475548,
+      "profitable_day_fraction": 0.5625,
+      "worst_day_pnl": -32.731245651372234
+    },
+    "late_june": {
+      "trades": 121,
+      "games": 90,
+      "pnl": 103.48178212482293,
+      "roi": 0.08305518895357954,
+      "win_rate": 0.6528925619834711,
+      "pnl_without_top_4_games": 11.670219732182574,
+      "profitable_day_fraction": 0.6363636363636364,
+      "worst_day_pnl": -33.582156948986224
+    },
+    "early_july": {
+      "trades": 129,
+      "games": 97,
+      "pnl": 146.49868737653307,
+      "roi": 0.11044168579739842,
+      "win_rate": 0.6744186046511628,
+      "pnl_without_top_4_games": 21.759916278350204,
+      "profitable_day_fraction": 0.6153846153846154,
+      "worst_day_pnl": -10.960336635292686
+    },
+    "tuning_total_trades": 1105,
+    "tuning_total_pnl": 754.7661710983901,
+    "profitable_folds": 5,
+    "robust_folds": 4
+  },
+  "final": {
+    "trades": 29,
+    "games": 22,
+    "pnl": -6.774726137768245,
+    "roi": -0.0227500122158845,
+    "win_rate": 0.6551724137931034,
+    "pnl_without_top_4_games": -37.92109632059962,
+    "profitable_day_fraction": 0.3333333333333333,
+    "worst_day_pnl": -19.282397910647134
+  },
+  "grid": [
+    {
+      "shrinkage": 0.25,
+      "minimum_probability_edge": 0.01,
+      "maximum_positions_per_game": 1,
+      "april": {
+        "trades": 1,
+        "games": 1,
+        "pnl": 18.111428571428572,
+        "roi": 1.7314941272876263,
+        "win_rate": 1.0,
+        "pnl_without_top_4_games": 0.0,
+        "profitable_day_fraction": 1.0,
+        "worst_day_pnl": 18.111428571428572
+      },
+      "may": {
+        "trades": 9,
+        "games": 9,
+        "pnl": 36.13141977405559,
+        "roi": 0.39115968143396757,
+        "win_rate": 0.8888888888888888,
+        "pnl_without_top_4_games": 2.5160270715200284,
+        "profitable_day_fraction": 0.8888888888888888,
+        "worst_day_pnl": -10.41
+      },
+      "early_june": {
+        "trades": 9,
+        "games": 9,
+        "pnl": -7.260533083501421,
+        "roi": -0.0784922495513667,
+        "win_rate": 0.5555555555555556,
+        "pnl_without_top_4_games": -38.611772151898734,
+        "profitable_day_fraction": 0.5555555555555556,
+        "worst_day_pnl": -10.46
+      },
+      "late_june": {
+        "trades": 1,
+        "games": 1,
+        "pnl": -10.31,
+        "roi": -1.0,
+        "win_rate": 0.0,
+        "pnl_without_top_4_games": 0.0,
+        "profitable_day_fraction": 0.0,
+        "worst_day_pnl": -10.31
+      },
+      "early_july": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "tuning_total_trades": 20,
+      "tuning_total_pnl": 36.67231526198274,
+      "profitable_folds": 2,
+      "robust_folds": 1
+    },
+    {
+      "shrinkage": 0.25,
+      "minimum_probability_edge": 0.01,
+      "maximum_positions_per_game": 2,
+      "april": {
+        "trades": 1,
+        "games": 1,
+        "pnl": 18.111428571428572,
+        "roi": 1.7314941272876263,
+        "win_rate": 1.0,
+        "pnl_without_top_4_games": 0.0,
+        "profitable_day_fraction": 1.0,
+        "worst_day_pnl": 18.111428571428572
+      },
+      "may": {
+        "trades": 9,
+        "games": 9,
+        "pnl": 36.13141977405559,
+        "roi": 0.39115968143396757,
+        "win_rate": 0.8888888888888888,
+        "pnl_without_top_4_games": 2.5160270715200284,
+        "profitable_day_fraction": 0.8888888888888888,
+        "worst_day_pnl": -10.41
+      },
+      "early_june": {
+        "trades": 9,
+        "games": 9,
+        "pnl": -7.260533083501421,
+        "roi": -0.0784922495513667,
+        "win_rate": 0.5555555555555556,
+        "pnl_without_top_4_games": -38.611772151898734,
+        "profitable_day_fraction": 0.5555555555555556,
+        "worst_day_pnl": -10.46
+      },
+      "late_june": {
+        "trades": 1,
+        "games": 1,
+        "pnl": -10.31,
+        "roi": -1.0,
+        "win_rate": 0.0,
+        "pnl_without_top_4_games": 0.0,
+        "profitable_day_fraction": 0.0,
+        "worst_day_pnl": -10.31
+      },
+      "early_july": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "tuning_total_trades": 20,
+      "tuning_total_pnl": 36.67231526198274,
+      "profitable_folds": 2,
+      "robust_folds": 1
+    },
+    {
+      "shrinkage": 0.25,
+      "minimum_probability_edge": 0.015,
+      "maximum_positions_per_game": 1,
+      "april": {
+        "trades": 1,
+        "games": 1,
+        "pnl": 18.111428571428572,
+        "roi": 1.7314941272876263,
+        "win_rate": 1.0,
+        "pnl_without_top_4_games": 0.0,
+        "profitable_day_fraction": 1.0,
+        "worst_day_pnl": 18.111428571428572
+      },
+      "may": {
+        "trades": 6,
+        "games": 6,
+        "pnl": 26.878692501328317,
+        "roi": 0.43457869848550224,
+        "win_rate": 0.8333333333333334,
+        "pnl_without_top_4_games": -6.535492957746477,
+        "profitable_day_fraction": 0.8333333333333334,
+        "worst_day_pnl": -10.41
+      },
+      "early_june": {
+        "trades": 7,
+        "games": 7,
+        "pnl": 0.39123906839731326,
+        "roi": 0.005419574295571591,
+        "win_rate": 0.5714285714285714,
+        "pnl_without_top_4_games": -30.96,
+        "profitable_day_fraction": 0.5714285714285714,
+        "worst_day_pnl": -10.46
+      },
+      "late_june": {
+        "trades": 1,
+        "games": 1,
+        "pnl": -10.31,
+        "roi": -1.0,
+        "win_rate": 0.0,
+        "pnl_without_top_4_games": 0.0,
+        "profitable_day_fraction": 0.0,
+        "worst_day_pnl": -10.31
+      },
+      "early_july": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "tuning_total_trades": 15,
+      "tuning_total_pnl": 35.0713601411542,
+      "profitable_folds": 3,
+      "robust_folds": 0
+    },
+    {
+      "shrinkage": 0.25,
+      "minimum_probability_edge": 0.015,
+      "maximum_positions_per_game": 2,
+      "april": {
+        "trades": 1,
+        "games": 1,
+        "pnl": 18.111428571428572,
+        "roi": 1.7314941272876263,
+        "win_rate": 1.0,
+        "pnl_without_top_4_games": 0.0,
+        "profitable_day_fraction": 1.0,
+        "worst_day_pnl": 18.111428571428572
+      },
+      "may": {
+        "trades": 6,
+        "games": 6,
+        "pnl": 26.878692501328317,
+        "roi": 0.43457869848550224,
+        "win_rate": 0.8333333333333334,
+        "pnl_without_top_4_games": -6.535492957746477,
+        "profitable_day_fraction": 0.8333333333333334,
+        "worst_day_pnl": -10.41
+      },
+      "early_june": {
+        "trades": 7,
+        "games": 7,
+        "pnl": 0.39123906839731326,
+        "roi": 0.005419574295571591,
+        "win_rate": 0.5714285714285714,
+        "pnl_without_top_4_games": -30.96,
+        "profitable_day_fraction": 0.5714285714285714,
+        "worst_day_pnl": -10.46
+      },
+      "late_june": {
+        "trades": 1,
+        "games": 1,
+        "pnl": -10.31,
+        "roi": -1.0,
+        "win_rate": 0.0,
+        "pnl_without_top_4_games": 0.0,
+        "profitable_day_fraction": 0.0,
+        "worst_day_pnl": -10.31
+      },
+      "early_july": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "tuning_total_trades": 15,
+      "tuning_total_pnl": 35.0713601411542,
+      "profitable_folds": 3,
+      "robust_folds": 0
+    },
+    {
+      "shrinkage": 0.25,
+      "minimum_probability_edge": 0.02,
+      "maximum_positions_per_game": 1,
+      "april": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "may": {
+        "trades": 3,
+        "games": 3,
+        "pnl": 28.502670307559644,
+        "roi": 0.9197376672332895,
+        "win_rate": 1.0,
+        "pnl_without_top_4_games": 0.0,
+        "profitable_day_fraction": 1.0,
+        "worst_day_pnl": 3.874507042253522
+      },
+      "early_june": {
+        "trades": 1,
+        "games": 1,
+        "pnl": 6.386666666666668,
+        "roi": 0.6212710765239949,
+        "win_rate": 1.0,
+        "pnl_without_top_4_games": 0.0,
+        "profitable_day_fraction": 1.0,
+        "worst_day_pnl": 6.386666666666668
+      },
+      "late_june": {
+        "trades": 1,
+        "games": 1,
+        "pnl": -10.31,
+        "roi": -1.0,
+        "win_rate": 0.0,
+        "pnl_without_top_4_games": 0.0,
+        "profitable_day_fraction": 0.0,
+        "worst_day_pnl": -10.31
+      },
+      "early_july": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "tuning_total_trades": 5,
+      "tuning_total_pnl": 24.57933697422631,
+      "profitable_folds": 2,
+      "robust_folds": 0
+    },
+    {
+      "shrinkage": 0.25,
+      "minimum_probability_edge": 0.02,
+      "maximum_positions_per_game": 2,
+      "april": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "may": {
+        "trades": 3,
+        "games": 3,
+        "pnl": 28.502670307559644,
+        "roi": 0.9197376672332895,
+        "win_rate": 1.0,
+        "pnl_without_top_4_games": 0.0,
+        "profitable_day_fraction": 1.0,
+        "worst_day_pnl": 3.874507042253522
+      },
+      "early_june": {
+        "trades": 1,
+        "games": 1,
+        "pnl": 6.386666666666668,
+        "roi": 0.6212710765239949,
+        "win_rate": 1.0,
+        "pnl_without_top_4_games": 0.0,
+        "profitable_day_fraction": 1.0,
+        "worst_day_pnl": 6.386666666666668
+      },
+      "late_june": {
+        "trades": 1,
+        "games": 1,
+        "pnl": -10.31,
+        "roi": -1.0,
+        "win_rate": 0.0,
+        "pnl_without_top_4_games": 0.0,
+        "profitable_day_fraction": 0.0,
+        "worst_day_pnl": -10.31
+      },
+      "early_july": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "tuning_total_trades": 5,
+      "tuning_total_pnl": 24.57933697422631,
+      "profitable_folds": 2,
+      "robust_folds": 0
+    },
+    {
+      "shrinkage": 0.25,
+      "minimum_probability_edge": 0.025,
+      "maximum_positions_per_game": 1,
+      "april": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "may": {
+        "trades": 2,
+        "games": 2,
+        "pnl": 28.989927971188475,
+        "roi": 1.3917392208923898,
+        "win_rate": 1.0,
+        "pnl_without_top_4_games": 0.0,
+        "profitable_day_fraction": 1.0,
+        "worst_day_pnl": 10.048163265306123
+      },
+      "early_june": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "late_june": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "early_july": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "tuning_total_trades": 2,
+      "tuning_total_pnl": 28.989927971188475,
+      "profitable_folds": 1,
+      "robust_folds": 0
+    },
+    {
+      "shrinkage": 0.25,
+      "minimum_probability_edge": 0.025,
+      "maximum_positions_per_game": 2,
+      "april": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "may": {
+        "trades": 2,
+        "games": 2,
+        "pnl": 28.989927971188475,
+        "roi": 1.3917392208923898,
+        "win_rate": 1.0,
+        "pnl_without_top_4_games": 0.0,
+        "profitable_day_fraction": 1.0,
+        "worst_day_pnl": 10.048163265306123
+      },
+      "early_june": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "late_june": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "early_july": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "tuning_total_trades": 2,
+      "tuning_total_pnl": 28.989927971188475,
+      "profitable_folds": 1,
+      "robust_folds": 0
+    },
+    {
+      "shrinkage": 0.25,
+      "minimum_probability_edge": 0.03,
+      "maximum_positions_per_game": 1,
+      "april": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "may": {
+        "trades": 2,
+        "games": 2,
+        "pnl": 28.989927971188475,
+        "roi": 1.3917392208923898,
+        "win_rate": 1.0,
+        "pnl_without_top_4_games": 0.0,
+        "profitable_day_fraction": 1.0,
+        "worst_day_pnl": 10.048163265306123
+      },
+      "early_june": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "late_june": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "early_july": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "tuning_total_trades": 2,
+      "tuning_total_pnl": 28.989927971188475,
+      "profitable_folds": 1,
+      "robust_folds": 0
+    },
+    {
+      "shrinkage": 0.25,
+      "minimum_probability_edge": 0.03,
+      "maximum_positions_per_game": 2,
+      "april": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "may": {
+        "trades": 2,
+        "games": 2,
+        "pnl": 28.989927971188475,
+        "roi": 1.3917392208923898,
+        "win_rate": 1.0,
+        "pnl_without_top_4_games": 0.0,
+        "profitable_day_fraction": 1.0,
+        "worst_day_pnl": 10.048163265306123
+      },
+      "early_june": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "late_june": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "early_july": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "tuning_total_trades": 2,
+      "tuning_total_pnl": 28.989927971188475,
+      "profitable_folds": 1,
+      "robust_folds": 0
+    },
+    {
+      "shrinkage": 0.25,
+      "minimum_probability_edge": 0.04,
+      "maximum_positions_per_game": 1,
+      "april": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "may": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "early_june": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "late_june": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "early_july": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "tuning_total_trades": 0,
+      "tuning_total_pnl": 0.0,
+      "profitable_folds": 0,
+      "robust_folds": 0
+    },
+    {
+      "shrinkage": 0.25,
+      "minimum_probability_edge": 0.04,
+      "maximum_positions_per_game": 2,
+      "april": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "may": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "early_june": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "late_june": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "early_july": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "tuning_total_trades": 0,
+      "tuning_total_pnl": 0.0,
+      "profitable_folds": 0,
+      "robust_folds": 0
+    },
+    {
+      "shrinkage": 0.5,
+      "minimum_probability_edge": 0.01,
+      "maximum_positions_per_game": 1,
+      "april": {
+        "trades": 143,
+        "games": 143,
+        "pnl": -71.07042706515227,
+        "roi": -0.048330461584859846,
+        "win_rate": 0.5874125874125874,
+        "pnl_without_top_4_games": -171.80126518194965,
+        "profitable_day_fraction": 0.5,
+        "worst_day_pnl": -39.54646193405591
+      },
+      "may": {
+        "trades": 123,
+        "games": 123,
+        "pnl": 56.323376529093366,
+        "roi": 0.044645108934109105,
+        "win_rate": 0.6991869918699187,
+        "pnl_without_top_4_games": -3.9583997911908426,
+        "profitable_day_fraction": 0.6333333333333333,
+        "worst_day_pnl": -39.364320987654324
+      },
+      "early_june": {
+        "trades": 56,
+        "games": 56,
+        "pnl": -140.3914088159403,
+        "roi": -0.24431193236798737,
+        "win_rate": 0.5,
+        "pnl_without_top_4_games": -196.73392315500928,
+        "profitable_day_fraction": 0.3125,
+        "worst_day_pnl": -29.292704051737232
+      },
+      "late_june": {
+        "trades": 40,
+        "games": 40,
+        "pnl": -45.1896619392377,
+        "roi": -0.11002815110232937,
+        "win_rate": 0.625,
+        "pnl_without_top_4_games": -79.21279955129529,
+        "profitable_day_fraction": 0.2727272727272727,
+        "worst_day_pnl": -18.366856981616895
+      },
+      "early_july": {
+        "trades": 46,
+        "games": 46,
+        "pnl": -53.45617730334064,
+        "roi": -0.11325221351950307,
+        "win_rate": 0.6086956521739131,
+        "pnl_without_top_4_games": -105.89379635095969,
+        "profitable_day_fraction": 0.38461538461538464,
+        "worst_day_pnl": -15.634797178130514
+      },
+      "tuning_total_trades": 408,
+      "tuning_total_pnl": -253.78429859457756,
+      "profitable_folds": 1,
+      "robust_folds": 0
+    },
+    {
+      "shrinkage": 0.5,
+      "minimum_probability_edge": 0.01,
+      "maximum_positions_per_game": 2,
+      "april": {
+        "trades": 172,
+        "games": 143,
+        "pnl": 19.52583196534042,
+        "roi": 0.011036344604907454,
+        "win_rate": 0.6104651162790697,
+        "pnl_without_top_4_games": -96.56921667777276,
+        "profitable_day_fraction": 0.5666666666666667,
+        "worst_day_pnl": -31.09
+      },
+      "may": {
+        "trades": 145,
+        "games": 123,
+        "pnl": 223.42959872365282,
+        "roi": 0.1501865984107152,
+        "win_rate": 0.7103448275862069,
+        "pnl_without_top_4_games": 55.14092344866481,
+        "profitable_day_fraction": 0.6666666666666666,
+        "worst_day_pnl": -35.90538461538462
+      },
+      "early_june": {
+        "trades": 66,
+        "games": 56,
+        "pnl": -73.45463465370823,
+        "roi": -0.10850180158304881,
+        "win_rate": 0.5757575757575758,
+        "pnl_without_top_4_games": -141.44597252218895,
+        "profitable_day_fraction": 0.375,
+        "worst_day_pnl": -28.744878048780485
+      },
+      "late_june": {
+        "trades": 48,
+        "games": 40,
+        "pnl": -15.079638722649479,
+        "roi": -0.030571999437708015,
+        "win_rate": 0.6458333333333334,
+        "pnl_without_top_4_games": -51.339723106950935,
+        "profitable_day_fraction": 0.45454545454545453,
+        "worst_day_pnl": -14.054285714285715
+      },
+      "early_july": {
+        "trades": 48,
+        "games": 46,
+        "pnl": -61.09794945523936,
+        "roi": -0.1241046280905108,
+        "win_rate": 0.6041666666666666,
+        "pnl_without_top_4_games": -113.53556850285841,
+        "profitable_day_fraction": 0.38461538461538464,
+        "worst_day_pnl": -19.50411764705882
+      },
+      "tuning_total_trades": 479,
+      "tuning_total_pnl": 93.32320785739617,
+      "profitable_folds": 2,
+      "robust_folds": 1
+    },
+    {
+      "shrinkage": 0.5,
+      "minimum_probability_edge": 0.015,
+      "maximum_positions_per_game": 1,
+      "april": {
+        "trades": 125,
+        "games": 125,
+        "pnl": -102.45613524796303,
+        "roi": -0.07959736419767476,
+        "win_rate": 0.552,
+        "pnl_without_top_4_games": -173.4224434502305,
+        "profitable_day_fraction": 0.5,
+        "worst_day_pnl": -39.54646193405591
+      },
+      "may": {
+        "trades": 102,
+        "games": 102,
+        "pnl": 49.51050663102055,
+        "roi": 0.04723203334257473,
+        "win_rate": 0.6666666666666666,
+        "pnl_without_top_4_games": -10.771269689263661,
+        "profitable_day_fraction": 0.6333333333333333,
+        "worst_day_pnl": -41.57
+      },
+      "early_june": {
+        "trades": 47,
+        "games": 47,
+        "pnl": -136.39050355238032,
+        "roi": -0.2824872696913556,
+        "win_rate": 0.44680851063829785,
+        "pnl_without_top_4_games": -192.73301789144926,
+        "profitable_day_fraction": 0.3125,
+        "worst_day_pnl": -30.81
+      },
+      "late_june": {
+        "trades": 31,
+        "games": 31,
+        "pnl": -44.09275833938447,
+        "roi": -0.13817416671174348,
+        "win_rate": 0.5483870967741935,
+        "pnl_without_top_4_games": -88.57948035551826,
+        "profitable_day_fraction": 0.2727272727272727,
+        "worst_day_pnl": -20.490000000000002
+      },
+      "early_july": {
+        "trades": 35,
+        "games": 35,
+        "pnl": -52.13119007327778,
+        "roi": -0.1447927732287462,
+        "win_rate": 0.5428571428571428,
+        "pnl_without_top_4_games": -104.56880912089684,
+        "profitable_day_fraction": 0.38461538461538464,
+        "worst_day_pnl": -20.63
+      },
+      "tuning_total_trades": 340,
+      "tuning_total_pnl": -285.56008058198506,
+      "profitable_folds": 1,
+      "robust_folds": 0
+    },
+    {
+      "shrinkage": 0.5,
+      "minimum_probability_edge": 0.015,
+      "maximum_positions_per_game": 2,
+      "april": {
+        "trades": 145,
+        "games": 125,
+        "pnl": -48.635776980891606,
+        "roi": -0.03256016989856974,
+        "win_rate": 0.5724137931034483,
+        "pnl_without_top_4_games": -130.0654185164924,
+        "profitable_day_fraction": 0.5666666666666667,
+        "worst_day_pnl": -30.854697228173563
+      },
+      "may": {
+        "trades": 117,
+        "games": 102,
+        "pnl": 98.10396145546738,
+        "roi": 0.08159012097094757,
+        "win_rate": 0.6837606837606838,
+        "pnl_without_top_4_games": 37.822185135183176,
+        "profitable_day_fraction": 0.7,
+        "worst_day_pnl": -38.061369863013695
+      },
+      "early_june": {
+        "trades": 53,
+        "games": 47,
+        "pnl": -107.9548157377747,
+        "roi": -0.19838071178245192,
+        "win_rate": 0.5094339622641509,
+        "pnl_without_top_4_games": -164.29733007684365,
+        "profitable_day_fraction": 0.375,
+        "worst_day_pnl": -30.81
+      },
+      "late_june": {
+        "trades": 36,
+        "games": 31,
+        "pnl": -21.384015023386482,
+        "roi": -0.05771196670549343,
+        "win_rate": 0.5833333333333334,
+        "pnl_without_top_4_games": -66.03260791619644,
+        "profitable_day_fraction": 0.36363636363636365,
+        "worst_day_pnl": -20.490000000000002
+      },
+      "early_july": {
+        "trades": 36,
+        "games": 35,
+        "pnl": -62.28119007327779,
+        "roi": -0.1682411466362619,
+        "win_rate": 0.5277777777777778,
+        "pnl_without_top_4_games": -114.71880912089685,
+        "profitable_day_fraction": 0.3076923076923077,
+        "worst_day_pnl": -20.63
+      },
+      "tuning_total_trades": 387,
+      "tuning_total_pnl": -142.15183635986318,
+      "profitable_folds": 1,
+      "robust_folds": 1
+    },
+    {
+      "shrinkage": 0.5,
+      "minimum_probability_edge": 0.02,
+      "maximum_positions_per_game": 1,
+      "april": {
+        "trades": 53,
+        "games": 53,
+        "pnl": -13.452536426151019,
+        "roi": -0.024595550646587472,
+        "win_rate": 0.5471698113207547,
+        "pnl_without_top_4_games": -67.3924602139221,
+        "profitable_day_fraction": 0.6086956521739131,
+        "worst_day_pnl": -30.87
+      },
+      "may": {
+        "trades": 51,
+        "games": 51,
+        "pnl": 66.82181196759852,
+        "roi": 0.12722875034290765,
+        "win_rate": 0.6862745098039216,
+        "pnl_without_top_4_games": 7.370371781768085,
+        "profitable_day_fraction": 0.7083333333333334,
+        "worst_day_pnl": -31.2
+      },
+      "early_june": {
+        "trades": 26,
+        "games": 26,
+        "pnl": -75.12008457850624,
+        "roi": -0.2810538932150039,
+        "win_rate": 0.46153846153846156,
+        "pnl_without_top_4_games": -112.26048663832006,
+        "profitable_day_fraction": 0.4,
+        "worst_day_pnl": -26.985492957746477
+      },
+      "late_june": {
+        "trades": 12,
+        "games": 12,
+        "pnl": -10.092344320565532,
+        "roi": -0.08178561037735439,
+        "win_rate": 0.5833333333333334,
+        "pnl_without_top_4_games": -40.31313617576916,
+        "profitable_day_fraction": 0.6666666666666666,
+        "worst_day_pnl": -16.417246376811594
+      },
+      "early_july": {
+        "trades": 20,
+        "games": 20,
+        "pnl": -8.586409985760907,
+        "roi": -0.04158470547152707,
+        "win_rate": 0.55,
+        "pnl_without_top_4_games": -61.02402903337997,
+        "profitable_day_fraction": 0.5,
+        "worst_day_pnl": -10.36
+      },
+      "tuning_total_trades": 162,
+      "tuning_total_pnl": -40.429563343385176,
+      "profitable_folds": 1,
+      "robust_folds": 1
+    },
+    {
+      "shrinkage": 0.5,
+      "minimum_probability_edge": 0.02,
+      "maximum_positions_per_game": 2,
+      "april": {
+        "trades": 58,
+        "games": 53,
+        "pnl": 26.023872950635685,
+        "roi": 0.04346802677618748,
+        "win_rate": 0.5689655172413793,
+        "pnl_without_top_4_games": -29.160253735686133,
+        "profitable_day_fraction": 0.6086956521739131,
+        "worst_day_pnl": -22.33207547169812
+      },
+      "may": {
+        "trades": 54,
+        "games": 51,
+        "pnl": 48.66181196759851,
+        "roi": 0.08754171293215772,
+        "win_rate": 0.6666666666666666,
+        "pnl_without_top_4_games": -10.789628218231925,
+        "profitable_day_fraction": 0.7083333333333334,
+        "worst_day_pnl": -31.2
+      },
+      "early_june": {
+        "trades": 28,
+        "games": 26,
+        "pnl": -63.76514706319139,
+        "roi": -0.22157602009587676,
+        "win_rate": 0.5,
+        "pnl_without_top_4_games": -100.90554912300522,
+        "profitable_day_fraction": 0.4666666666666667,
+        "worst_day_pnl": -26.985492957746477
+      },
+      "late_june": {
+        "trades": 12,
+        "games": 12,
+        "pnl": -10.092344320565532,
+        "roi": -0.08178561037735439,
+        "win_rate": 0.5833333333333334,
+        "pnl_without_top_4_games": -40.31313617576916,
+        "profitable_day_fraction": 0.6666666666666666,
+        "worst_day_pnl": -16.417246376811594
+      },
+      "early_july": {
+        "trades": 20,
+        "games": 20,
+        "pnl": -8.586409985760907,
+        "roi": -0.04158470547152707,
+        "win_rate": 0.55,
+        "pnl_without_top_4_games": -61.02402903337997,
+        "profitable_day_fraction": 0.5,
+        "worst_day_pnl": -10.36
+      },
+      "tuning_total_trades": 172,
+      "tuning_total_pnl": -7.758216451283637,
+      "profitable_folds": 2,
+      "robust_folds": 0
+    },
+    {
+      "shrinkage": 0.5,
+      "minimum_probability_edge": 0.025,
+      "maximum_positions_per_game": 1,
+      "april": {
+        "trades": 9,
+        "games": 9,
+        "pnl": 7.869268947015431,
+        "roi": 0.08450675415609354,
+        "win_rate": 0.5555555555555556,
+        "pnl_without_top_4_games": -37.55549295774648,
+        "profitable_day_fraction": 0.5,
+        "worst_day_pnl": -10.47
+      },
+      "may": {
+        "trades": 21,
+        "games": 21,
+        "pnl": 11.052315140365934,
+        "roi": 0.05111369902587954,
+        "win_rate": 0.6666666666666666,
+        "pnl_without_top_4_games": -28.151033310125378,
+        "profitable_day_fraction": 0.6,
+        "worst_day_pnl": -10.49
+      },
+      "early_june": {
+        "trades": 16,
+        "games": 16,
+        "pnl": -43.13401441709721,
+        "roi": -0.2611808320744609,
+        "win_rate": 0.4375,
+        "pnl_without_top_4_games": -80.6238224866944,
+        "profitable_day_fraction": 0.45454545454545453,
+        "worst_day_pnl": -20.98
+      },
+      "late_june": {
+        "trades": 2,
+        "games": 2,
+        "pnl": -20.62,
+        "roi": -1.0,
+        "win_rate": 0.0,
+        "pnl_without_top_4_games": 0.0,
+        "profitable_day_fraction": 0.0,
+        "worst_day_pnl": -10.31
+      },
+      "early_july": {
+        "trades": 9,
+        "games": 9,
+        "pnl": -16.645103056147832,
+        "roi": -0.17921084255111794,
+        "win_rate": 0.4444444444444444,
+        "pnl_without_top_4_games": -51.58,
+        "profitable_day_fraction": 0.5,
+        "worst_day_pnl": -10.38
+      },
+      "tuning_total_trades": 57,
+      "tuning_total_pnl": -61.47753338586368,
+      "profitable_folds": 2,
+      "robust_folds": 0
+    },
+    {
+      "shrinkage": 0.5,
+      "minimum_probability_edge": 0.025,
+      "maximum_positions_per_game": 2,
+      "april": {
+        "trades": 9,
+        "games": 9,
+        "pnl": 7.869268947015431,
+        "roi": 0.08450675415609354,
+        "win_rate": 0.5555555555555556,
+        "pnl_without_top_4_games": -37.55549295774648,
+        "profitable_day_fraction": 0.5,
+        "worst_day_pnl": -10.47
+      },
+      "may": {
+        "trades": 21,
+        "games": 21,
+        "pnl": 11.052315140365934,
+        "roi": 0.05111369902587954,
+        "win_rate": 0.6666666666666666,
+        "pnl_without_top_4_games": -28.151033310125378,
+        "profitable_day_fraction": 0.6,
+        "worst_day_pnl": -10.49
+      },
+      "early_june": {
+        "trades": 16,
+        "games": 16,
+        "pnl": -43.13401441709721,
+        "roi": -0.2611808320744609,
+        "win_rate": 0.4375,
+        "pnl_without_top_4_games": -80.6238224866944,
+        "profitable_day_fraction": 0.45454545454545453,
+        "worst_day_pnl": -20.98
+      },
+      "late_june": {
+        "trades": 2,
+        "games": 2,
+        "pnl": -20.62,
+        "roi": -1.0,
+        "win_rate": 0.0,
+        "pnl_without_top_4_games": 0.0,
+        "profitable_day_fraction": 0.0,
+        "worst_day_pnl": -10.31
+      },
+      "early_july": {
+        "trades": 9,
+        "games": 9,
+        "pnl": -16.645103056147832,
+        "roi": -0.17921084255111794,
+        "win_rate": 0.4444444444444444,
+        "pnl_without_top_4_games": -51.58,
+        "profitable_day_fraction": 0.5,
+        "worst_day_pnl": -10.38
+      },
+      "tuning_total_trades": 57,
+      "tuning_total_pnl": -61.47753338586368,
+      "profitable_folds": 2,
+      "robust_folds": 0
+    },
+    {
+      "shrinkage": 0.5,
+      "minimum_probability_edge": 0.03,
+      "maximum_positions_per_game": 1,
+      "april": {
+        "trades": 3,
+        "games": 3,
+        "pnl": 39.038095238095245,
+        "roi": 1.2512210012210014,
+        "win_rate": 1.0,
+        "pnl_without_top_4_games": 0.0,
+        "profitable_day_fraction": 1.0,
+        "worst_day_pnl": 10.463333333333336
+      },
+      "may": {
+        "trades": 9,
+        "games": 9,
+        "pnl": 30.571434136323475,
+        "roi": 0.32961114971777333,
+        "win_rate": 0.7777777777777778,
+        "pnl_without_top_4_games": -7.858263520517042,
+        "profitable_day_fraction": 0.75,
+        "worst_day_pnl": -10.41
+      },
+      "early_june": {
+        "trades": 8,
+        "games": 8,
+        "pnl": -10.401984975318538,
+        "roi": -0.12576453845143923,
+        "win_rate": 0.5,
+        "pnl_without_top_4_games": -41.480000000000004,
+        "profitable_day_fraction": 0.5714285714285714,
+        "worst_day_pnl": -20.98
+      },
+      "late_june": {
+        "trades": 2,
+        "games": 2,
+        "pnl": -20.62,
+        "roi": -1.0,
+        "win_rate": 0.0,
+        "pnl_without_top_4_games": 0.0,
+        "profitable_day_fraction": 0.0,
+        "worst_day_pnl": -10.31
+      },
+      "early_july": {
+        "trades": 3,
+        "games": 3,
+        "pnl": -7.27047619047619,
+        "roi": -0.23392780535637678,
+        "win_rate": 0.3333333333333333,
+        "pnl_without_top_4_games": 0.0,
+        "profitable_day_fraction": 0.5,
+        "worst_day_pnl": -10.35
+      },
+      "tuning_total_trades": 25,
+      "tuning_total_pnl": 31.317068208623994,
+      "profitable_folds": 2,
+      "robust_folds": 0
+    },
+    {
+      "shrinkage": 0.5,
+      "minimum_probability_edge": 0.03,
+      "maximum_positions_per_game": 2,
+      "april": {
+        "trades": 3,
+        "games": 3,
+        "pnl": 39.038095238095245,
+        "roi": 1.2512210012210014,
+        "win_rate": 1.0,
+        "pnl_without_top_4_games": 0.0,
+        "profitable_day_fraction": 1.0,
+        "worst_day_pnl": 10.463333333333336
+      },
+      "may": {
+        "trades": 9,
+        "games": 9,
+        "pnl": 30.571434136323475,
+        "roi": 0.32961114971777333,
+        "win_rate": 0.7777777777777778,
+        "pnl_without_top_4_games": -7.858263520517042,
+        "profitable_day_fraction": 0.75,
+        "worst_day_pnl": -10.41
+      },
+      "early_june": {
+        "trades": 8,
+        "games": 8,
+        "pnl": -10.401984975318538,
+        "roi": -0.12576453845143923,
+        "win_rate": 0.5,
+        "pnl_without_top_4_games": -41.480000000000004,
+        "profitable_day_fraction": 0.5714285714285714,
+        "worst_day_pnl": -20.98
+      },
+      "late_june": {
+        "trades": 2,
+        "games": 2,
+        "pnl": -20.62,
+        "roi": -1.0,
+        "win_rate": 0.0,
+        "pnl_without_top_4_games": 0.0,
+        "profitable_day_fraction": 0.0,
+        "worst_day_pnl": -10.31
+      },
+      "early_july": {
+        "trades": 3,
+        "games": 3,
+        "pnl": -7.27047619047619,
+        "roi": -0.23392780535637678,
+        "win_rate": 0.3333333333333333,
+        "pnl_without_top_4_games": 0.0,
+        "profitable_day_fraction": 0.5,
+        "worst_day_pnl": -10.35
+      },
+      "tuning_total_trades": 25,
+      "tuning_total_pnl": 31.317068208623994,
+      "profitable_folds": 2,
+      "robust_folds": 0
+    },
+    {
+      "shrinkage": 0.5,
+      "minimum_probability_edge": 0.04,
+      "maximum_positions_per_game": 1,
+      "april": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "may": {
+        "trades": 3,
+        "games": 3,
+        "pnl": 28.502670307559644,
+        "roi": 0.9197376672332895,
+        "win_rate": 1.0,
+        "pnl_without_top_4_games": 0.0,
+        "profitable_day_fraction": 1.0,
+        "worst_day_pnl": 3.874507042253522
+      },
+      "early_june": {
+        "trades": 1,
+        "games": 1,
+        "pnl": 6.386666666666668,
+        "roi": 0.6212710765239949,
+        "win_rate": 1.0,
+        "pnl_without_top_4_games": 0.0,
+        "profitable_day_fraction": 1.0,
+        "worst_day_pnl": 6.386666666666668
+      },
+      "late_june": {
+        "trades": 2,
+        "games": 2,
+        "pnl": -20.62,
+        "roi": -1.0,
+        "win_rate": 0.0,
+        "pnl_without_top_4_games": 0.0,
+        "profitable_day_fraction": 0.0,
+        "worst_day_pnl": -10.31
+      },
+      "early_july": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "tuning_total_trades": 6,
+      "tuning_total_pnl": 14.26933697422631,
+      "profitable_folds": 2,
+      "robust_folds": 0
+    },
+    {
+      "shrinkage": 0.5,
+      "minimum_probability_edge": 0.04,
+      "maximum_positions_per_game": 2,
+      "april": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "may": {
+        "trades": 3,
+        "games": 3,
+        "pnl": 28.502670307559644,
+        "roi": 0.9197376672332895,
+        "win_rate": 1.0,
+        "pnl_without_top_4_games": 0.0,
+        "profitable_day_fraction": 1.0,
+        "worst_day_pnl": 3.874507042253522
+      },
+      "early_june": {
+        "trades": 1,
+        "games": 1,
+        "pnl": 6.386666666666668,
+        "roi": 0.6212710765239949,
+        "win_rate": 1.0,
+        "pnl_without_top_4_games": 0.0,
+        "profitable_day_fraction": 1.0,
+        "worst_day_pnl": 6.386666666666668
+      },
+      "late_june": {
+        "trades": 2,
+        "games": 2,
+        "pnl": -20.62,
+        "roi": -1.0,
+        "win_rate": 0.0,
+        "pnl_without_top_4_games": 0.0,
+        "profitable_day_fraction": 0.0,
+        "worst_day_pnl": -10.31
+      },
+      "early_july": {
+        "trades": 0,
+        "pnl": 0.0,
+        "roi": 0.0
+      },
+      "tuning_total_trades": 6,
+      "tuning_total_pnl": 14.26933697422631,
+      "profitable_folds": 2,
+      "robust_folds": 0
+    },
+    {
+      "shrinkage": 0.75,
+      "minimum_probability_edge": 0.01,
+      "maximum_positions_per_game": 1,
+      "april": {
+        "trades": 245,
+        "games": 245,
+        "pnl": 143.60234605788784,
+        "roi": 0.056966295251122796,
+        "win_rate": 0.6204081632653061,
+        "pnl_without_top_4_games": -14.93130473576295,
+        "profitable_day_fraction": 0.5,
+        "worst_day_pnl": -62.364150675195454
+      },
+      "may": {
+        "trades": 251,
+        "games": 251,
+        "pnl": 27.02314539583275,
+        "roi": 0.010494832962768557,
+        "win_rate": 0.6573705179282868,
+        "pnl_without_top_4_games": -78.56590222321486,
+        "profitable_day_fraction": 0.5161290322580645,
+        "worst_day_pnl": -49.52152496626181
+      },
+      "early_june": {
+        "trades": 122,
+        "games": 122,
+        "pnl": -188.26490323221557,
+        "roi": -0.15038694371797034,
+        "win_rate": 0.5655737704918032,
+        "pnl_without_top_4_games": -253.05735070837974,
+        "profitable_day_fraction": 0.3125,
+        "worst_day_pnl": -45.349473499473504
+      },
+      "late_june": {
+        "trades": 83,
+        "games": 83,
+        "pnl": 65.2762631371764,
+        "roi": 0.07646993174618262,
+        "win_rate": 0.6506024096385542,
+        "pnl_without_top_4_games": -60.34386201926914,
+        "profitable_day_fraction": 0.6363636363636364,
+        "worst_day_pnl": -31.893439495568533
+      },
+      "early_july": {
+        "trades": 107,
+        "games": 107,
+        "pnl": 160.2773458767334,
+        "roi": 0.14621710870377808,
+        "win_rate": 0.7476635514018691,
+        "pnl_without_top_4_games": 47.75415909548208,
+        "profitable_day_fraction": 0.6153846153846154,
+        "worst_day_pnl": -29.1940228690136
+      },
+      "tuning_total_trades": 808,
+      "tuning_total_pnl": 207.9141972354148,
+      "profitable_folds": 4,
+      "robust_folds": 1
+    },
+    {
+      "shrinkage": 0.75,
+      "minimum_probability_edge": 0.01,
+      "maximum_positions_per_game": 2,
+      "april": {
+        "trades": 338,
+        "games": 245,
+        "pnl": 165.16220347892923,
+        "roi": 0.04745931227986982,
+        "win_rate": 0.6094674556213018,
+        "pnl_without_top_4_games": 8.503494410220156,
+        "profitable_day_fraction": 0.6333333333333333,
+        "worst_day_pnl": -58.52478766833348
+      },
+      "may": {
+        "trades": 343,
+        "games": 251,
+        "pnl": 209.20860727549504,
+        "roi": 0.0593797757385965,
+        "win_rate": 0.6472303206997084,
+        "pnl_without_top_4_games": -32.5925182656305,
+        "profitable_day_fraction": 0.5483870967741935,
+        "worst_day_pnl": -70.31908947455432
+      },
+      "early_june": {
+        "trades": 169,
+        "games": 122,
+        "pnl": 40.64480890185534,
+        "roi": 0.02344735002558788,
+        "win_rate": 0.6390532544378699,
+        "pnl_without_top_4_games": -111.50668274270085,
+        "profitable_day_fraction": 0.4375,
+        "worst_day_pnl": -41.18653976901929
+      },
+      "late_june": {
+        "trades": 108,
+        "games": 83,
+        "pnl": 58.398000627875696,
+        "roi": 0.0526037027679824,
+        "win_rate": 0.6481481481481481,
+        "pnl_without_top_4_games": -71.44240417920844,
+        "profitable_day_fraction": 0.6363636363636364,
+        "worst_day_pnl": -44.81442541106149
+      },
+      "early_july": {
+        "trades": 132,
+        "games": 107,
+        "pnl": 101.27455867964699,
+        "roi": 0.07487343630436488,
+        "win_rate": 0.7121212121212122,
+        "pnl_without_top_4_games": -21.892627077538776,
+        "profitable_day_fraction": 0.6153846153846154,
+        "worst_day_pnl": -39.4640228690136
+      },
+      "tuning_total_trades": 1090,
+      "tuning_total_pnl": 574.6881789638023,
+      "profitable_folds": 5,
+      "robust_folds": 1
+    },
+    {
+      "shrinkage": 0.75,
+      "minimum_probability_edge": 0.015,
+      "maximum_positions_per_game": 1,
+      "april": {
+        "trades": 224,
+        "games": 224,
+        "pnl": 132.9558649011611,
+        "roi": 0.05762450370183119,
+        "win_rate": 0.6026785714285714,
+        "pnl_without_top_4_games": -29.373507079515235,
+        "profitable_day_fraction": 0.5666666666666667,
+        "worst_day_pnl": -57.74428571428571
+      },
+      "may": {
+        "trades": 213,
+        "games": 213,
+        "pnl": 41.08983351648171,
+        "roi": 0.018761967031260186,
+        "win_rate": 0.6291079812206573,
+        "pnl_without_top_4_games": -51.422925104207955,
+        "profitable_day_fraction": 0.45161290322580644,
+        "worst_day_pnl": -39.384996011762325
+      },
+      "early_june": {
+        "trades": 107,
+        "games": 107,
+        "pnl": -186.38641768072702,
+        "roi": -0.16957323175246963,
+        "win_rate": 0.5327102803738317,
+        "pnl_without_top_4_games": -251.1788651568912,
+        "profitable_day_fraction": 0.1875,
+        "worst_day_pnl": -42.30322404371585
+      },
+      "late_june": {
+        "trades": 75,
+        "games": 75,
+        "pnl": 48.80760071731306,
+        "roi": 0.06328047908998309,
+        "win_rate": 0.6666666666666666,
+        "pnl_without_top_4_games": -34.160367576387394,
+        "profitable_day_fraction": 0.5454545454545454,
+        "worst_day_pnl": -30.788932453315013
+      },
+      "early_july": {
+        "trades": 90,
+        "games": 90,
+        "pnl": 147.99271221930235,
+        "roi": 0.1602363735199627,
+        "win_rate": 0.7222222222222222,
+        "pnl_without_top_4_games": 35.469525438051036,
+        "profitable_day_fraction": 0.6153846153846154,
+        "worst_day_pnl": -28.9740228690136
+      },
+      "tuning_total_trades": 709,
+      "tuning_total_pnl": 184.4595936735312,
+      "profitable_folds": 4,
+      "robust_folds": 1
+    },
+    {
+      "shrinkage": 0.75,
+      "minimum_probability_edge": 0.015,
+      "maximum_positions_per_game": 2,
+      "april": {
+        "trades": 301,
+        "games": 224,
+        "pnl": 163.6366759652632,
+        "roi": 0.052752841266062736,
+        "win_rate": 0.6013289036544851,
+        "pnl_without_top_4_games": 11.617303984586869,
+        "profitable_day_fraction": 0.6,
+        "worst_day_pnl": -41.21440901084639
+      },
+      "may": {
+        "trades": 290,
+        "games": 213,
+        "pnl": 268.00619050936706,
+        "roi": 0.08980206825113418,
+        "win_rate": 0.6310344827586207,
+        "pnl_without_top_4_games": 36.98722698247252,
+        "profitable_day_fraction": 0.6129032258064516,
+        "worst_day_pnl": -43.195843469389445
+      },
+      "early_june": {
+        "trades": 146,
+        "games": 107,
+        "pnl": 25.722488200827907,
+        "roi": 0.017145010765137334,
+        "win_rate": 0.6164383561643836,
+        "pnl_without_top_4_games": -74.19142174438183,
+        "profitable_day_fraction": 0.5,
+        "worst_day_pnl": -32.74124565137224
+      },
+      "late_june": {
+        "trades": 97,
+        "games": 75,
+        "pnl": 46.57006926099696,
+        "roi": 0.0467012999137546,
+        "win_rate": 0.6597938144329897,
+        "pnl_without_top_4_games": -45.61610477685639,
+        "profitable_day_fraction": 0.5454545454545454,
+        "worst_day_pnl": -37.28442541106149
+      },
+      "early_july": {
+        "trades": 108,
+        "games": 90,
+        "pnl": 98.9394604227621,
+        "roi": 0.0892576798855739,
+        "win_rate": 0.6851851851851852,
+        "pnl_without_top_4_games": -24.227725334423667,
+        "profitable_day_fraction": 0.5384615384615384,
+        "worst_day_pnl": -28.9740228690136
+      },
+      "tuning_total_trades": 942,
+      "tuning_total_pnl": 602.8748843592173,
+      "profitable_folds": 5,
+      "robust_folds": 2
+    },
+    {
+      "shrinkage": 0.75,
+      "minimum_probability_edge": 0.02,
+      "maximum_positions_per_game": 1,
+      "april": {
+        "trades": 171,
+        "games": 171,
+        "pnl": -131.14582121836736,
+        "roi": -0.07433727537601593,
+        "win_rate": 0.5263157894736842,
+        "pnl_without_top_4_games": -219.31041585909105,
+        "profitable_day_fraction": 0.4,
+        "worst_day_pnl": -44.252857142857145
+      },
+      "may": {
+        "trades": 154,
+        "games": 154,
+        "pnl": -5.056016588774311,
+        "roi": -0.003192171495804171,
+        "win_rate": 0.6168831168831169,
+        "pnl_without_top_4_games": -88.33541052816825,
+        "profitable_day_fraction": 0.5806451612903226,
+        "worst_day_pnl": -51.989999999999995
+      },
+      "early_june": {
+        "trades": 79,
+        "games": 79,
+        "pnl": -76.79742579792813,
+        "roi": -0.09458626457690704,
+        "win_rate": 0.5569620253164557,
+        "pnl_without_top_4_games": -139.1633080716577,
+        "profitable_day_fraction": 0.375,
+        "worst_day_pnl": -25.51172503075821
+      },
+      "late_june": {
+        "trades": 54,
+        "games": 54,
+        "pnl": -41.944557035718425,
+        "roi": -0.07544527850154403,
+        "win_rate": 0.6111111111111112,
+        "pnl_without_top_4_games": -79.88053437919264,
+        "profitable_day_fraction": 0.2727272727272727,
+        "worst_day_pnl": -28.786856981616893
+      },
+      "early_july": {
+        "trades": 54,
+        "games": 54,
+        "pnl": 37.949121203984056,
+        "roi": 0.06843104660268333,
+        "win_rate": 0.6851851851851852,
+        "pnl_without_top_4_games": -14.488497843635002,
+        "profitable_day_fraction": 0.5384615384615384,
+        "worst_day_pnl": -22.293954754922495
+      },
+      "tuning_total_trades": 512,
+      "tuning_total_pnl": -216.99469943680415,
+      "profitable_folds": 1,
+      "robust_folds": 0
+    },
+    {
+      "shrinkage": 0.75,
+      "minimum_probability_edge": 0.02,
+      "maximum_positions_per_game": 2,
+      "april": {
+        "trades": 220,
+        "games": 171,
+        "pnl": -14.33333997206788,
+        "roi": -0.0063161665757732,
+        "win_rate": 0.5636363636363636,
+        "pnl_without_top_4_games": -114.94561312816506,
+        "profitable_day_fraction": 0.5666666666666667,
+        "worst_day_pnl": -44.252857142857145
+      },
+      "may": {
+        "trades": 191,
+        "games": 154,
+        "pnl": 32.10567126993283,
+        "roi": 0.01633992817296542,
+        "win_rate": 0.6230366492146597,
+        "pnl_without_top_4_games": -76.70630720151213,
+        "profitable_day_fraction": 0.5483870967741935,
+        "worst_day_pnl": -48.4813698630137
+      },
+      "early_june": {
+        "trades": 92,
+        "games": 79,
+        "pnl": -24.0595625179841,
+        "roi": -0.025431059560058034,
+        "win_rate": 0.5760869565217391,
+        "pnl_without_top_4_games": -95.97298102359774,
+        "profitable_day_fraction": 0.3125,
+        "worst_day_pnl": -35.751725030758216
+      },
+      "late_june": {
+        "trades": 67,
+        "games": 54,
+        "pnl": -33.897045168774596,
+        "roi": -0.04914182082515381,
+        "win_rate": 0.6119402985074627,
+        "pnl_without_top_4_games": -76.65764267667427,
+        "profitable_day_fraction": 0.45454545454545453,
+        "worst_day_pnl": -26.074755606891244
+      },
+      "early_july": {
+        "trades": 59,
+        "games": 54,
+        "pnl": 16.423682607492836,
+        "roi": 0.027105812096669207,
+        "win_rate": 0.6610169491525424,
+        "pnl_without_top_4_games": -39.17112942258236,
+        "profitable_day_fraction": 0.5384615384615384,
+        "worst_day_pnl": -22.293954754922495
+      },
+      "tuning_total_trades": 629,
+      "tuning_total_pnl": -23.760593781400914,
+      "profitable_folds": 2,
+      "robust_folds": 0
+    },
+    {
+      "shrinkage": 0.75,
+      "minimum_probability_edge": 0.025,
+      "maximum_positions_per_game": 1,
+      "april": {
+        "trades": 123,
+        "games": 123,
+        "pnl": -129.0504938750148,
+        "roi": -0.10170425404688763,
+        "win_rate": 0.5121951219512195,
+        "pnl_without_top_4_games": -201.38280346328366,
+        "profitable_day_fraction": 0.43333333333333335,
+        "worst_day_pnl": -37.35549295774648
+      },
+      "may": {
+        "trades": 96,
+        "games": 96,
+        "pnl": 3.450647063875188,
+        "roi": 0.003492133611175957,
+        "win_rate": 0.6145833333333334,
+        "pnl_without_top_4_games": -56.83112925640902,
+        "profitable_day_fraction": 0.5862068965517241,
+        "worst_day_pnl": -46.425384615384615
+      },
+      "early_june": {
+        "trades": 47,
+        "games": 47,
+        "pnl": -100.03578291875894,
+        "roi": -0.20688212540587939,
+        "win_rate": 0.48936170212765956,
+        "pnl_without_top_4_games": -147.2455427435089,
+        "profitable_day_fraction": 0.3125,
+        "worst_day_pnl": -30.81
+      },
+      "late_june": {
+        "trades": 27,
+        "games": 27,
+        "pnl": -17.665774984420842,
+        "roi": -0.06361918389664667,
+        "win_rate": 0.5925925925925926,
+        "pnl_without_top_4_games": -58.348316209594174,
+        "profitable_day_fraction": 0.4,
+        "worst_day_pnl": -27.476486486486486
+      },
+      "early_july": {
+        "trades": 32,
+        "games": 32,
+        "pnl": -6.732276008531448,
+        "roi": -0.020420018831421784,
+        "win_rate": 0.59375,
+        "pnl_without_top_4_games": -59.16989505615051,
+        "profitable_day_fraction": 0.5833333333333334,
+        "worst_day_pnl": -20.63
+      },
+      "tuning_total_trades": 325,
+      "tuning_total_pnl": -250.03368072285085,
+      "profitable_folds": 1,
+      "robust_folds": 0
+    },
+    {
+      "shrinkage": 0.75,
+      "minimum_probability_edge": 0.025,
+      "maximum_positions_per_game": 2,
+      "april": {
+        "trades": 142,
+        "games": 123,
+        "pnl": -78.38075733398767,
+        "roi": -0.05350185823577154,
+        "win_rate": 0.5352112676056338,
+        "pnl_without_top_4_games": -169.05302048007485,
+        "profitable_day_fraction": 0.4666666666666667,
+        "worst_day_pnl": -39.69829866874979
+      },
+      "may": {
+        "trades": 110,
+        "games": 96,
+        "pnl": 54.669716115445425,
+        "roi": 0.04826751316874329,
+        "win_rate": 0.6272727272727273,
+        "pnl_without_top_4_games": -5.612060204838784,
+        "profitable_day_fraction": 0.6551724137931034,
+        "worst_day_pnl": -46.425384615384615
+      },
+      "early_june": {
+        "trades": 51,
+        "games": 47,
+        "pnl": -76.70837052242872,
+        "roi": -0.14622537700381003,
+        "win_rate": 0.5294117647058824,
+        "pnl_without_top_4_games": -123.9181303471787,
+        "profitable_day_fraction": 0.375,
+        "worst_day_pnl": -30.81
+      },
+      "late_june": {
+        "trades": 32,
+        "games": 27,
+        "pnl": 9.478115723867377,
+        "roi": 0.02879136003604914,
+        "win_rate": 0.625,
+        "pnl_without_top_4_games": -32.89566235412777,
+        "profitable_day_fraction": 0.5,
+        "worst_day_pnl": -21.36304386353567
+      },
+      "early_july": {
+        "trades": 34,
+        "games": 32,
+        "pnl": -27.342276008531453,
+        "roi": -0.07805388526557651,
+        "win_rate": 0.5588235294117647,
+        "pnl_without_top_4_games": -79.77989505615051,
+        "profitable_day_fraction": 0.5,
+        "worst_day_pnl": -20.63
+      },
+      "tuning_total_trades": 369,
+      "tuning_total_pnl": -118.28357202563505,
+      "profitable_folds": 2,
+      "robust_folds": 0
+    },
+    {
+      "shrinkage": 0.75,
+      "minimum_probability_edge": 0.03,
+      "maximum_positions_per_game": 1,
+      "april": {
+        "trades": 52,
+        "games": 52,
+        "pnl": -17.51825071186532,
+        "roi": -0.03263885139989439,
+        "win_rate": 0.5384615384615384,
+        "pnl_without_top_4_games": -71.45817449963641,
+        "profitable_day_fraction": 0.6086956521739131,
+        "worst_day_pnl": -24.513333333333332
+      },
+      "may": {
+        "trades": 50,
+        "games": 50,
+        "pnl": 65.19999768955236,
+        "roi": 0.12657981651663275,
+        "win_rate": 0.68,
+        "pnl_without_top_4_games": 5.748557503721926,
+        "profitable_day_fraction": 0.7083333333333334,
+        "worst_day_pnl": -31.2
+      },
+      "early_june": {
+        "trades": 27,
+        "games": 27,
+        "pnl": -72.13218984166414,
+        "roi": -0.2599826629722982,
+        "win_rate": 0.48148148148148145,
+        "pnl_without_top_4_games": -109.27259190147797,
+        "profitable_day_fraction": 0.4,
+        "worst_day_pnl": -26.985492957746477
+      },
+      "late_june": {
+        "trades": 14,
+        "games": 14,
+        "pnl": 15.694867891646686,
+        "roi": 0.10884097012237647,
+        "win_rate": 0.6428571428571429,
+        "pnl_without_top_4_games": -28.791854124487102,
+        "profitable_day_fraction": 0.6666666666666666,
+        "worst_day_pnl": -10.31
+      },
+      "early_july": {
+        "trades": 21,
+        "games": 21,
+        "pnl": -19.046409985760903,
+        "roi": -0.08779574991131606,
+        "win_rate": 0.5238095238095238,
+        "pnl_without_top_4_games": -71.48402903337995,
+        "profitable_day_fraction": 0.5,
+        "worst_day_pnl": -17.840476190476192
+      },
+      "tuning_total_trades": 164,
+      "tuning_total_pnl": -27.801984958091317,
+      "profitable_folds": 2,
+      "robust_folds": 1
+    },
+    {
+      "shrinkage": 0.75,
+      "minimum_probability_edge": 0.03,
+      "maximum_positions_per_game": 2,
+      "april": {
+        "trades": 55,
+        "games": 52,
+        "pnl": 23.650234136619513,
+        "roi": 0.04164433473018526,
+        "win_rate": 0.5636363636363636,
+        "pnl_without_top_4_games": -31.533892549702305,
+        "profitable_day_fraction": 0.6086956521739131,
+        "worst_day_pnl": -21.712156862745097
+      },
+      "may": {
+        "trades": 51,
+        "games": 50,
+        "pnl": 54.93999768955236,
+        "roi": 0.10457789604940013,
+        "win_rate": 0.6666666666666666,
+        "pnl_without_top_4_games": -4.511442496278079,
+        "profitable_day_fraction": 0.7083333333333334,
+        "worst_day_pnl": -31.2
+      },
+      "early_june": {
+        "trades": 29,
+        "games": 27,
+        "pnl": -60.7772523263493,
+        "roi": -0.2039847367892241,
+        "win_rate": 0.5172413793103449,
+        "pnl_without_top_4_games": -97.91765438616312,
+        "profitable_day_fraction": 0.4666666666666667,
+        "worst_day_pnl": -26.985492957746477
+      },
+      "late_june": {
+        "trades": 14,
+        "games": 14,
+        "pnl": 15.694867891646686,
+        "roi": 0.10884097012237647,
+        "win_rate": 0.6428571428571429,
+        "pnl_without_top_4_games": -28.791854124487102,
+        "profitable_day_fraction": 0.6666666666666666,
+        "worst_day_pnl": -10.31
+      },
+      "early_july": {
+        "trades": 21,
+        "games": 21,
+        "pnl": -19.046409985760903,
+        "roi": -0.08779574991131606,
+        "win_rate": 0.5238095238095238,
+        "pnl_without_top_4_games": -71.48402903337995,
+        "profitable_day_fraction": 0.5,
+        "worst_day_pnl": -17.840476190476192
+      },
+      "tuning_total_trades": 170,
+      "tuning_total_pnl": 14.461437405708354,
+      "profitable_folds": 3,
+      "robust_folds": 0
+    },
+    {
+      "shrinkage": 0.75,
+      "minimum_probability_edge": 0.04,
+      "maximum_positions_per_game": 1,
+      "april": {
+        "trades": 6,
+        "games": 6,
+        "pnl": 7.848095238095242,
+        "roi": 0.12579091582136948,
+        "win_rate": 0.5,
+        "pnl_without_top_4_games": -20.950000000000003,
+        "profitable_day_fraction": 0.4,
+        "worst_day_pnl": -10.47
+      },
+      "may": {
+        "trades": 17,
+        "games": 17,
+        "pnl": 41.884187531835735,
+        "roi": 0.2389422530197714,
+        "win_rate": 0.7647058823529411,
+        "pnl_without_top_4_games": 1.1416917945227212,
+        "profitable_day_fraction": 0.8181818181818182,
+        "worst_day_pnl": -10.49
+      },
+      "early_june": {
+        "trades": 12,
+        "games": 12,
+        "pnl": -33.71457715838665,
+        "roi": -0.2720233754912591,
+        "win_rate": 0.4166666666666667,
+        "pnl_without_top_4_games": -68.52549295774648,
+        "profitable_day_fraction": 0.4,
+        "worst_day_pnl": -20.98
+      },
+      "late_june": {
+        "trades": 2,
+        "games": 2,
+        "pnl": -20.62,
+        "roi": -1.0,
+        "win_rate": 0.0,
+        "pnl_without_top_4_games": 0.0,
+        "profitable_day_fraction": 0.0,
+        "worst_day_pnl": -10.31
+      },
+      "early_july": {
+        "trades": 7,
+        "games": 7,
+        "pnl": -10.950476190476184,
+        "roi": -0.15154270952776341,
+        "win_rate": 0.42857142857142855,
+        "pnl_without_top_4_games": -30.959999999999997,
+        "profitable_day_fraction": 0.6,
+        "worst_day_pnl": -10.35
+      },
+      "tuning_total_trades": 44,
+      "tuning_total_pnl": -15.552770578931861,
+      "profitable_folds": 2,
+      "robust_folds": 1
+    },
+    {
+      "shrinkage": 0.75,
+      "minimum_probability_edge": 0.04,
+      "maximum_positions_per_game": 2,
+      "april": {
+        "trades": 6,
+        "games": 6,
+        "pnl": 7.848095238095242,
+        "roi": 0.12579091582136948,
+        "win_rate": 0.5,
+        "pnl_without_top_4_games": -20.950000000000003,
+        "profitable_day_fraction": 0.4,
+        "worst_day_pnl": -10.47
+      },
+      "may": {
+        "trades": 17,
+        "games": 17,
+        "pnl": 41.884187531835735,
+        "roi": 0.2389422530197714,
+        "win_rate": 0.7647058823529411,
+        "pnl_without_top_4_games": 1.1416917945227212,
+        "profitable_day_fraction": 0.8181818181818182,
+        "worst_day_pnl": -10.49
+      },
+      "early_june": {
+        "trades": 12,
+        "games": 12,
+        "pnl": -33.71457715838665,
+        "roi": -0.2720233754912591,
+        "win_rate": 0.4166666666666667,
+        "pnl_without_top_4_games": -68.52549295774648,
+        "profitable_day_fraction": 0.4,
+        "worst_day_pnl": -20.98
+      },
+      "late_june": {
+        "trades": 2,
+        "games": 2,
+        "pnl": -20.62,
+        "roi": -1.0,
+        "win_rate": 0.0,
+        "pnl_without_top_4_games": 0.0,
+        "profitable_day_fraction": 0.0,
+        "worst_day_pnl": -10.31
+      },
+      "early_july": {
+        "trades": 7,
+        "games": 7,
+        "pnl": -10.950476190476184,
+        "roi": -0.15154270952776341,
+        "win_rate": 0.42857142857142855,
+        "pnl_without_top_4_games": -30.959999999999997,
+        "profitable_day_fraction": 0.6,
+        "worst_day_pnl": -10.35
+      },
+      "tuning_total_trades": 44,
+      "tuning_total_pnl": -15.552770578931861,
+      "profitable_folds": 2,
+      "robust_folds": 1
+    },
+    {
+      "shrinkage": 1.0,
+      "minimum_probability_edge": 0.01,
+      "maximum_positions_per_game": 1,
+      "april": {
+        "trades": 304,
+        "games": 304,
+        "pnl": 256.00512357262187,
+        "roi": 0.08187736026680677,
+        "win_rate": 0.631578947368421,
+        "pnl_without_top_4_games": 78.46385373135203,
+        "profitable_day_fraction": 0.6,
+        "worst_day_pnl": -57.173328173374614
+      },
+      "may": {
+        "trades": 316,
+        "games": 316,
+        "pnl": 96.02265413565948,
+        "roi": 0.029614136839208355,
+        "win_rate": 0.6708860759493671,
+        "pnl_without_top_4_games": -14.308298245292889,
+        "profitable_day_fraction": 0.4838709677419355,
+        "worst_day_pnl": -51.60702473996592
+      },
+      "early_june": {
+        "trades": 158,
+        "games": 158,
+        "pnl": -78.05023306159805,
+        "roi": -0.04811440965959265,
+        "win_rate": 0.6139240506329114,
+        "pnl_without_top_4_games": -169.7668989763285,
+        "profitable_day_fraction": 0.5,
+        "worst_day_pnl": -43.02702865327897
+      },
+      "late_june": {
+        "trades": 120,
+        "games": 120,
+        "pnl": 143.89236567188328,
+        "roi": 0.11653562718921504,
+        "win_rate": 0.6583333333333333,
+        "pnl_without_top_4_games": 0.8243129335465937,
+        "profitable_day_fraction": 0.5454545454545454,
+        "worst_day_pnl": -27.91015901415579
+      },
+      "early_july": {
+        "trades": 132,
+        "games": 132,
+        "pnl": 156.8595125746064,
+        "roi": 0.11580621083396557,
+        "win_rate": 0.7121212121212122,
+        "pnl_without_top_4_games": 39.32160824154374,
+        "profitable_day_fraction": 0.6153846153846154,
+        "worst_day_pnl": -20.645362210961906
+      },
+      "tuning_total_trades": 1030,
+      "tuning_total_pnl": 574.729422893173,
+      "profitable_folds": 4,
+      "robust_folds": 3
+    },
+    {
+      "shrinkage": 1.0,
+      "minimum_probability_edge": 0.01,
+      "maximum_positions_per_game": 2,
+      "april": {
+        "trades": 466,
+        "games": 304,
+        "pnl": 391.12292582616544,
+        "roi": 0.08151264212319871,
+        "win_rate": 0.6115879828326181,
+        "pnl_without_top_4_games": 151.1916126948523,
+        "profitable_day_fraction": 0.6666666666666666,
+        "worst_day_pnl": -47.7413964283317
+      },
+      "may": {
+        "trades": 474,
+        "games": 316,
+        "pnl": -27.66938974732622,
+        "roi": -0.005678649438243835,
+        "win_rate": 0.630801687763713,
+        "pnl_without_top_4_games": -180.55021650227062,
+        "profitable_day_fraction": 0.3548387096774194,
+        "worst_day_pnl": -46.67364827379088
+      },
+      "early_june": {
+        "trades": 245,
+        "games": 158,
+        "pnl": 69.00071530896486,
+        "roi": 0.027412782689986433,
+        "win_rate": 0.6285714285714286,
+        "pnl_without_top_4_games": -112.11826975825551,
+        "profitable_day_fraction": 0.4375,
+        "worst_day_pnl": -57.405298831010526
+      },
+      "late_june": {
+        "trades": 179,
+        "games": 120,
+        "pnl": 190.80487797930832,
+        "roi": 0.1035750264518363,
+        "win_rate": 0.6480446927374302,
+        "pnl_without_top_4_games": 15.333589946853948,
+        "profitable_day_fraction": 0.45454545454545453,
+        "worst_day_pnl": -40.91377828629138
+      },
+      "early_july": {
+        "trades": 191,
+        "games": 132,
+        "pnl": 98.88305021310316,
+        "roi": 0.05041349733517371,
+        "win_rate": 0.6701570680628273,
+        "pnl_without_top_4_games": -36.53271274501677,
+        "profitable_day_fraction": 0.5384615384615384,
+        "worst_day_pnl": -26.49580319365641
+      },
+      "tuning_total_trades": 1555,
+      "tuning_total_pnl": 722.1421795802155,
+      "profitable_folds": 4,
+      "robust_folds": 2
+    },
+    {
+      "shrinkage": 1.0,
+      "minimum_probability_edge": 0.015,
+      "maximum_positions_per_game": 1,
+      "april": {
+        "trades": 284,
+        "games": 284,
+        "pnl": 150.32384368625713,
+        "roi": 0.0514013779013432,
+        "win_rate": 0.602112676056338,
+        "pnl_without_top_4_games": -8.209807107393658,
+        "profitable_day_fraction": 0.6,
+        "worst_day_pnl": -57.173328173374614
+      },
+      "may": {
+        "trades": 293,
+        "games": 293,
+        "pnl": 108.21019948945244,
+        "roi": 0.0359474855706881,
+        "win_rate": 0.6552901023890785,
+        "pnl_without_top_4_games": 18.910199489452424,
+        "profitable_day_fraction": 0.4838709677419355,
+        "worst_day_pnl": -51.60702473996592
+      },
+      "early_june": {
+        "trades": 145,
+        "games": 145,
+        "pnl": -123.31082488900213,
+        "roi": -0.08279950908096052,
+        "win_rate": 0.5862068965517241,
+        "pnl_without_top_4_games": -192.97875930267548,
+        "profitable_day_fraction": 0.375,
+        "worst_day_pnl": -42.61205996480528
+      },
+      "late_june": {
+        "trades": 111,
+        "games": 111,
+        "pnl": 153.09963258882985,
+        "roi": 0.1339302026793364,
+        "win_rate": 0.6486486486486487,
+        "pnl_without_top_4_games": 10.03157985049316,
+        "profitable_day_fraction": 0.7272727272727273,
+        "worst_day_pnl": -43.293495033495034
+      },
+      "early_july": {
+        "trades": 116,
+        "games": 116,
+        "pnl": 206.16561904122895,
+        "roi": 0.1730143411361343,
+        "win_rate": 0.7068965517241379,
+        "pnl_without_top_4_games": 74.62262698886803,
+        "profitable_day_fraction": 0.8461538461538461,
+        "worst_day_pnl": -22.43012411572381
+      },
+      "tuning_total_trades": 949,
+      "tuning_total_pnl": 494.48846991676623,
+      "profitable_folds": 4,
+      "robust_folds": 3
+    },
+    {
+      "shrinkage": 1.0,
+      "minimum_probability_edge": 0.015,
+      "maximum_positions_per_game": 2,
+      "april": {
+        "trades": 430,
+        "games": 284,
+        "pnl": 225.70118861805452,
+        "roi": 0.05094007037638457,
+        "win_rate": 0.6,
+        "pnl_without_top_4_games": 69.21146944833535,
+        "profitable_day_fraction": 0.6,
+        "worst_day_pnl": -47.3501129466011
+      },
+      "may": {
+        "trades": 427,
+        "games": 293,
+        "pnl": 108.60289447260124,
+        "roi": 0.02471567365998451,
+        "win_rate": 0.6252927400468384,
+        "pnl_without_top_4_games": -20.354122758533663,
+        "profitable_day_fraction": 0.5161290322580645,
+        "worst_day_pnl": -40.906736148532715
+      },
+      "early_june": {
+        "trades": 217,
+        "games": 145,
+        "pnl": 10.57878173640015,
+        "roi": 0.004744124875620619,
+        "win_rate": 0.6082949308755761,
+        "pnl_without_top_4_games": -154.42473843518454,
+        "profitable_day_fraction": 0.5625,
+        "worst_day_pnl": -54.790410630116135
+      },
+      "late_june": {
+        "trades": 159,
+        "games": 111,
+        "pnl": 142.27857359214497,
+        "roi": 0.0869227130276294,
+        "win_rate": 0.6415094339622641,
+        "pnl_without_top_4_games": 1.8748853983352376,
+        "profitable_day_fraction": 0.5454545454545454,
+        "worst_day_pnl": -37.88859578711211
+      },
+      "early_july": {
+        "trades": 170,
+        "games": 116,
+        "pnl": 69.53422265374742,
+        "roi": 0.03979410115531942,
+        "win_rate": 0.6411764705882353,
+        "pnl_without_top_4_games": -79.88662802367075,
+        "profitable_day_fraction": 0.7692307692307693,
+        "worst_day_pnl": -56.22210355995678
+      },
+      "tuning_total_trades": 1403,
+      "tuning_total_pnl": 556.6956610729483,
+      "profitable_folds": 5,
+      "robust_folds": 2
+    },
+    {
+      "shrinkage": 1.0,
+      "minimum_probability_edge": 0.02,
+      "maximum_positions_per_game": 1,
+      "april": {
+        "trades": 245,
+        "games": 245,
+        "pnl": 188.37127921691302,
+        "roi": 0.07462849595776469,
+        "win_rate": 0.6122448979591837,
+        "pnl_without_top_4_games": 44.50042575475521,
+        "profitable_day_fraction": 0.5666666666666667,
+        "worst_day_pnl": -48.74948717948718
+      },
+      "may": {
+        "trades": 238,
+        "games": 238,
+        "pnl": 84.42876819515337,
+        "roi": 0.034486058408280916,
+        "win_rate": 0.6302521008403361,
+        "pnl_without_top_4_games": -8.0839904255363,
+        "profitable_day_fraction": 0.45161290322580644,
+        "worst_day_pnl": -49.84499601176233
+      },
+      "early_june": {
+        "trades": 119,
+        "games": 119,
+        "pnl": -164.6867293895958,
+        "roi": -0.13456557179827075,
+        "win_rate": 0.5378151260504201,
+        "pnl_without_top_4_games": -231.47091088951623,
+        "profitable_day_fraction": 0.375,
+        "worst_day_pnl": -42.30322404371585
+      },
+      "late_june": {
+        "trades": 90,
+        "games": 90,
+        "pnl": 92.90558163013395,
+        "roi": 0.10022068977695381,
+        "win_rate": 0.6555555555555556,
+        "pnl_without_top_4_games": -6.6110010029192665,
+        "profitable_day_fraction": 0.6363636363636364,
+        "worst_day_pnl": -20.827749911037586
+      },
+      "early_july": {
+        "trades": 97,
+        "games": 97,
+        "pnl": 214.29314767347645,
+        "roi": 0.21498971434796388,
+        "win_rate": 0.7319587628865979,
+        "pnl_without_top_4_games": 101.76996089222514,
+        "profitable_day_fraction": 0.8461538461538461,
+        "worst_day_pnl": -14.926586840328088
+      },
+      "tuning_total_trades": 789,
+      "tuning_total_pnl": 415.31204732608103,
+      "profitable_folds": 4,
+      "robust_folds": 2
+    },
+    {
+      "shrinkage": 1.0,
+      "minimum_probability_edge": 0.02,
+      "maximum_positions_per_game": 2,
+      "april": {
+        "trades": 346,
+        "games": 245,
+        "pnl": 219.99393460550186,
+        "roi": 0.06167080188423566,
+        "win_rate": 0.6040462427745664,
+        "pnl_without_top_4_games": 78.12456262482553,
+        "profitable_day_fraction": 0.5333333333333333,
+        "worst_day_pnl": -33.475610823074426
+      },
+      "may": {
+        "trades": 339,
+        "games": 238,
+        "pnl": 275.2085534180622,
+        "roi": 0.07885473741731899,
+        "win_rate": 0.6253687315634219,
+        "pnl_without_top_4_games": 44.18958989116766,
+        "profitable_day_fraction": 0.5161290322580645,
+        "worst_day_pnl": -51.775145083749194
+      },
+      "early_june": {
+        "trades": 170,
+        "games": 119,
+        "pnl": 9.583213573470136,
+        "roi": 0.0054825444511971905,
+        "win_rate": 0.6058823529411764,
+        "pnl_without_top_4_games": -90.57871224475548,
+        "profitable_day_fraction": 0.5625,
+        "worst_day_pnl": -32.731245651372234
+      },
+      "late_june": {
+        "trades": 121,
+        "games": 90,
+        "pnl": 103.48178212482293,
+        "roi": 0.08305518895357954,
+        "win_rate": 0.6528925619834711,
+        "pnl_without_top_4_games": 11.670219732182574,
+        "profitable_day_fraction": 0.6363636363636364,
+        "worst_day_pnl": -33.582156948986224
+      },
+      "early_july": {
+        "trades": 129,
+        "games": 97,
+        "pnl": 146.49868737653307,
+        "roi": 0.11044168579739842,
+        "win_rate": 0.6744186046511628,
+        "pnl_without_top_4_games": 21.759916278350204,
+        "profitable_day_fraction": 0.6153846153846154,
+        "worst_day_pnl": -10.960336635292686
+      },
+      "tuning_total_trades": 1105,
+      "tuning_total_pnl": 754.7661710983901,
+      "profitable_folds": 5,
+      "robust_folds": 4
+    },
+    {
+      "shrinkage": 1.0,
+      "minimum_probability_edge": 0.025,
+      "maximum_positions_per_game": 1,
+      "april": {
+        "trades": 198,
+        "games": 198,
+        "pnl": -58.07373480203104,
+        "roi": -0.02843587517910512,
+        "win_rate": 0.5555555555555556,
+        "pnl_without_top_4_games": -167.56690087132614,
+        "profitable_day_fraction": 0.4,
+        "worst_day_pnl": -42.62277056277056
+      },
+      "may": {
+        "trades": 192,
+        "games": 192,
+        "pnl": 10.205758097714806,
+        "roi": 0.005167446290254129,
+        "win_rate": 0.6197916666666666,
+        "pnl_without_top_4_games": -76.08393887198217,
+        "profitable_day_fraction": 0.45161290322580644,
+        "worst_day_pnl": -31.030675024108007
+      },
+      "early_june": {
+        "trades": 94,
+        "games": 94,
+        "pnl": -78.51508562175064,
+        "roi": -0.08127939794589037,
+        "win_rate": 0.5638297872340425,
+        "pnl_without_top_4_games": -151.28990197682663,
+        "profitable_day_fraction": 0.3125,
+        "worst_day_pnl": -27.196122448979594
+      },
+      "late_june": {
+        "trades": 63,
+        "games": 63,
+        "pnl": -46.46791588518417,
+        "roi": -0.0716323660940098,
+        "win_rate": 0.6031746031746031,
+        "pnl_without_top_4_games": -84.77096713514405,
+        "profitable_day_fraction": 0.2727272727272727,
+        "worst_day_pnl": -25.335
+      },
+      "early_july": {
+        "trades": 71,
+        "games": 71,
+        "pnl": 81.38091642813792,
+        "roi": 0.11151431448948713,
+        "win_rate": 0.6619718309859155,
+        "pnl_without_top_4_games": -22.77372964650816,
+        "profitable_day_fraction": 0.5384615384615384,
+        "worst_day_pnl": -30.368275742576817
+      },
+      "tuning_total_trades": 618,
+      "tuning_total_pnl": -91.47006178311312,
+      "profitable_folds": 2,
+      "robust_folds": 0
+    },
+    {
+      "shrinkage": 1.0,
+      "minimum_probability_edge": 0.025,
+      "maximum_positions_per_game": 2,
+      "april": {
+        "trades": 260,
+        "games": 198,
+        "pnl": 33.68461016965906,
+        "roi": 0.012560963485585235,
+        "win_rate": 0.5769230769230769,
+        "pnl_without_top_4_games": -73.76105724409345,
+        "profitable_day_fraction": 0.6,
+        "worst_day_pnl": -37.67549295774648
+      },
+      "may": {
+        "trades": 252,
+        "games": 192,
+        "pnl": 18.56533220987944,
+        "roi": 0.007159181330500093,
+        "win_rate": 0.6190476190476191,
+        "pnl_without_top_4_games": -90.24664626156552,
+        "profitable_day_fraction": 0.45161290322580644,
+        "worst_day_pnl": -44.89846650524616
+      },
+      "early_june": {
+        "trades": 118,
+        "games": 94,
+        "pnl": 64.32383635965793,
+        "roi": 0.05301910317968539,
+        "win_rate": 0.6271186440677966,
+        "pnl_without_top_4_games": -17.530441342192475,
+        "profitable_day_fraction": 0.5,
+        "worst_day_pnl": -12.894161307510256
+      },
+      "late_june": {
+        "trades": 79,
+        "games": 63,
+        "pnl": -29.087659534700805,
+        "roi": -0.03577465874784867,
+        "win_rate": 0.620253164556962,
+        "pnl_without_top_4_games": -79.09898740269438,
+        "profitable_day_fraction": 0.36363636363636365,
+        "worst_day_pnl": -36.324755606891244
+      },
+      "early_july": {
+        "trades": 79,
+        "games": 71,
+        "pnl": 70.78512277734433,
+        "roi": 0.08713623780063316,
+        "win_rate": 0.6455696202531646,
+        "pnl_without_top_4_games": -52.382062979841436,
+        "profitable_day_fraction": 0.6153846153846154,
+        "worst_day_pnl": -30.368275742576817
+      },
+      "tuning_total_trades": 788,
+      "tuning_total_pnl": 158.27124198183995,
+      "profitable_folds": 4,
+      "robust_folds": 0
+    },
+    {
+      "shrinkage": 1.0,
+      "minimum_probability_edge": 0.03,
+      "maximum_positions_per_game": 1,
+      "april": {
+        "trades": 159,
+        "games": 159,
+        "pnl": -92.18748097086467,
+        "roi": -0.05623759705405806,
+        "win_rate": 0.5471698113207547,
+        "pnl_without_top_4_games": -164.51979055913353,
+        "profitable_day_fraction": 0.5,
+        "worst_day_pnl": -44.252857142857145
+      },
+      "may": {
+        "trades": 135,
+        "games": 135,
+        "pnl": 1.6560265065154152,
+        "roi": 0.001192054898803224,
+        "win_rate": 0.6148148148148148,
+        "pnl_without_top_4_games": -74.54210183573058,
+        "profitable_day_fraction": 0.5,
+        "worst_day_pnl": -41.57
+      },
+      "early_june": {
+        "trades": 66,
+        "games": 66,
+        "pnl": -129.98075021914178,
+        "roi": -0.1914917207624588,
+        "win_rate": 0.48484848484848486,
+        "pnl_without_top_4_games": -189.27298433511316,
+        "profitable_day_fraction": 0.1875,
+        "worst_day_pnl": -30.646340415373594
+      },
+      "late_june": {
+        "trades": 41,
+        "games": 41,
+        "pnl": -13.774233699190152,
+        "roi": -0.03263881735270876,
+        "win_rate": 0.6097560975609756,
+        "pnl_without_top_4_games": -61.86483004293554,
+        "profitable_day_fraction": 0.5454545454545454,
+        "worst_day_pnl": -20.490000000000002
+      },
+      "early_july": {
+        "trades": 39,
+        "games": 39,
+        "pnl": -7.274977550917052,
+        "roi": -0.01813666122586022,
+        "win_rate": 0.6153846153846154,
+        "pnl_without_top_4_games": -59.71259659853611,
+        "profitable_day_fraction": 0.6923076923076923,
+        "worst_day_pnl": -30.99
+      },
+      "tuning_total_trades": 440,
+      "tuning_total_pnl": -241.56141593359825,
+      "profitable_folds": 1,
+      "robust_folds": 0
+    },
+    {
+      "shrinkage": 1.0,
+      "minimum_probability_edge": 0.03,
+      "maximum_positions_per_game": 2,
+      "april": {
+        "trades": 197,
+        "games": 159,
+        "pnl": 13.410643872761199,
+        "roi": 0.006601675629005217,
+        "win_rate": 0.5736040609137056,
+        "pnl_without_top_4_games": -81.46125891296563,
+        "profitable_day_fraction": 0.5666666666666667,
+        "worst_day_pnl": -44.252857142857145
+      },
+      "may": {
+        "trades": 162,
+        "games": 135,
+        "pnl": 39.35305757542535,
+        "roi": 0.023595223507905643,
+        "win_rate": 0.6172839506172839,
+        "pnl_without_top_4_games": -57.62669867379738,
+        "profitable_day_fraction": 0.6333333333333333,
+        "worst_day_pnl": -59.961524966261806
+      },
+      "early_june": {
+        "trades": 77,
+        "games": 66,
+        "pnl": -67.72738223466088,
+        "roi": -0.08551653101676922,
+        "win_rate": 0.5324675324675324,
+        "pnl_without_top_4_games": -137.0296872726181,
+        "profitable_day_fraction": 0.25,
+        "worst_day_pnl": -40.886340415373596
+      },
+      "late_june": {
+        "trades": 51,
+        "games": 41,
+        "pnl": -2.6259952360849486,
+        "roi": -0.005005900408107341,
+        "win_rate": 0.6274509803921569,
+        "pnl_without_top_4_games": -50.716591579830336,
+        "profitable_day_fraction": 0.6363636363636364,
+        "worst_day_pnl": -19.113385743877547
+      },
+      "early_july": {
+        "trades": 42,
+        "games": 39,
+        "pnl": -38.174977550917035,
+        "roi": -0.08836391266820294,
+        "win_rate": 0.5714285714285714,
+        "pnl_without_top_4_games": -90.6125965985361,
+        "profitable_day_fraction": 0.5384615384615384,
+        "worst_day_pnl": -30.99
+      },
+      "tuning_total_trades": 529,
+      "tuning_total_pnl": -55.76465357347631,
+      "profitable_folds": 2,
+      "robust_folds": 0
+    },
+    {
+      "shrinkage": 1.0,
+      "minimum_probability_edge": 0.04,
+      "maximum_positions_per_game": 1,
+      "april": {
+        "trades": 56,
+        "games": 56,
+        "pnl": -28.563801000764563,
+        "roi": -0.04938416493908121,
+        "win_rate": 0.5178571428571429,
+        "pnl_without_top_4_games": -86.35561999477866,
+        "profitable_day_fraction": 0.4583333333333333,
+        "worst_day_pnl": -21.712156862745097
+      },
+      "may": {
+        "trades": 50,
+        "games": 50,
+        "pnl": 71.02178282465903,
+        "roi": 0.13782341275088592,
+        "win_rate": 0.68,
+        "pnl_without_top_4_games": 11.570342638828592,
+        "profitable_day_fraction": 0.6956521739130435,
+        "worst_day_pnl": -31.2
+      },
+      "early_june": {
+        "trades": 29,
+        "games": 29,
+        "pnl": -58.07572062511006,
+        "roi": -0.19484573785516363,
+        "win_rate": 0.5172413793103449,
+        "pnl_without_top_4_games": -95.21612268492387,
+        "profitable_day_fraction": 0.4,
+        "worst_day_pnl": -26.985492957746477
+      },
+      "late_june": {
+        "trades": 15,
+        "games": 15,
+        "pnl": 18.60321133713299,
+        "roi": 0.12050272922096768,
+        "win_rate": 0.6666666666666666,
+        "pnl_without_top_4_games": -25.468340610973584,
+        "profitable_day_fraction": 0.5555555555555556,
+        "worst_day_pnl": -10.31
+      },
+      "early_july": {
+        "trades": 22,
+        "games": 22,
+        "pnl": -13.632884894132212,
+        "roi": -0.06000917727851137,
+        "win_rate": 0.5454545454545454,
+        "pnl_without_top_4_games": -66.07050394175127,
+        "profitable_day_fraction": 0.5,
+        "worst_day_pnl": -17.840476190476192
+      },
+      "tuning_total_trades": 172,
+      "tuning_total_pnl": -10.647412358214817,
+      "profitable_folds": 2,
+      "robust_folds": 1
+    },
+    {
+      "shrinkage": 1.0,
+      "minimum_probability_edge": 0.04,
+      "maximum_positions_per_game": 2,
+      "april": {
+        "trades": 59,
+        "games": 56,
+        "pnl": 12.60468384772026,
+        "roi": 0.020677653216510158,
+        "win_rate": 0.5423728813559322,
+        "pnl_without_top_4_games": -45.18713514629385,
+        "profitable_day_fraction": 0.5416666666666666,
+        "worst_day_pnl": -21.712156862745097
+      },
+      "may": {
+        "trades": 51,
+        "games": 50,
+        "pnl": 60.76178282465902,
+        "roi": 0.11561120844922468,
+        "win_rate": 0.6666666666666666,
+        "pnl_without_top_4_games": 1.3103426388285868,
+        "profitable_day_fraction": 0.6956521739130435,
+        "worst_day_pnl": -31.2
+      },
+      "early_june": {
+        "trades": 31,
+        "games": 29,
+        "pnl": -46.720783109795185,
+        "roi": -0.14666242814476144,
+        "win_rate": 0.5483870967741935,
+        "pnl_without_top_4_games": -83.861185169609,
+        "profitable_day_fraction": 0.4666666666666667,
+        "worst_day_pnl": -26.985492957746477
+      },
+      "late_june": {
+        "trades": 15,
+        "games": 15,
+        "pnl": 18.60321133713299,
+        "roi": 0.12050272922096768,
+        "win_rate": 0.6666666666666666,
+        "pnl_without_top_4_games": -25.468340610973584,
+        "profitable_day_fraction": 0.5555555555555556,
+        "worst_day_pnl": -10.31
+      },
+      "early_july": {
+        "trades": 22,
+        "games": 22,
+        "pnl": -13.632884894132212,
+        "roi": -0.06000917727851137,
+        "win_rate": 0.5454545454545454,
+        "pnl_without_top_4_games": -66.07050394175127,
+        "profitable_day_fraction": 0.5,
+        "worst_day_pnl": -17.840476190476192
+      },
+      "tuning_total_trades": 178,
+      "tuning_total_pnl": 31.616010005584876,
+      "profitable_folds": 3,
+      "robust_folds": 1
+    }
+  ]
+}

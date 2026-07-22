@@ -59,6 +59,29 @@ class MispricingTests(unittest.TestCase):
             ["home_yes", "away_yes"],
         )
 
+    def test_paired_both_rejects_excluded_mid_price_fill(self):
+        start = pd.Timestamp("2026-06-01T12:00:00Z")
+        frame = pd.DataFrame({
+            "game_pk": [1], "signal_time": [start],
+            "next_update_time": [start + pd.Timedelta(seconds=5)],
+            "market_home_price": [.50], "home_win": [1],
+        })
+        home = pd.DataFrame({
+            "game_pk": [1], "trade_id": [1],
+            "created_time": [start + pd.Timedelta(seconds=1)],
+            "yes_price_dollars": [.50], "count_fp": [100],
+            "taker_outcome_side": ["yes"],
+        })
+        result = simulate_paired_both(
+            frame, [.80], home, home.iloc[:0],
+            MispricingConfig(
+                minimum_expected_pnl=0, minimum_probability_edge=0,
+                execution_contract="paired_both",
+                excluded_price_min=.45, excluded_price_max=.55,
+            ),
+        )
+        self.assertEqual(result.trades, 0)
+
     def test_two_sided_policy_can_trade_yes_then_no_after_sixty_seconds(self):
         start = pd.Timestamp("2026-06-01T12:00:00Z")
         frame = pd.DataFrame({

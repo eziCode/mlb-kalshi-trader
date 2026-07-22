@@ -122,11 +122,18 @@ def main() -> None:
     model.fit(
         mispricing_feature_frame(fit), fit.home_win, sample_weight=weights
     )
-    # The market-anchored calibrator learned a persistent home-YES offset and
-    # erased the model disagreements that drive the paired away contract.  Keep
-    # the model probability unchanged and require the policy to work in the
-    # two genuinely chronological development periods instead.
-    calibration = {"mode": "identity"}
+    calibration_raw = np.clip(
+        model.predict_proba(mispricing_feature_frame(cal))[:, 1],
+        1e-6, 1 - 1e-6,
+    )
+    calibration_counts = cal.groupby("game_pk").size()
+    calibration_weights = cal.game_pk.map(1.0 / calibration_counts)
+    calibration = fit_market_adjustment(
+        calibration_raw,
+        cal.market_home_price.to_numpy(float),
+        cal.home_win.to_numpy(float),
+        calibration_weights.to_numpy(float),
+    )
     development = pd.concat([cal, tune], ignore_index=True)
     development_probability = calibrated_probability(
         model, development, calibration
@@ -237,11 +244,19 @@ def main() -> None:
     elif not stable.empty:
         selected = stable.iloc[0]
         selection_rule = "maximum worst-fold ROI among stable policies"
-    else:
+    elif not aggregate.empty:
         selected = aggregate.iloc[0]
         selection_rule = (
             "diagnostic-only least-bad aggregate policy; no configuration "
             "passed chronological resilience requirements"
+        )
+    else:
+        selected = grid.sort_values(
+            ["trades", "roi", "pnl"], ascending=False
+        ).iloc[0]
+        selection_rule = (
+            "diagnostic-only highest-coverage policy; market anchoring left "
+            "no configuration with at least 20 development trades"
         )
     config = MispricingConfig(
         enabled=False,
