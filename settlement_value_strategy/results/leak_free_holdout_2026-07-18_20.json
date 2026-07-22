@@ -22,5 +22,8 @@
     "2026-07-20": 3.344063379365373
   },
   "home_trades": 14,
-  "away_trades": 13
+  "away_trades": 13,
+  "game_bootstrap_roi_95_low": -0.13409463670463867,
+  "game_bootstrap_roi_95_high": 0.3382945351718553,
+  "game_bootstrap_probability_positive": 0.81498
 }
