@@ -199,9 +199,10 @@ docker exec \
 Real execution is a separate settlement-value-only container. It consumes the
 paper container's private shared feed and never starts hit-reversion execution.
 The executor uses fill-or-kill orders, checks the real available balance before
-every order, limits principal plus fees to $0.75 per fill, and durably caps
-cumulative strategy capital at $15. Both acknowledgements are intentionally
-required because the packaged model remains unvalidated and disabled.
+every order, limits principal plus fees to the configured per-order amount, and
+durably caps cumulative strategy capital at the configured total allocation.
+Both acknowledgements are intentionally required because the packaged model
+remains unvalidated and disabled.
 
 ```bash
 docker network create mlb-trading

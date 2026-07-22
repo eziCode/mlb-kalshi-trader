@@ -3,6 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 import tempfile
 import unittest
+from unittest.mock import patch
 
 from settlement_value_strategy.live_execution import (
     LiveExecutor, LiveRiskLedger, contracts_for_budget,
@@ -28,6 +29,23 @@ class FakeClient:
 
 
 class LiveExecutionTests(unittest.TestCase):
+    def test_executor_accepts_account_sized_total_with_two_dollar_orders(self):
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.dict("os.environ", {
+                "LIVE_TRADING_ENABLED": "YES_I_UNDERSTAND_THIS_PLACES_REAL_ORDERS",
+                "LIVE_MAX_ORDER_CAPITAL": "2",
+                "LIVE_MAX_TOTAL_CAPITAL": "34.36",
+            }),
+            patch(
+                "settlement_value_strategy.live_execution.KalshiAccountClient",
+                return_value=FakeClient(balance=34.36),
+            ),
+        ):
+            executor = LiveExecutor(Path(directory) / "risk.db")
+        self.assertEqual(executor.per_order_budget, 2.0)
+        self.assertEqual(executor.maximum_capital, 34.36)
+
     def test_contract_sizing_includes_fee_inside_75_cent_cap(self):
         count = contracts_for_budget(0.51, 0.75)
         self.assertLessEqual(count * 0.51 + taker_fee(count, 0.51), 0.75)

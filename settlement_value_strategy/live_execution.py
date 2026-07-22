@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from decimal import Decimal, ROUND_DOWN
 import hashlib
 import json
+import math
 import os
 from pathlib import Path
 import sqlite3
@@ -239,8 +240,15 @@ class LiveExecutor:
             raise RuntimeError("Real-money trading acknowledgement is missing")
         self.per_order_budget = float(os.getenv("LIVE_MAX_ORDER_CAPITAL", "0.75"))
         self.maximum_capital = float(os.getenv("LIVE_MAX_TOTAL_CAPITAL", "15.00"))
-        if not 0 < self.per_order_budget <= self.maximum_capital <= 15.0:
-            raise RuntimeError("Live capital limits must satisfy 0 < order <= total <= 15")
+        if not (
+            math.isfinite(self.per_order_budget)
+            and math.isfinite(self.maximum_capital)
+            and 0 < self.per_order_budget <= self.maximum_capital
+        ):
+            raise RuntimeError(
+                "Live capital limits must be finite and satisfy "
+                "0 < order <= total"
+            )
         self.client = KalshiAccountClient()
         self.ledger = LiveRiskLedger(ledger_path, self.maximum_capital)
 
