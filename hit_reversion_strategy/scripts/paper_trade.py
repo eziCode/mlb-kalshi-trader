@@ -10,6 +10,7 @@ from datetime import date, datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
+import re
 import sqlite3
 import subprocess
 import sys
@@ -64,6 +65,8 @@ MLB_PRIOR_PATH = (
 KALSHI_API = "https://external-api.kalshi.com/trade-api/v2"
 MLB_API = "https://statsapi.mlb.com/api"
 SLATE_TIMEZONE = ZoneInfo(os.getenv("SLATE_TIMEZONE", "America/Chicago"))
+KALSHI_EVENT_TIMEZONE = ZoneInfo("America/New_York")
+MAX_EVENT_TIME_DELTA = timedelta(minutes=90)
 
 MLB_TEAM_CODES = {
     108: "LAA", 109: "ARI", 110: "BAL", 111: "BOS", 112: "CHC",
@@ -390,14 +393,54 @@ def market_team_code(market: dict) -> str | None:
     return canonical_kalshi_code(ticker.rsplit("-", 1)[-1])
 
 
+def event_scheduled_time(event: dict) -> datetime | None:
+    """Parse the Eastern start time embedded in an MLB event ticker."""
+    match = re.match(
+        r"^KXMLBGAME-(\d{2})([A-Z]{3})(\d{2})(\d{2})(\d{2})",
+        str(event.get("event_ticker") or ""),
+    )
+    if not match:
+        return None
+    year, month_name, day, hour, minute = match.groups()
+    months = {
+        name: number for number, name in enumerate(
+            ("JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG",
+             "SEP", "OCT", "NOV", "DEC"), 1
+        )
+    }
+    try:
+        local_time = datetime(
+            2000 + int(year), months[month_name], int(day),
+            int(hour), int(minute), tzinfo=KALSHI_EVENT_TIMEZONE,
+        )
+    except (KeyError, ValueError):
+        return None
+    return local_time.astimezone(timezone.utc)
+
+
+def clock_time_delta(scheduled: datetime, event_time: datetime) -> timedelta:
+    """Compare Eastern clock times while ignoring a postponed ticker's date."""
+    scheduled_local = scheduled.astimezone(KALSHI_EVENT_TIMEZONE)
+    event_local = event_time.astimezone(KALSHI_EVENT_TIMEZONE)
+    scheduled_minutes = scheduled_local.hour * 60 + scheduled_local.minute
+    event_minutes = event_local.hour * 60 + event_local.minute
+    return timedelta(minutes=abs(scheduled_minutes - event_minutes))
+
+
 def match_games_to_home_markets(
     games: list[dict],
     events: list[dict],
 ) -> tuple[list[DiscoveredGame], list[str]]:
     """Match same-day games and Kalshi events, including doubleheaders."""
-    event_groups: dict[frozenset[str], list[tuple[str, dict[str, dict]]]] = {}
+    event_groups: dict[
+        frozenset[str], list[tuple[str, dict[str, dict], datetime | None]]
+    ] = {}
     for event in events:
-        markets = event.get("markets") or []
+        markets = [
+            market for market in (event.get("markets") or [])
+            if str(market.get("status") or "").lower()
+            not in {"closed", "settled", "finalized"}
+        ]
         by_team = {
             code: market
             for market in markets
@@ -408,6 +451,7 @@ def match_games_to_home_markets(
         matchup = frozenset(by_team)
         event_groups.setdefault(matchup, []).append((
             str(event.get("event_ticker") or ""), by_team,
+            event_scheduled_time(event),
         ))
     for group in event_groups.values():
         group.sort(key=lambda item: item[0])
@@ -433,15 +477,64 @@ def match_games_to_home_markets(
     matched: list[DiscoveredGame] = []
     for matchup, scheduled_games in game_groups.items():
         market_events = event_groups.get(matchup, [])
-        if len(market_events) != len(scheduled_games):
-            warnings.append(
-                f"{sorted(matchup)}: {len(scheduled_games)} MLB games but "
-                f"{len(market_events)} Kalshi events; skipping ambiguous matchup"
+        if market_events and all(value[2] is not None for value in market_events):
+            candidates = sorted(
+                (
+                    clock_time_delta(scheduled, event_time),
+                    game_index, market_index
+                )
+                for game_index, (scheduled, _) in enumerate(scheduled_games)
+                for market_index, (_, _, event_time) in enumerate(market_events)
+                if (
+                    event_time.astimezone(KALSHI_EVENT_TIMEZONE).date()
+                    == scheduled.astimezone(KALSHI_EVENT_TIMEZONE).date()
+                    and clock_time_delta(scheduled, event_time)
+                    <= MAX_EVENT_TIME_DELTA
+                )
             )
-            continue
-        for (scheduled, info), (_, markets) in zip(
-            scheduled_games, market_events
-        ):
+            used_games: set[int] = set()
+            used_markets: set[int] = set()
+            pair_indexes = []
+            for delta, game_index, market_index in candidates:
+                if game_index in used_games or market_index in used_markets:
+                    continue
+                used_games.add(game_index)
+                used_markets.add(market_index)
+                pair_indexes.append((game_index, market_index, delta))
+            remaining_games = [
+                index for index in range(len(scheduled_games))
+                if index not in used_games
+            ]
+            remaining_markets = [
+                index for index in range(len(market_events))
+                if index not in used_markets
+            ]
+            if remaining_games and len(remaining_games) == len(remaining_markets):
+                for game_index, market_index in zip(
+                    remaining_games, remaining_markets
+                ):
+                    pair_indexes.append((
+                        game_index, market_index,
+                        clock_time_delta(
+                            scheduled_games[game_index][0],
+                            market_events[market_index][2],
+                        ),
+                    ))
+            pairs = [
+                (scheduled_games[game_index], market_events[market_index])
+                for game_index, market_index, _ in sorted(pair_indexes)
+            ]
+        elif len(market_events) == len(scheduled_games):
+            pairs = list(zip(scheduled_games, market_events))
+        else:
+            pairs = []
+        if len(pairs) != len(scheduled_games) or len(pairs) != len(market_events):
+            warnings.append(
+                f"{sorted(matchup)}: time-matched {len(pairs)} of "
+                f"{len(scheduled_games)} MLB games to "
+                f"{len(market_events)} Kalshi events"
+            )
+        for (scheduled, info), (_, markets, _) in pairs:
             if info["row"].get("status", {}).get(
                 "abstractGameState"
             ) == "Final":
@@ -482,7 +575,12 @@ def discover_daily_games(game_date: date) -> tuple[list[DiscoveredGame], list[st
         fetch_event_markets,
     )
 
-    events = discover_events(game_date, game_date, verbose=False)
+    # Active postponed markets retain their original ticker date. Search the
+    # two-day postponement window, then let team and start-time matching select
+    # the correct games on today's MLB slate.
+    events = discover_events(
+        game_date - timedelta(days=2), game_date, verbose=False,
+    )
     hydrated = []
     for event in events:
         hydrated.append({

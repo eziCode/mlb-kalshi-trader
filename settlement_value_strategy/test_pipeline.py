@@ -46,6 +46,101 @@ class PregameAnchorRetryTests(unittest.IsolatedAsyncioTestCase):
 
 
 class PipelineTests(unittest.TestCase):
+    def test_postponed_doubleheader_matches_original_ticker_date(self):
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"dates": [{"games": [
+            {
+                "gamePk": 1, "gameDate": "2026-07-22T17:05:00Z",
+                "status": {"abstractGameState": "Preview"},
+                "teams": {
+                    "away": {"team": {"id": 134}},
+                    "home": {"team": {"id": 147}},
+                },
+            },
+            {
+                "gamePk": 2, "gameDate": "2026-07-22T23:05:00Z",
+                "status": {"abstractGameState": "Preview"},
+                "teams": {
+                    "away": {"team": {"id": 134}},
+                    "home": {"team": {"id": 147}},
+                },
+            },
+        ]}]}
+
+        def event(ticker):
+            return {
+                "event_ticker": ticker,
+                "markets": [
+                    {"ticker": f"{ticker}-PIT", "status": "active"},
+                    {"ticker": f"{ticker}-NYY", "status": "active"},
+                ],
+            }
+
+        events = [
+            event("KXMLBGAME-26JUL221335PITNYY"),
+            event("KXMLBGAME-26JUL211905PITNYY"),
+        ]
+        with (
+            patch(
+                "settlement_value_strategy.live_paper_trader.requests.get",
+                return_value=response,
+            ),
+            patch(
+                "settlement_value_strategy.live_paper_trader._daily_kalshi_events",
+                return_value=events,
+            ),
+        ):
+            games, warnings = discover_daily_games(date(2026, 7, 22))
+        self.assertEqual([game.game_pk for game in games], [1, 2])
+        self.assertEqual(warnings, [])
+        self.assertIn("26JUL221335", games[0].market_ticker)
+        self.assertIn("26JUL211905", games[1].market_ticker)
+
+    def test_doubleheader_time_matches_single_listed_game(self):
+        response = Mock()
+        response.raise_for_status.return_value = None
+        response.json.return_value = {"dates": [{"games": [
+            {
+                "gamePk": 1, "gameDate": "2026-07-22T17:35:00Z",
+                "status": {"abstractGameState": "Preview"},
+                "teams": {
+                    "away": {"team": {"id": 110}},
+                    "home": {"team": {"id": 111}},
+                },
+            },
+            {
+                "gamePk": 2, "gameDate": "2026-07-22T23:10:00Z",
+                "status": {"abstractGameState": "Preview"},
+                "teams": {
+                    "away": {"team": {"id": 110}},
+                    "home": {"team": {"id": 111}},
+                },
+            },
+        ]}]}
+        ticker = "KXMLBGAME-26JUL221910BALBOS"
+        event = {
+            "event_ticker": ticker,
+            "markets": [
+                {"ticker": f"{ticker}-BAL"},
+                {"ticker": f"{ticker}-BOS"},
+            ],
+        }
+        with (
+            patch(
+                "settlement_value_strategy.live_paper_trader.requests.get",
+                return_value=response,
+            ),
+            patch(
+                "settlement_value_strategy.live_paper_trader._daily_kalshi_events",
+                return_value=[event],
+            ),
+        ):
+            games, warnings = discover_daily_games(date(2026, 7, 22))
+        self.assertEqual([game.game_pk for game in games], [2])
+        self.assertEqual(games[0].market_ticker, f"{ticker}-BOS")
+        self.assertIn("time-matched 1 of 2", warnings[0])
+
     def test_doubleheader_pairs_before_filtering_final_game(self):
         response = Mock()
         response.raise_for_status.return_value = None

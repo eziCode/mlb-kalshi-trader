@@ -194,6 +194,77 @@ class TradeTapeStrategyTests(unittest.TestCase):
         self.assertEqual(matched[0].game_pk, 2)
         self.assertEqual(matched[0].market_ticker, "KXMLBGAME-G2-ATL")
 
+    def test_doubleheader_time_matches_single_listed_game(self):
+        games = [
+            {
+                "gamePk": 1, "gameDate": "2026-07-22T17:35:00Z",
+                "status": {"abstractGameState": "Preview"},
+                "teams": {
+                    "away": {"team": {"id": 110}},
+                    "home": {"team": {"id": 111}},
+                },
+            },
+            {
+                "gamePk": 2, "gameDate": "2026-07-22T23:10:00Z",
+                "status": {"abstractGameState": "Preview"},
+                "teams": {
+                    "away": {"team": {"id": 110}},
+                    "home": {"team": {"id": 111}},
+                },
+            },
+        ]
+        ticker = "KXMLBGAME-26JUL221910BALBOS"
+        events = [{
+            "event_ticker": ticker,
+            "markets": [
+                {"ticker": f"{ticker}-BAL"},
+                {"ticker": f"{ticker}-BOS"},
+            ],
+        }]
+        matched, warnings = match_games_to_home_markets(games, events)
+        self.assertEqual([game.game_pk for game in matched], [2])
+        self.assertEqual(matched[0].market_ticker, f"{ticker}-BOS")
+        self.assertIn("time-matched 1 of 2", warnings[0])
+
+    def test_postponed_doubleheader_matches_original_ticker_date(self):
+        games = [
+            {
+                "gamePk": 1, "gameDate": "2026-07-22T17:05:00Z",
+                "status": {"abstractGameState": "Preview"},
+                "teams": {
+                    "away": {"team": {"id": 134}},
+                    "home": {"team": {"id": 147}},
+                },
+            },
+            {
+                "gamePk": 2, "gameDate": "2026-07-22T23:05:00Z",
+                "status": {"abstractGameState": "Preview"},
+                "teams": {
+                    "away": {"team": {"id": 134}},
+                    "home": {"team": {"id": 147}},
+                },
+            },
+        ]
+
+        def event(ticker):
+            return {
+                "event_ticker": ticker,
+                "markets": [
+                    {"ticker": f"{ticker}-PIT", "status": "active"},
+                    {"ticker": f"{ticker}-NYY", "status": "active"},
+                ],
+            }
+
+        events = [
+            event("KXMLBGAME-26JUL221335PITNYY"),
+            event("KXMLBGAME-26JUL211905PITNYY"),
+        ]
+        matched, warnings = match_games_to_home_markets(games, events)
+        self.assertEqual([game.game_pk for game in matched], [1, 2])
+        self.assertEqual(warnings, [])
+        self.assertIn("26JUL221335", matched[0].market_ticker)
+        self.assertIn("26JUL211905", matched[1].market_ticker)
+
     def test_main_log_surfaces_readiness_and_trades(self):
         self.assertTrue(should_surface_worker_line("TRADER READY game_pk=1"))
         self.assertTrue(should_surface_worker_line("TRADE SELL YES"))
