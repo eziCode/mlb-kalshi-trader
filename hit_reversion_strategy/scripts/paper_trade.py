@@ -55,12 +55,9 @@ LOG_DIR = Path(os.getenv(
 ))
 MODEL_DIR = PROJECT_ROOT / "models"
 HYBRID_CONFIG_PATH = MODEL_DIR / "trade_tape_config.json"
-STATE_MODEL_PATH = (
-    REPOSITORY_ROOT
-    / "settlement_value_strategy/model/local_win_expectancy.cbm"
-)
+STATE_MODEL_PATH = PROJECT_ROOT / "models/local_win_expectancy.cbm"
 MLB_PRIOR_PATH = (
-    REPOSITORY_ROOT / "settlement_value_strategy/model/mlb_pregame_prior.json"
+    PROJECT_ROOT / "models/mlb_pregame_prior.json"
 )
 KALSHI_API = "https://external-api.kalshi.com/trade-api/v2"
 MLB_API = "https://statsapi.mlb.com/api"
@@ -948,13 +945,19 @@ def replay_position_exit(
     trades: pd.DataFrame, position: Position, current_fair: float,
     scanned_after: datetime | None = None,
     pending_time: datetime | None = None,
+    config: TradeTapeConfig | None = None,
 ) -> tuple[dict | None, datetime | None, datetime]:
     """Find the backtest-style trade after target reversion that can exit."""
+    config = config or TradeTapeConfig()
     if trades.empty:
         return None, pending_time, scanned_after or position.entry_time
-    target = float(anchored_event_target(
-        position.anchor_target, position.anchor_fair, current_fair
-    ))
+    target = (
+        float(position.anchor_target)
+        if config.exit_target_mode == "frozen"
+        else float(anchored_event_target(
+            position.anchor_target, position.anchor_fair, current_fair
+        ))
+    )
     last_seen = scanned_after or position.entry_time
     exit_taker_side = "no" if position.side == "yes" else "yes"
     for trade in trades.sort_values(["created_time", "trade_id"]).itertuples(
@@ -970,18 +973,30 @@ def replay_position_exit(
         ) or (
             position.side == "no" and yes_price <= target
         )
+        timed_out = bool(
+            config.maximum_hold_seconds > 0
+            and (when - position.entry_time).total_seconds()
+            >= config.maximum_hold_seconds
+        )
         if pending_time is None:
-            if reverted:
+            if reverted or timed_out:
                 pending_time = when
             continue
-        if not reverted:
+        if not reverted and not timed_out and not config.latch_reversion_exit:
             pending_time = None
             continue
-        if when > pending_time and str(trade.taker_outcome_side) == exit_taker_side:
+        if (
+            when > pending_time
+            and str(trade.taker_outcome_side) == exit_taker_side
+            and (reverted or timed_out or config.latch_reversion_exit)
+        ):
             price = yes_price if position.side == "yes" else 1.0 - yes_price
             if float(trade.count_fp) >= position.contracts:
                 fee = taker_fee(position.contracts, price)
-                return {"time": when, "price": price, "fee": fee}, None, last_seen
+                return {
+                    "time": when, "price": price, "fee": fee,
+                    "reason": "TIMEOUT" if timed_out else "TARGET_REVERSION",
+                }, None, last_seen
     return None, pending_time, last_seen
 
 
@@ -1224,8 +1239,8 @@ async def main() -> None:
         portfolio_path,
         float(os.getenv("PAPER_STARTING_CASH", "1000")),
     )
-    pregame_prob = await wait_for_model_pregame_prior()
-    print(f"MLB-only model pregame prior: {pregame_prob:.1%}")
+    pregame_prob = await wait_for_pregame_anchor()
+    print(f"Causal pre-first-pitch market anchor: {pregame_prob:.1%}")
     print(
         f"Hybrid threshold={hybrid_config.minimum_edge:.1%}, "
         f"confirmation={hybrid_config.confirmation_seconds:g} seconds, "
@@ -1358,6 +1373,7 @@ async def main() -> None:
                 recent_trades, position, float(fair_prob),
                 exit_scanned_through.get(position.event_id),
                 exit_pending_trade.get(position.event_id),
+                hybrid_config,
             )
             exit_scanned_through[position.event_id] = scanned_through
             if pending_exit is None:
@@ -1373,7 +1389,7 @@ async def main() -> None:
                     int(GAME_PK), position.event_id,
                     position.contracts * price - fee,
                 )
-                reason = "TARGET_REVERSION"
+                reason = str(exit_fill.get("reason") or "TARGET_REVERSION")
                 action = f"CLOSE_{position.side.upper()}_{reason}"
                 print(
                     f"TRADE SELL {closed_side.upper()} "

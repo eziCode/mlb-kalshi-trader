@@ -105,6 +105,21 @@ def main() -> None:
                 "--start-season", "2023", "--train-end", "2026-06-17",
             ],
         ))
+    if args.strategy in {"trade-tape", "both"}:
+        steps.append((
+            "Train leak-free hit-reversion local state model",
+            [
+                python, "-m",
+                "settlement_value_strategy.train_local_state_model",
+                "--start-season", "2023", "--train-end", "2025-04-16",
+                "--output",
+                str(ROOT / "hit_reversion_strategy/models/local_win_expectancy.cbm"),
+                "--priors-output",
+                str(ROOT / "data/hit_reversion/mlb_pregame_priors.parquet"),
+                "--prior-state-output",
+                str(ROOT / "hit_reversion_strategy/models/mlb_pregame_prior.json"),
+            ],
+        ))
     if not args.skip_downloads:
         trade_command = [
             python, str(DOWNLOADERS / "download_live_kalshi_market_logs.py"),

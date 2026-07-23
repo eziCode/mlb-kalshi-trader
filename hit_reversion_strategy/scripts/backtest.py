@@ -22,9 +22,7 @@ from trade_tape_strategy.core import (  # noqa: E402
 
 
 DATA_DIR = REPOSITORY_ROOT / "data/shared"
-STATE_UPDATES_PATH = (
-    REPOSITORY_ROOT / "data/settlement_value/state_updates.parquet"
-)
+STATE_UPDATES_PATH = REPOSITORY_ROOT / "data/shared/state_updates.parquet"
 MODEL_DIR = PROJECT_ROOT / "models"
 CONFIG_PATH = MODEL_DIR / "trade_tape_config.json"
 STUDY_DIR = PROJECT_ROOT / "artifacts"
@@ -90,7 +88,9 @@ def main() -> None:
         "pnl_without_best_game": pnl_without_best_game,
         "pnl_without_top_four_games": pnl_without_top_four_games,
         "segment_results": segment_results,
-        "time_based_exit": False,
+        "time_based_exit": config.maximum_hold_seconds > 0,
+        "exit_target_mode": config.exit_target_mode,
+        "latch_reversion_exit": config.latch_reversion_exit,
         "state_model": "MLB-only batting-perspective local win expectancy",
     }
     STUDY_DIR.mkdir(parents=True, exist_ok=True)
@@ -103,7 +103,13 @@ def main() -> None:
     print(f"Live enabled:          {deployment_enabled}")
     print(f"Minimum edge:          {config.minimum_edge:.1%}")
     print(f"Confirmation:          {config.confirmation_seconds:g} seconds")
-    print("Time-based exit:       none")
+    print(
+        "Maximum hold:         "
+        f"{config.maximum_hold_seconds:g} seconds"
+        if config.maximum_hold_seconds > 0 else "Maximum hold:         none"
+    )
+    print(f"Exit target:           {config.exit_target_mode}")
+    print(f"Latch target touch:    {config.latch_reversion_exit}")
     print(f"Games:                 {len(test_games):,}")
     print(f"Observed trades:       {len(test_trades):,}")
     print(f"Observed hits:         {result.observed_hits:,}")

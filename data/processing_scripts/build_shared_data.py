@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 from datetime import date
 import gzip
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -329,7 +330,13 @@ def build_shared(
     ).sort_values(["game_pk", "at_bat_number", "pitch_number"])
     model = CatBoostClassifier()
     model.load_model(model_path)
-    work["fair_before"] = model.predict_proba(state_feature_frame(work))[:, 1]
+    batting_probability = model.predict_proba(
+        settlement_state_frame(work), thread_count=-1
+    )[:, 1]
+    work["fair_before"] = np.where(
+        work.inning_topbot.astype(int).eq(1),
+        batting_probability, 1.0 - batting_probability,
+    )
     work["fair_after"] = work.groupby("game_pk").fair_before.shift(-1)
     post = [
         "inning", "inning_topbot", "outs_when_up", "score_diff", "balls",
@@ -359,6 +366,14 @@ def build_shared(
     home_trades.to_parquet(output_dir / "home_market_trades.parquet", index=False)
     away_trades.to_parquet(output_dir / "away_market_trades.parquet", index=False)
     updates.to_parquet(output_dir / "state_updates.parquet", index=False)
+    model_hash = hashlib.sha256(model_path.read_bytes()).hexdigest()
+    (output_dir / "state_updates.metadata.json").write_text(json.dumps({
+        "model_path": str(model_path),
+        "model_sha256": model_hash,
+        "minimum_strategy_date": str(home_trades.game_date.min()),
+        "maximum_strategy_date": str(home_trades.game_date.max()),
+        "rows": int(len(updates)),
+    }, indent=2))
 
     if settlement_model_train_end is not None:
         if settlement_model_output is None or settlement_state_output is None:

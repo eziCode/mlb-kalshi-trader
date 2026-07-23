@@ -1,0 +1,7 @@
+{
+  "training_cutoff_exclusive": "2025-04-16",
+  "training_start_inclusive": "2023-01-01",
+  "maximum_training_date": "2025-04-15",
+  "training_games": 5703,
+  "model_sha256": "6df4316dbc259979691bbd6d1aaf920557a0527fee3c0fac51b7be207525a379"
+}

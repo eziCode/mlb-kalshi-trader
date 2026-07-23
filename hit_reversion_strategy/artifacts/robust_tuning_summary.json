@@ -1,4 +1,14 @@
 {
+  "selection_data_end": "2026-06-28",
+  "outer_holdout_used_for_selection": false,
+  "leakage_audit": {
+    "strategy_data_start": "2025-04-16",
+    "state_model_training_cutoff_exclusive": "2025-04-16",
+    "state_model_sha256": "6df4316dbc259979691bbd6d1aaf920557a0527fee3c0fac51b7be207525a379",
+    "state_updates_sha256_verified": true
+  },
+  "selection_rule": "minimum 0.15 trades/game overall and 0.10 in each fold; all three chronological folds profitable; worst-fold ROI positive; profit positive without best game; rank worst-fold ROI first",
+  "eligible_candidates": 11,
   "selected_config": {
     "enabled": true,
     "minimum_edge": 0.075,
@@ -29,7 +39,7 @@
     "confirmation_seconds_by_segment": {},
     "minimum_reversion_moves_by_segment": {}
   },
-  "deployment_config": {
+  "selected_tuning_result": {
     "enabled": true,
     "minimum_edge": 0.075,
     "confirmation_seconds": 0.0,
@@ -57,60 +67,43 @@
     "position_sizing": "fixed_payout",
     "minimum_edges_by_segment": {},
     "confirmation_seconds_by_segment": {},
-    "minimum_reversion_moves_by_segment": {}
-  },
-  "games": 264,
-  "trade_tape_rows": 2141733,
-  "state_updates": 77293,
-  "observed_hits": 3662,
-  "eligible_hit_updates": 3519,
-  "rejected_fair_updates": 143,
-  "invalidated_candidates": 106,
-  "expired_candidates": 2983,
-  "fresh_hit_anchors": 3131,
-  "confirmed_signals": 248,
-  "trades": 42,
-  "yes_trades": 20,
-  "no_trades": 22,
-  "reversion_exits": 11,
-  "momentum_exits": 0,
-  "timeout_exits": 30,
-  "settlements": 1,
-  "fees": 11.77,
-  "capital": 236.82000000000002,
-  "pnl": 4.03,
-  "roi": 0.017017143822312304,
-  "pnl_without_best_game": 0.2400000000000002,
-  "pnl_without_top_four_games": -3.7399999999999993,
-  "segment_results": {
-    "double:no": {
-      "trades": 10,
-      "pnl": -3.080000000000001,
-      "wins": 5
-    },
-    "double:yes": {
-      "trades": 3,
-      "pnl": 0.02000000000000024,
-      "wins": 2
-    },
-    "single:no": {
-      "trades": 11,
-      "pnl": -2.169999999999996,
-      "wins": 5
-    },
-    "single:yes": {
-      "trades": 17,
-      "pnl": 9.749999999999996,
-      "wins": 13
-    },
-    "triple:no": {
-      "trades": 1,
-      "pnl": -0.49000000000000143,
-      "wins": 0
-    }
-  },
-  "time_based_exit": true,
-  "exit_target_mode": "frozen",
-  "latch_reversion_exit": false,
-  "state_model": "MLB-only batting-perspective local win expectancy"
+    "minimum_reversion_moves_by_segment": {},
+    "trades": 169,
+    "pnl": 44.59000000000002,
+    "capital": 870.4899999999998,
+    "fees": 49.61,
+    "games": 918,
+    "trades_per_game": 0.1840958605664488,
+    "roi": 0.0512240232512723,
+    "pnl_without_best_game": 40.850000000000016,
+    "profitable_folds": 3,
+    "worst_fold_roi": 0.018976402948749596,
+    "minimum_fold_trades_per_game": 0.15755627009646303,
+    "folds": [
+      {
+        "fold": 1,
+        "games": 311,
+        "trades": 49,
+        "pnl": 11.550000000000008,
+        "capital": 267.9,
+        "roi": 0.04311310190369544
+      },
+      {
+        "fold": 2,
+        "games": 305,
+        "trades": 57,
+        "pnl": 5.379999999999997,
+        "capital": 283.50999999999993,
+        "roi": 0.018976402948749596
+      },
+      {
+        "fold": 3,
+        "games": 302,
+        "trades": 63,
+        "pnl": 27.660000000000007,
+        "capital": 319.0799999999999,
+        "roi": 0.08668672433245585
+      }
+    ]
+  }
 }

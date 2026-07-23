@@ -35,6 +35,8 @@ class TradeTapeConfig:
     minimum_seconds_between_entries: float = 180.0
     allowed_event_types: tuple[str, ...] = ("single", "double", "triple")
     maximum_hold_seconds: float = 0.0
+    exit_target_mode: str = "dynamic"
+    latch_reversion_exit: bool = False
     minimum_reversion_move: float = 0.0
     side_filter: str = "both"
     position_sizing: str = "fixed_payout"
@@ -217,6 +219,16 @@ def _dynamic_target(candidate_or_position, current_fair: float) -> float:
         candidate_or_position.anchor_fair,
         current_fair,
     ))
+
+
+def _position_exit_target(
+    position: TapePosition, current_fair: float, config: TradeTapeConfig,
+) -> float:
+    if config.exit_target_mode == "frozen":
+        return float(position.anchor_target)
+    if config.exit_target_mode == "dynamic":
+        return _dynamic_target(position, current_fair)
+    raise ValueError(f"Unknown exit_target_mode: {config.exit_target_mode}")
 
 
 def _ns_to_timestamp(value: int | None) -> pd.Timestamp | None:
@@ -406,7 +418,7 @@ def simulate_trade_tape(
             remaining_size = size
             closed_positions: list[TapePosition] = []
             for position in positions:
-                target = _dynamic_target(position, current_fair)
+                target = _position_exit_target(position, current_fair, config)
                 held_price = yes_price if position.side == "yes" else no_price
                 reverted = (
                     position.side == "yes" and yes_price >= target
@@ -429,6 +441,7 @@ def simulate_trade_tape(
                     if (
                         position.pending_exit_reason == "reversion"
                         and not reverted
+                        and not config.latch_reversion_exit
                     ):
                         position.pending_exit_ns = None
                         position.pending_exit_reason = None
@@ -436,6 +449,11 @@ def simulate_trade_tape(
                         trade_ns > position.pending_exit_ns
                         and compatible_taker(exit_taker_side, taker_side)
                         and remaining_size >= position.contracts
+                        and (
+                            reverted
+                            or config.latch_reversion_exit
+                            or position.pending_exit_reason != "reversion"
+                        )
                     ):
                         exit_price = held_price
                         exit_fee = taker_fee(position.contracts, exit_price)

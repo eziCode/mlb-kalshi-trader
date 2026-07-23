@@ -162,6 +162,53 @@ class TradeTapeStrategyTests(unittest.TestCase):
         self.assertIsNone(pending)
         self.assertEqual(scanned, trades.created_time.iloc[2].to_pydatetime())
 
+    def test_live_exit_can_latch_a_transient_target_touch(self):
+        entry = pd.Timestamp("2026-07-20T12:00:00Z")
+        position = Position(
+            "yes", 10, .4, .1, entry.to_pydatetime(), .6, .6, 1
+        )
+        trades = pd.DataFrame({
+            "trade_id": [1, 2],
+            "created_time": [
+                entry + pd.Timedelta(seconds=1),
+                entry + pd.Timedelta(seconds=2),
+            ],
+            "yes_price_dollars": [.61, .59],
+            "count_fp": [100, 100],
+            "taker_outcome_side": ["yes", "no"],
+        })
+        config = TradeTapeConfig(latch_reversion_exit=True)
+        fill, pending, _ = replay_position_exit(
+            trades, position, .6, config=config
+        )
+        self.assertIsNotNone(fill)
+        self.assertEqual(fill["price"], .59)
+        self.assertIsNone(pending)
+
+    def test_live_exit_supports_frozen_target_and_maximum_hold(self):
+        entry = pd.Timestamp("2026-07-20T12:00:00Z")
+        position = Position(
+            "yes", 10, .4, .1, entry.to_pydatetime(), .6, .6, 1
+        )
+        trades = pd.DataFrame({
+            "trade_id": [1, 2],
+            "created_time": [
+                entry + pd.Timedelta(seconds=121),
+                entry + pd.Timedelta(seconds=122),
+            ],
+            "yes_price_dollars": [.45, .46],
+            "count_fp": [100, 100],
+            "taker_outcome_side": ["yes", "no"],
+        })
+        config = TradeTapeConfig(
+            maximum_hold_seconds=120, exit_target_mode="frozen"
+        )
+        fill, _, _ = replay_position_exit(
+            trades, position, .9, config=config
+        )
+        self.assertIsNotNone(fill)
+        self.assertEqual(fill["reason"], "TIMEOUT")
+
     def test_doubleheader_pairs_all_games_before_filtering_final(self):
         games = [
             {
