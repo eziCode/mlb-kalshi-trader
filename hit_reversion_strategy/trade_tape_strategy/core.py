@@ -35,6 +35,7 @@ class TradeTapeConfig:
     side_filter: str = "both"
     position_sizing: str = "fixed_payout"
     require_compatible_taker: bool = True
+    require_post_signal_trade: bool = True
     minimum_edges_by_segment: dict[str, float] = field(default_factory=dict)
     confirmation_seconds_by_segment: dict[str, float] = field(
         default_factory=dict
@@ -607,6 +608,38 @@ def simulate_trade_tape(
                 if side is None:
                     candidate.watch_side = None
                     candidate.watch_started_ns = None
+                elif not config.require_post_signal_trade:
+                    if (
+                        last_entry_ns is None
+                        or trade_ns - last_entry_ns >= int(
+                            config.minimum_seconds_between_entries * 1e9
+                        )
+                    ):
+                        entry_price = yes_price if side == "yes" else no_price
+                        contracts = position_contracts(entry_price, config)
+                        if remaining_size >= contracts:
+                            entry_fee = taker_fee(contracts, entry_price)
+                            positions.append(TapePosition(
+                                side=side, contracts=contracts,
+                                entry_price=entry_price, entry_fee=entry_fee,
+                                entry_ns=trade_ns,
+                                anchor_target=candidate.anchor_target,
+                                anchor_fair=candidate.anchor_fair,
+                                event_type=candidate.event_type,
+                                trigger_at_bat=candidate.trigger_at_bat,
+                                trigger_pitch=candidate.trigger_pitch,
+                                trigger_event_time_ns=candidate.event_time_ns,
+                                held_price_history=[(trade_ns, entry_price)],
+                            ))
+                            last_entry_ns = trade_ns
+                            result.confirmed_signals += 1
+                            result.trades += 1
+                            result.yes_trades += int(side == "yes")
+                            result.no_trades += int(side == "no")
+                            result.capital += contracts * entry_price + entry_fee
+                            result.fees += entry_fee
+                            candidate = None
+                            continue
                 elif candidate.watch_side != side:
                     candidate.watch_side = side
                     candidate.watch_started_ns = trade_ns

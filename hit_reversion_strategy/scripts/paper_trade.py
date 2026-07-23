@@ -1588,10 +1588,25 @@ async def main() -> None:
                 target = float(anchored_event_target(
                     candidate.target, candidate.post_fair, fair_prob
                 ))
-                fill = replay_candidate_entry(
-                    recent_trades, candidate, float(fair_prob), positions,
-                    hybrid_config,
-                )
+                if hybrid_config.require_post_signal_trade:
+                    fill = replay_candidate_entry(
+                        recent_trades, candidate, float(fair_prob), positions,
+                        hybrid_config,
+                    )
+                else:
+                    immediate_price = (
+                        float(market.ask) if candidate.side == "yes"
+                        else 1.0 - float(market.bid)
+                    )
+                    fill = {
+                        "time": now, "side": candidate.side,
+                        "price": immediate_price,
+                        "contracts": position_contracts(immediate_price, hybrid_config),
+                        "fee": taker_fee(
+                            position_contracts(immediate_price, hybrid_config),
+                            immediate_price,
+                        ),
+                    }
                 if fill is not None:
                     price = fill["price"]
                     contracts = fill["contracts"]
@@ -1642,6 +1657,11 @@ async def main() -> None:
                                 hybrid_config.minimum_seconds_between_entries
                             ),
                             minimum_probability_edge=minimum_edge,
+                            strategy="hit_reversion",
+                            signal_time=candidate.observed_at,
+                            signal_price=float(executable.ask),
+                            edge_at_submission=actual_edge,
+                            order_budget=1.0,
                         )
                         if not live_fill.filled:
                             action = f"LIVE_SKIP_{live_fill.reason.upper()}"

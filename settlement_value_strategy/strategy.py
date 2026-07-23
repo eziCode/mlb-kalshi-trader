@@ -115,6 +115,25 @@ class MispricingConfig:
     excluded_price_min: float = 0.0
     excluded_price_max: float = 0.0
     confirmation_taker_side: str = "compatible"
+    require_post_signal_trade: bool = True
+
+
+def execution_indexes(
+    times: np.ndarray, signal_ns: int, deadline: int,
+    config: MispricingConfig,
+) -> range:
+    if config.require_post_signal_trade:
+        start = int(np.searchsorted(times, signal_ns, side="right"))
+        stop = int(np.searchsorted(times, deadline, side="left"))
+        return range(start, stop)
+    index = int(np.searchsorted(times, signal_ns, side="right") - 1)
+    if (
+        index < 0
+        or signal_ns - int(times[index])
+        > int(config.maximum_fill_delay_seconds * 1e9)
+    ):
+        return range(0)
+    return range(index, index + 1)
 
 
 def execution_price_allowed(price: float, config: MispricingConfig) -> bool:
@@ -335,18 +354,14 @@ def simulate_mispricing(
             deadline = signal_ns + int(config.maximum_fill_delay_seconds * 1e9)
             if pd.notna(row.next_update_time):
                 deadline = min(deadline, pd.Timestamp(row.next_update_time).value)
-            start = int(np.searchsorted(times, signal_ns, side="right"))
+            indexes = execution_indexes(times, signal_ns, deadline, config)
             if last_fill_ns is not None:
                 next_allowed_ns = last_fill_ns + int(
                     config.minimum_seconds_between_entries * 1e9
                 )
-                start = max(
-                    start,
-                    int(np.searchsorted(times, next_allowed_ns, side="left")),
-                )
-            stop = int(np.searchsorted(times, deadline, side="left"))
-            for i in range(start, stop):
-                if not confirmation_taker_allowed(
+                indexes = (i for i in indexes if times[i] >= next_allowed_ns)
+            for i in indexes:
+                if config.require_post_signal_trade and not confirmation_taker_allowed(
                     side, taker_sides[i], config
                 ):
                     continue
@@ -442,11 +457,13 @@ def simulate_away_yes(
             deadline = signal_ns + int(config.maximum_fill_delay_seconds * 1e9)
             if pd.notna(row.next_update_time):
                 deadline = min(deadline, pd.Timestamp(row.next_update_time).value)
-            start = int(np.searchsorted(times, signal_ns, side="right"))
-            stop = int(np.searchsorted(times, deadline, side="left"))
-            if start == 0:
+            indexes = execution_indexes(times, signal_ns, deadline, config)
+            indexes = list(indexes)
+            start = indexes[0] if indexes else 0
+            if not indexes or (config.require_post_signal_trade and start == 0):
                 continue
-            observed_price = float(prices[start - 1])
+            observed_index = start - 1 if config.require_post_signal_trade else start
+            observed_price = float(prices[observed_index])
             observed_contracts = config.bet_size / observed_price
             observed_fee = taker_fee(observed_contracts, observed_price)
             observed_ev = (
@@ -463,12 +480,9 @@ def simulate_away_yes(
                 next_allowed_ns = last_fill_ns + int(
                     config.minimum_seconds_between_entries * 1e9
                 )
-                start = max(
-                    start,
-                    int(np.searchsorted(times, next_allowed_ns, side="left")),
-                )
-            for index in range(start, stop):
-                if not confirmation_taker_allowed(
+                indexes = [i for i in indexes if times[i] >= next_allowed_ns]
+            for index in indexes:
+                if config.require_post_signal_trade and not confirmation_taker_allowed(
                     "yes", taker_sides[index], config
                 ):
                     continue
@@ -577,24 +591,20 @@ def simulate_paired_both(
             deadline = signal_ns + int(config.maximum_fill_delay_seconds * 1e9)
             if pd.notna(row.next_update_time):
                 deadline = min(deadline, pd.Timestamp(row.next_update_time).value)
-            start = int(np.searchsorted(times, signal_ns, side="right"))
+            indexes = execution_indexes(times, signal_ns, deadline, config)
             if last_fill_ns is not None:
                 next_allowed = last_fill_ns + int(
                     config.minimum_seconds_between_entries * 1e9
                 )
-                start = max(
-                    start,
-                    int(np.searchsorted(times, next_allowed, side="left")),
-                )
-            stop = int(np.searchsorted(times, deadline, side="left"))
+                indexes = (i for i in indexes if times[i] >= next_allowed)
             execution_probability = (
                 float(row.fair_probability)
                 if model_side == "yes"
                 else 1.0 - float(row.fair_probability)
             )
             result.orders += 1
-            for index in range(start, stop):
-                if not confirmation_taker_allowed(
+            for index in indexes:
+                if config.require_post_signal_trade and not confirmation_taker_allowed(
                     "yes", taker_sides[index], config
                 ):
                     continue

@@ -1147,14 +1147,32 @@ async def run_worker() -> None:
                     1.0 - probability if route_away_yes else probability
                 )
                 execution_tape = away_trades if route_away_yes else trades
-                fill = replay_fill_from_observed_trades(
-                    execution_tape, row["signal_time"], execution_probability,
-                    positions, execution_side, predictor.config,
-                    confirmation_budget=(
+                fill = None
+                if predictor.config.require_post_signal_trade:
+                    fill = replay_fill_from_observed_trades(
+                        execution_tape, row["signal_time"], execution_probability,
+                        positions, execution_side, predictor.config,
+                        confirmation_budget=(
+                            live_executor.per_order_budget
+                            if live_executor is not None else None
+                        ),
+                    )
+                else:
+                    immediate_market = away_market if route_away_yes else market
+                    immediate_price = float(immediate_market.ask)
+                    immediate_budget = (
                         live_executor.per_order_budget
-                        if live_executor is not None else None
-                    ),
-                )
+                        if live_executor is not None else predictor.config.bet_size
+                    )
+                    immediate_contracts = immediate_budget / immediate_price
+                    immediate_fee = taker_fee(immediate_contracts, immediate_price)
+                    immediate_edge = execution_probability - immediate_price
+                    fill = {
+                        "time": decision_time, "price": immediate_price,
+                        "contracts": immediate_contracts, "fee": immediate_fee,
+                        "edge": immediate_edge,
+                        "expected_pnl": immediate_contracts * immediate_edge - immediate_fee,
+                    }
                 deadline = (
                     pd.Timestamp(row["signal_time"])
                     + pd.Timedelta(
@@ -1189,6 +1207,14 @@ async def run_worker() -> None:
                         continue
                     if live_executor is not None:
                         executable_market = away_market if route_away_yes else market
+                        if not execution_price_allowed(
+                            float(executable_market.ask), predictor.config
+                        ):
+                            action = "LIVE_SKIP_EXCLUDED_ACTUAL_PRICE"
+                            handled_tokens.add(token)
+                            previous_game = game
+                            await asyncio.sleep(POLL_SECONDS)
+                            continue
                         actual_edge = execution_probability - executable_market.ask
                         if actual_edge < predictor.config.minimum_probability_edge:
                             action = "LIVE_SKIP_ACTUAL_EDGE_CHECK"
@@ -1249,6 +1275,10 @@ async def run_worker() -> None:
                             minimum_probability_edge=(
                                 predictor.config.minimum_probability_edge
                             ),
+                            strategy="settlement_value",
+                            signal_time=signal_time,
+                            signal_price=float(executable_market.ask),
+                            edge_at_submission=actual_edge,
                         )
                         if not live_fill.filled:
                             action = f"LIVE_SKIP_{live_fill.reason.upper()}"

@@ -15,6 +15,7 @@ import os
 from pathlib import Path
 import sqlite3
 import time
+import uuid
 
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
@@ -151,6 +152,11 @@ class LiveRiskLedger:
                 status TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
+            )""")
+            connection.execute("""CREATE TABLE IF NOT EXISTS execution_attempts (
+                attempt_id TEXT PRIMARY KEY,
+                recorded_at TEXT NOT NULL,
+                payload_json TEXT NOT NULL
             )""")
             columns = {
                 row[1] for row in connection.execute(
@@ -300,6 +306,15 @@ class LiveRiskLedger:
                 (datetime.now(timezone.utc).isoformat(), entry_client_order_id),
             )
 
+    def record_attempt(self, payload: dict) -> None:
+        """Persist the latest state of an execution attempt for live auditing."""
+        stamp = datetime.now(timezone.utc).isoformat()
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                "INSERT OR REPLACE INTO execution_attempts VALUES (?,?,?)",
+                (payload["attempt_id"], stamp, json.dumps(payload, sort_keys=True)),
+            )
+
 
 class LiveExecutor:
     def __init__(self, ledger_path: Path):
@@ -333,13 +348,47 @@ class LiveExecutor:
         original_bet_size: float, original_minimum_expected_pnl: float,
         minimum_seconds_between_entries: float,
         minimum_probability_edge: float = 0.0,
+        strategy: str = "settlement_value",
+        signal_time: datetime | None = None,
+        signal_price: float | None = None,
+        edge_at_submission: float | None = None,
+        order_budget: float | None = None,
     ) -> LiveFill:
-        count = contracts_for_budget(price, self.per_order_budget)
+        effective_budget = (
+            self.per_order_budget if order_budget is None else float(order_budget)
+        )
+        if not (
+            math.isfinite(effective_budget)
+            and 0 < effective_budget <= self.per_order_budget
+        ):
+            raise ValueError(
+                "Order budget must be positive and no greater than the live cap"
+            )
+        decision_time = datetime.now(timezone.utc)
+        attempt = {
+            "attempt_id": str(uuid.uuid4()), "strategy": strategy,
+            "trigger_key": trigger_key, "game_pk": game_pk, "ticker": ticker,
+            "signal_time": signal_time.isoformat() if signal_time else None,
+            "signal_price": signal_price, "decision_time": decision_time.isoformat(),
+            "submission_time": None, "submission_latency_ms": None,
+            "submission_price": price,
+            "order_budget": effective_budget,
+            "edge_at_submission": (
+                settlement_probability - price
+                if edge_at_submission is None else edge_at_submission
+            ),
+            "status": "evaluating", "fill_price": None, "contracts": 0.0,
+            "fee": 0.0, "reason": None,
+        }
+        self.ledger.record_attempt(attempt)
+        count = contracts_for_budget(price, effective_budget)
         client_id = self.ledger.reserve(
-            trigger_key, game_pk, ticker, self.per_order_budget,
+            trigger_key, game_pk, ticker, effective_budget,
             minimum_seconds_between_entries, settlement_probability,
         )
         if client_id is None:
+            attempt.update(status="not_submitted", reason="risk_limit_cooldown_or_duplicate")
+            self.ledger.record_attempt(attempt)
             return LiveFill(False, "", ticker, reason="risk_limit_cooldown_or_duplicate")
         fee = taker_fee(count, price)
         capital = count * price + fee
@@ -352,12 +401,25 @@ class LiveExecutor:
         ):
             fill = LiveFill(False, client_id, ticker, reason="scaled_value_check")
             self.ledger.finish(fill)
+            attempt.update(status="not_submitted", reason=fill.reason)
+            self.ledger.record_attempt(attempt)
             return fill
         balance = self.client.available_balance()
         if balance + 1e-9 < capital:
             fill = LiveFill(False, client_id, ticker, reason="insufficient_account_balance")
             self.ledger.finish(fill)
+            attempt.update(status="not_submitted", reason=fill.reason)
+            self.ledger.record_attempt(attempt)
             return fill
+        submitted_at = datetime.now(timezone.utc)
+        latency_origin = signal_time or decision_time
+        attempt.update(
+            status="submitted", submission_time=submitted_at.isoformat(),
+            submission_latency_ms=max(
+                0.0, (submitted_at - latency_origin).total_seconds() * 1000.0
+            ), contracts=count,
+        )
+        self.ledger.record_attempt(attempt)
         try:
             result = self.client.create_fill_or_kill(ticker, count, price, client_id)
         except requests.HTTPError as error:
@@ -366,9 +428,13 @@ class LiveExecutor:
                 client_id,
                 definite_rejection=400 <= status < 500 and status != 409,
             )
+            attempt.update(status="submission_error", reason=f"http_{status}")
+            self.ledger.record_attempt(attempt)
             raise
         except requests.RequestException:
             self.ledger.mark_error(client_id, definite_rejection=False)
+            attempt.update(status="submission_error", reason="transport_error")
+            self.ledger.record_attempt(attempt)
             raise
         filled = float(result.get("fill_count") or 0)
         if filled <= 0:
@@ -380,9 +446,16 @@ class LiveExecutor:
                 True, client_id, ticker, filled, average_price,
                 filled * fee_per_contract, "filled",
             )
-            if fill.capital > self.per_order_budget + 1e-6:
+            if fill.capital > effective_budget + 1e-6:
                 raise RuntimeError("Exchange fill exceeded configured per-order capital")
         self.ledger.finish(fill)
+        attempt.update(
+            status="filled" if fill.filled else "not_filled",
+            fill_price=fill.price if fill.filled else None,
+            contracts=fill.contracts if fill.filled else count,
+            fee=fill.fee, reason=fill.reason,
+        )
+        self.ledger.record_attempt(attempt)
         return fill
 
     def execute_exit(

@@ -25,6 +25,7 @@
   "side_filter": "both",
   "position_sizing": "fixed_payout",
   "require_compatible_taker": false,
+  "require_post_signal_trade": false,
   "minimum_edges_by_segment": {},
   "confirmation_seconds_by_segment": {},
   "minimum_reversion_moves_by_segment": {}

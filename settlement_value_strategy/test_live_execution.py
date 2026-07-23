@@ -86,6 +86,24 @@ class LiveExecutionTests(unittest.TestCase):
             self.assertLessEqual(fill.capital, 0.75 + 1e-6)
             self.assertEqual(len(executor.client.orders), 1)
 
+    def test_strategy_order_budget_can_be_lower_than_global_cap(self):
+        with tempfile.TemporaryDirectory() as directory:
+            executor = LiveExecutor.__new__(LiveExecutor)
+            executor.per_order_budget = 2.0
+            executor.maximum_capital = 34.0
+            executor.client = FakeClient()
+            executor.ledger = LiveRiskLedger(Path(directory) / "risk.db", 34.0)
+            fill = executor.execute(
+                trigger_key="hit:1", game_pk=1, ticker="TEST",
+                price=0.51, settlement_probability=0.90,
+                original_bet_size=10.0, original_minimum_expected_pnl=0.0,
+                minimum_seconds_between_entries=0, order_budget=1.0,
+                strategy="hit_reversion",
+            )
+            self.assertTrue(fill.filled)
+            self.assertLessEqual(fill.capital, 1.0 + 1e-6)
+            self.assertGreater(fill.capital, 0.90)
+
     def test_execute_refuses_when_real_balance_is_too_low(self):
         with tempfile.TemporaryDirectory() as directory:
             executor = LiveExecutor.__new__(LiveExecutor)
