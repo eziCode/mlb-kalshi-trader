@@ -19,8 +19,13 @@ class FakeClient:
     def available_balance(self):
         return self.balance
 
-    def create_fill_or_kill(self, ticker, count, price, client_order_id):
-        self.orders.append((ticker, count, price, client_order_id))
+    def create_fill_or_kill(
+        self, ticker, count, price, client_order_id,
+        order_side="bid", reduce_only=False,
+    ):
+        self.orders.append((
+            ticker, count, price, client_order_id, order_side, reduce_only,
+        ))
         return {
             "fill_count": f"{count:.2f}",
             "average_fill_price": f"{price:.4f}",
@@ -127,6 +132,26 @@ class LiveExecutionTests(unittest.TestCase):
             rows = ledger.filled_for_game(1)
             self.assertEqual(len(rows), 1)
             self.assertEqual(rows[0]["settlement_probability"], .9)
+
+    def test_reduce_only_exit_releases_shared_capital(self):
+        with tempfile.TemporaryDirectory() as directory:
+            executor = LiveExecutor.__new__(LiveExecutor)
+            executor.client = FakeClient()
+            executor.ledger = LiveRiskLedger(Path(directory) / "risk.db", 15.0)
+            entry_id = executor.ledger.reserve(
+                "hr-entry", 1, "TEST", 2.0, 60, .8
+            )
+            executor.ledger.finish(type("Fill", (), {
+                "filled": True, "capital": 2.0, "contracts": 3.0,
+                "price": .60, "fee": .20, "client_order_id": entry_id,
+            })())
+            fill = executor.execute_exit(
+                trigger_key="hr-exit", entry_client_order_id=entry_id,
+                ticker="TEST", contracts=3.0, price=.70,
+            )
+            self.assertTrue(fill.filled)
+            self.assertEqual(executor.client.orders[-1][-2:], ("ask", True))
+            self.assertEqual(executor.ledger.committed(), 0.0)
 
 
 if __name__ == "__main__":

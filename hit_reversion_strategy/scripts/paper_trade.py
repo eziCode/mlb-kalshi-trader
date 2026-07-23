@@ -43,10 +43,14 @@ from trade_tape_strategy.strategy import (  # noqa: E402
 )
 from shared_kalshi_feed import get_market as get_shared_market  # noqa: E402
 from shared_mlb_feed import get_game as get_shared_game  # noqa: E402
+from settlement_value_strategy.live_execution import (  # noqa: E402
+    LiveExecutor, REAL_MONEY_ACK,
+)
 
 
 GAME_PK_TEXT = os.getenv("MLB_GAME_PK")
 MARKET_TICKER = os.getenv("KALSHI_MARKET_TICKER")
+AWAY_MARKET_TICKER = os.getenv("KALSHI_AWAY_MARKET_TICKER")
 GAME_PK = int(GAME_PK_TEXT) if GAME_PK_TEXT else None
 POLL_SECONDS = float(os.getenv("POLL_SECONDS", "1.0"))
 LOG_DIR = Path(os.getenv(
@@ -64,6 +68,7 @@ MLB_API = "https://statsapi.mlb.com/api"
 SLATE_TIMEZONE = ZoneInfo(os.getenv("SLATE_TIMEZONE", "America/Chicago"))
 KALSHI_EVENT_TIMEZONE = ZoneInfo("America/New_York")
 MAX_EVENT_TIME_DELTA = timedelta(minutes=90)
+LIVE_MODE = os.getenv("LIVE_TRADING_ENABLED") == REAL_MONEY_ACK
 
 MLB_TEAM_CODES = {
     108: "LAA", 109: "ARI", 110: "BAL", 111: "BOS", 112: "CHC",
@@ -120,6 +125,8 @@ class Position:
     anchor_target: float
     anchor_fair: float
     event_id: int
+    market_ticker: str = ""
+    entry_client_order_id: str = ""
 
 
 @dataclass
@@ -182,6 +189,7 @@ class SharedPaperPortfolio:
                     event_id INTEGER NOT NULL,
                     mark_price REAL NOT NULL,
                     updated_at TEXT NOT NULL,
+                    entry_client_order_id TEXT NOT NULL DEFAULT '',
                     UNIQUE(game_pk, event_id)
                 )"""
             )
@@ -198,6 +206,16 @@ class SharedPaperPortfolio:
                         mark_price,updated_at FROM positions_single_position"""
                 )
                 connection.execute("DROP TABLE positions_single_position")
+            existing_columns = {
+                row[1] for row in connection.execute(
+                    "PRAGMA table_info(positions)"
+                ).fetchall()
+            }
+            if "entry_client_order_id" not in existing_columns:
+                connection.execute(
+                    "ALTER TABLE positions ADD COLUMN "
+                    "entry_client_order_id TEXT NOT NULL DEFAULT ''"
+                )
             connection.execute(
                 "INSERT OR IGNORE INTO portfolio(id, starting_cash, cash) "
                 "VALUES (1, ?, ?)",
@@ -255,16 +273,16 @@ class SharedPaperPortfolio:
                 """INSERT INTO positions (
                     game_pk,market_ticker,side,contracts,entry_price,entry_fee,
                     entry_time,anchor_target,anchor_fair,event_id,mark_price,
-                    updated_at
+                    updated_at,entry_client_order_id
                 ) VALUES (
-                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+                    ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
                 )""",
                 (
                     game_pk, ticker, position.side, position.contracts,
                     position.entry_price, position.entry_fee,
                     position.entry_time.isoformat(), position.anchor_target,
                     position.anchor_fair, position.event_id,
-                    position.entry_price, now,
+                    position.entry_price, now, position.entry_client_order_id,
                 ),
             )
             connection.execute(
@@ -312,7 +330,8 @@ class SharedPaperPortfolio:
         with self._connect() as connection:
             rows = connection.execute(
                 """SELECT side, contracts, entry_price, entry_fee, entry_time,
-                          anchor_target, anchor_fair, event_id
+                          anchor_target, anchor_fair, event_id, market_ticker,
+                          entry_client_order_id
                    FROM positions WHERE game_pk = ? ORDER BY entry_time""",
                 (game_pk,),
             ).fetchall()
@@ -322,7 +341,8 @@ class SharedPaperPortfolio:
                 entry_price=float(row[2]), entry_fee=float(row[3]),
                 entry_time=pd.to_datetime(row[4], utc=True).to_pydatetime(),
                 anchor_target=float(row[5]), anchor_fair=float(row[6]),
-                event_id=int(row[7]),
+                event_id=int(row[7]), market_ticker=str(row[8]),
+                entry_client_order_id=str(row[9]),
             )
             for row in rows
         ]
@@ -354,6 +374,7 @@ class DiscoveredGame:
     away_code: str
     home_code: str
     market_ticker: str
+    away_market_ticker: str
 
 
 MAIN_LOG_ACTIONS = ("TRADER READY", "TRADE ", "Shared portfolio:")
@@ -548,6 +569,7 @@ def match_games_to_home_markets(
                 away_code=info["away"],
                 home_code=info["home"],
                 market_ticker=str(home_market["ticker"]),
+                away_market_ticker=str(markets[info["away"]]["ticker"]),
             ))
     return sorted(matched, key=lambda game: game.scheduled_time), warnings
 
@@ -617,6 +639,9 @@ def run_daily_coordinator(game_date: date) -> int:
         portfolio_path,
         float(os.getenv("PAPER_STARTING_CASH", "1000")),
     )
+    live_executor = (
+        LiveExecutor(Path(os.environ["LIVE_RISK_DB"])) if LIVE_MODE else None
+    )
     children: list[
         tuple[DiscoveredGame, subprocess.Popen, object, threading.Thread]
     ] = []
@@ -627,6 +652,7 @@ def run_daily_coordinator(game_date: date) -> int:
             env = os.environ.copy()
             env["MLB_GAME_PK"] = str(game.game_pk)
             env["KALSHI_MARKET_TICKER"] = game.market_ticker
+            env["KALSHI_AWAY_MARKET_TICKER"] = game.away_market_ticker
             env["PAPER_PORTFOLIO_DB"] = str(portfolio_path)
             env["PYTHONUNBUFFERED"] = "1"
             process = subprocess.Popen(
@@ -658,7 +684,8 @@ def run_daily_coordinator(game_date: date) -> int:
             )
         opening = portfolio.metrics()
         print(
-            f"Running {len(children)} isolated paper traders with shared "
+            f"Running {len(children)} isolated "
+            f"{'LIVE' if LIVE_MODE else 'paper'} traders with shared "
             f"cash=${opening.cash:.2f}."
         )
         return_code = 0
@@ -759,16 +786,17 @@ def is_next_completed_event(
     return current_event_id == previous_event_id + 1
 
 
-def fetch_market_snapshot() -> MarketSnapshot:
+def fetch_market_snapshot(ticker: str | None = None) -> MarketSnapshot:
+    ticker = str(ticker or MARKET_TICKER)
     if os.getenv("KALSHI_FEED_URL"):
-        payload = get_shared_market(str(MARKET_TICKER))
+        payload = get_shared_market(ticker)
         snapshot = payload["snapshot"]
         return MarketSnapshot(
             pd.to_datetime(snapshot["received_at"], utc=True).to_pydatetime(),
             float(snapshot["bid"]), float(snapshot["ask"]),
         )
     response = requests.get(
-        f"{KALSHI_API}/markets/{MARKET_TICKER}/orderbook", timeout=5
+        f"{KALSHI_API}/markets/{ticker}/orderbook", timeout=5
     )
     response.raise_for_status()
     book = response.json().get("orderbook_fp") or {}
@@ -1306,6 +1334,10 @@ async def main() -> None:
                 portfolio.close_position(
                     int(GAME_PK), position.event_id, payout
                 )
+                if live_executor is not None and position.entry_client_order_id:
+                    live_executor.ledger.close_entry(
+                        position.entry_client_order_id
+                    )
                 print(
                     f"TRADE SETTLE {position.side.upper()} "
                     f"result={'WIN' if won else 'LOSS'} "
@@ -1392,6 +1424,31 @@ async def main() -> None:
                 fee = exit_fill["fee"]
                 closed_side = position.side
                 closed_contracts = position.contracts
+                if live_executor is not None:
+                    actual_ticker = position.market_ticker or (
+                        str(MARKET_TICKER) if position.side == "yes"
+                        else str(AWAY_MARKET_TICKER)
+                    )
+                    executable = await asyncio.to_thread(
+                        fetch_market_snapshot, actual_ticker
+                    )
+                    live_exit = await asyncio.to_thread(
+                        live_executor.execute_exit,
+                        trigger_key=(
+                            f"hr-exit:{GAME_PK}:{position.event_id}:"
+                            f"{exit_fill.get('reason')}"
+                        ),
+                        entry_client_order_id=position.entry_client_order_id,
+                        ticker=actual_ticker,
+                        contracts=position.contracts,
+                        price=executable.bid,
+                    )
+                    if not live_exit.filled:
+                        action = f"LIVE_EXIT_SKIP_{live_exit.reason.upper()}"
+                        continue
+                    price = live_exit.price
+                    fee = live_exit.fee
+                    closed_contracts = live_exit.contracts
                 portfolio.close_position(
                     int(GAME_PK), position.event_id,
                     position.contracts * price - fee,
@@ -1539,6 +1596,61 @@ async def main() -> None:
                     price = fill["price"]
                     contracts = fill["contracts"]
                     fee = fill["fee"]
+                    actual_ticker = (
+                        str(MARKET_TICKER) if candidate.side == "yes"
+                        else str(AWAY_MARKET_TICKER)
+                    )
+                    entry_client_order_id = ""
+                    if live_executor is not None:
+                        if not actual_ticker or actual_ticker == "None":
+                            action = "LIVE_SKIP_MISSING_PAIRED_MARKET"
+                            candidate = None
+                            continue
+                        executable = await asyncio.to_thread(
+                            fetch_market_snapshot, actual_ticker
+                        )
+                        contract_target = (
+                            target if candidate.side == "yes" else 1.0 - target
+                        )
+                        minimum_edge = segment_value(
+                            hybrid_config.minimum_edges_by_segment,
+                            candidate.event_type, candidate.side,
+                            hybrid_config.minimum_edge,
+                        )
+                        actual_edge = (
+                            contract_target - executable.ask
+                            - estimated_round_trip_fee_per_contract(
+                                executable.ask
+                            )
+                        )
+                        if actual_edge < minimum_edge:
+                            action = "LIVE_SKIP_ACTUAL_EDGE_CHECK"
+                            candidate = None
+                            continue
+                        live_fill = await asyncio.to_thread(
+                            live_executor.execute,
+                            trigger_key=(
+                                f"hr-entry:{GAME_PK}:{candidate.event_id}:"
+                                f"{candidate.side}"
+                            ),
+                            game_pk=int(GAME_PK), ticker=actual_ticker,
+                            price=executable.ask,
+                            settlement_probability=contract_target,
+                            original_bet_size=10.0,
+                            original_minimum_expected_pnl=minimum_edge * 10.0,
+                            minimum_seconds_between_entries=(
+                                hybrid_config.minimum_seconds_between_entries
+                            ),
+                            minimum_probability_edge=minimum_edge,
+                        )
+                        if not live_fill.filled:
+                            action = f"LIVE_SKIP_{live_fill.reason.upper()}"
+                            candidate = None
+                            continue
+                        price = live_fill.price
+                        contracts = live_fill.contracts
+                        fee = live_fill.fee
+                        entry_client_order_id = live_fill.client_order_id
                     proposed_position = Position(
                         side=candidate.side,
                         contracts=contracts,
@@ -1548,9 +1660,11 @@ async def main() -> None:
                         anchor_target=candidate.target,
                         anchor_fair=candidate.post_fair,
                         event_id=candidate.event_id,
+                        market_ticker=actual_ticker,
+                        entry_client_order_id=entry_client_order_id,
                     )
                     if portfolio.open_position(
-                        int(GAME_PK), str(MARKET_TICKER), proposed_position,
+                        int(GAME_PK), actual_ticker, proposed_position,
                         hybrid_config.minimum_seconds_between_entries,
                     ):
                         positions.append(proposed_position)

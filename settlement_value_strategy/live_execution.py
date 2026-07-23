@@ -72,20 +72,21 @@ class KalshiAccountClient:
 
     def create_fill_or_kill(
         self, ticker: str, count: float, price: float, client_order_id: str,
+        order_side: str = "bid", reduce_only: bool = False,
     ) -> dict:
         return self.request(
             "POST", "/portfolio/events/orders",
             json={
                 "ticker": ticker,
                 "client_order_id": client_order_id,
-                "side": "bid",
+                "side": order_side,
                 "count": f"{count:.2f}",
                 "price": f"{price:.4f}",
                 "time_in_force": "fill_or_kill",
                 "self_trade_prevention_type": "taker_at_cross",
                 "post_only": False,
                 "cancel_order_on_pause": True,
-                "reduce_only": False,
+                "reduce_only": reduce_only,
                 "subaccount": 0,
                 "exchange_index": 0,
             },
@@ -135,6 +136,18 @@ class LiveRiskLedger:
                 price REAL NOT NULL DEFAULT 0,
                 fee REAL NOT NULL DEFAULT 0,
                 settlement_probability REAL NOT NULL DEFAULT 0,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )""")
+            connection.execute("""CREATE TABLE IF NOT EXISTS live_exits (
+                client_order_id TEXT PRIMARY KEY,
+                trigger_key TEXT NOT NULL UNIQUE,
+                entry_client_order_id TEXT NOT NULL,
+                ticker TEXT NOT NULL,
+                contracts REAL NOT NULL,
+                price REAL NOT NULL,
+                fee REAL NOT NULL DEFAULT 0,
                 status TEXT NOT NULL,
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL
@@ -233,6 +246,60 @@ class LiveRiskLedger:
                 (status, datetime.now(timezone.utc).isoformat(), client_order_id),
             )
 
+    def reserve_exit(
+        self, trigger_key: str, entry_client_order_id: str, ticker: str,
+        contracts: float, price: float,
+    ) -> str | None:
+        digest = hashlib.sha256(f"exit|{ticker}|{trigger_key}".encode()).hexdigest()[:24]
+        client_id = f"hx-{digest}"
+        stamp = datetime.now(timezone.utc).isoformat()
+        with closing(self._connect()) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            existing = connection.execute(
+                "SELECT status FROM live_exits WHERE trigger_key=?", (trigger_key,)
+            ).fetchone()
+            if existing:
+                if existing[0] == "not_filled":
+                    connection.execute(
+                        "DELETE FROM live_exits WHERE trigger_key=?", (trigger_key,)
+                    )
+                else:
+                    return None
+            connection.execute(
+                "INSERT INTO live_exits VALUES (?,?,?,?,?,?,?,?,?,?)",
+                (client_id, trigger_key, entry_client_order_id, ticker,
+                 contracts, price, 0.0, "pending", stamp, stamp),
+            )
+        return client_id
+
+    def finish_exit(self, client_id: str, filled: bool, fee: float) -> None:
+        with closing(self._connect()) as connection, connection:
+            row = connection.execute(
+                "SELECT entry_client_order_id FROM live_exits "
+                "WHERE client_order_id=?", (client_id,),
+            ).fetchone()
+            if row is None:
+                raise RuntimeError("Unknown live exit reservation")
+            status = "filled" if filled else "not_filled"
+            stamp = datetime.now(timezone.utc).isoformat()
+            connection.execute(
+                "UPDATE live_exits SET status=?,fee=?,updated_at=? "
+                "WHERE client_order_id=?", (status, fee, stamp, client_id),
+            )
+            if filled:
+                connection.execute(
+                    "UPDATE live_orders SET status='closed',updated_at=? "
+                    "WHERE client_order_id=?", (stamp, row[0]),
+                )
+
+    def close_entry(self, entry_client_order_id: str) -> None:
+        with closing(self._connect()) as connection, connection:
+            connection.execute(
+                "UPDATE live_orders SET status='closed',updated_at=? "
+                "WHERE client_order_id=? AND status='filled'",
+                (datetime.now(timezone.utc).isoformat(), entry_client_order_id),
+            )
+
 
 class LiveExecutor:
     def __init__(self, ledger_path: Path):
@@ -316,6 +383,34 @@ class LiveExecutor:
             if fill.capital > self.per_order_budget + 1e-6:
                 raise RuntimeError("Exchange fill exceeded configured per-order capital")
         self.ledger.finish(fill)
+        return fill
+
+    def execute_exit(
+        self, *, trigger_key: str, entry_client_order_id: str,
+        ticker: str, contracts: float, price: float,
+    ) -> LiveFill:
+        client_id = self.ledger.reserve_exit(
+            trigger_key, entry_client_order_id, ticker, contracts, price
+        )
+        if client_id is None:
+            return LiveFill(False, "", ticker, reason="duplicate_exit")
+        try:
+            result = self.client.create_fill_or_kill(
+                ticker, contracts, price, client_id,
+                order_side="ask", reduce_only=True,
+            )
+        except requests.RequestException:
+            # Leave an ambiguous exit pending. A duplicate will be rejected.
+            raise
+        filled = float(result.get("fill_count") or 0)
+        if filled <= 0:
+            fill = LiveFill(False, client_id, ticker, reason="fill_or_kill_not_filled")
+            self.ledger.finish_exit(client_id, False, 0.0)
+            return fill
+        average_price = float(result["average_fill_price"])
+        fee = filled * float(result.get("average_fee_paid") or 0)
+        fill = LiveFill(True, client_id, ticker, filled, average_price, fee, "filled")
+        self.ledger.finish_exit(client_id, True, fee)
         return fill
 
 
