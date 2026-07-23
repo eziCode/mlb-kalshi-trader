@@ -67,6 +67,15 @@ class FeedState:
             return float(os.getenv("MLB_FINAL_POLL_SECONDS", "300"))
         return float(os.getenv("MLB_PREGAME_POLL_SECONDS", "30"))
 
+    @staticmethod
+    def _failure_interval(status: str, failures: int) -> float:
+        if status == "Live":
+            # Long backoffs during a game can miss several pitches after the
+            # connection has returned. Keep retries bounded while avoiding a
+            # tight loop against an unavailable upstream.
+            return min(5.0, 0.5 * 2.0 ** min(max(failures - 1, 0), 4))
+        return min(60.0, 2.0 ** min(failures, 6))
+
     def _poll_game(self, game_pk: int) -> None:
         while not self.stopping.is_set():
             started = time.monotonic()
@@ -93,7 +102,8 @@ class FeedState:
                     game.failures += 1
                     game.last_error = str(error)
                     failures = game.failures
-                delay = min(60.0, 2.0 ** min(failures, 6))
+                    status = game.status
+                delay = self._failure_interval(status, failures)
                 delay *= random.uniform(0.8, 1.2)
                 print(
                     f"MLB feed {game_pk} failed ({failures}): {error}; "

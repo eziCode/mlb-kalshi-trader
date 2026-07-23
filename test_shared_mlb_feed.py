@@ -31,6 +31,12 @@ class SharedMlbFeedTests(unittest.TestCase):
         self.assertEqual(response["failures"], 2)
         self.assertEqual(response["last_error"], "timeout")
 
+    def test_live_failure_retries_are_capped_at_five_seconds(self):
+        self.assertEqual(feed.FeedState._failure_interval("Live", 1), .5)
+        self.assertEqual(feed.FeedState._failure_interval("Live", 4), 4.0)
+        self.assertEqual(feed.FeedState._failure_interval("Live", 20), 5.0)
+        self.assertEqual(feed.FeedState._failure_interval("Preview", 20), 60.0)
+
 
 if __name__ == "__main__":
     unittest.main()

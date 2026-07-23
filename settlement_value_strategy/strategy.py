@@ -74,6 +74,14 @@ def compatible_taker(side: str, taker_outcome_side: str) -> bool:
     return side == taker_outcome_side
 
 
+def confirmation_taker_allowed(
+    expected_side: str, taker_outcome_side: str, config,
+) -> bool:
+    if config.confirmation_taker_side == "any":
+        return taker_outcome_side in {"yes", "no"}
+    return compatible_taker(expected_side, taker_outcome_side)
+
+
 MISPRICING_FEATURES = (
     "market_home_price", "market_logit", "local_fair_after",
     "local_fair_before", "fair_logit_move", "market_logit_move",
@@ -106,6 +114,7 @@ class MispricingConfig:
     conditional_stacking: bool = True
     excluded_price_min: float = 0.0
     excluded_price_max: float = 0.0
+    confirmation_taker_side: str = "compatible"
 
 
 def execution_price_allowed(price: float, config: MispricingConfig) -> bool:
@@ -337,7 +346,9 @@ def simulate_mispricing(
                 )
             stop = int(np.searchsorted(times, deadline, side="left"))
             for i in range(start, stop):
-                if not compatible_taker(side, taker_sides[i]):
+                if not confirmation_taker_allowed(
+                    side, taker_sides[i], config
+                ):
                     continue
                 price = float(yes[i] if side == "yes" else no[i])
                 if not execution_price_allowed(price, config):
@@ -457,7 +468,9 @@ def simulate_away_yes(
                     int(np.searchsorted(times, next_allowed_ns, side="left")),
                 )
             for index in range(start, stop):
-                if not compatible_taker("yes", taker_sides[index]):
+                if not confirmation_taker_allowed(
+                    "yes", taker_sides[index], config
+                ):
                     continue
                 price = float(prices[index])
                 if not execution_price_allowed(price, config):
@@ -581,7 +594,9 @@ def simulate_paired_both(
             )
             result.orders += 1
             for index in range(start, stop):
-                if not compatible_taker("yes", taker_sides[index]):
+                if not confirmation_taker_allowed(
+                    "yes", taker_sides[index], config
+                ):
                     continue
                 price = float(prices[index])
                 if not execution_price_allowed(price, config):
