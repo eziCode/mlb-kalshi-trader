@@ -15,6 +15,7 @@
   "excluded_price_min": 0.45,
   "excluded_price_max": 0.55,
   "confirmation_taker_side": "any",
+  "require_post_signal_trade": false,
   "model_kind": "latency_residual",
   "model_file": "latency_value.cbm",
   "residual_shrinkage": 1.0,

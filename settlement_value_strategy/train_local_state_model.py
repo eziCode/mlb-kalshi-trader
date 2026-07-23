@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import date
+import hashlib
 import json
 import math
 from pathlib import Path
@@ -132,6 +133,17 @@ def main() -> None:
     model.fit(feature_frame(frame), label, sample_weight=1.0 / counts)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     model.save_model(args.output)
+    model_hash = hashlib.sha256(args.output.read_bytes()).hexdigest()
+    metadata = {
+        "training_cutoff_exclusive": args.train_end.isoformat(),
+        "training_start_inclusive": date(args.start_season, 1, 1).isoformat(),
+        "maximum_training_date": max(frame.game_date).isoformat(),
+        "training_games": int(frame.game_pk.nunique()),
+        "model_sha256": model_hash,
+    }
+    args.output.with_suffix(".metadata.json").write_text(
+        json.dumps(metadata, indent=2)
+    )
     print(
         f"Saved {args.output} from {frame.game_pk.nunique():,} MLB games "
         f"({args.start_season} through {args.train_end})"

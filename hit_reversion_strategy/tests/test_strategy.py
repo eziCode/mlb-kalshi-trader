@@ -162,6 +162,53 @@ class TradeTapeStrategyTests(unittest.TestCase):
         self.assertIsNone(pending)
         self.assertEqual(scanned, trades.created_time.iloc[2].to_pydatetime())
 
+    def test_live_exit_can_latch_a_transient_target_touch(self):
+        entry = pd.Timestamp("2026-07-20T12:00:00Z")
+        position = Position(
+            "yes", 10, .4, .1, entry.to_pydatetime(), .6, .6, 1
+        )
+        trades = pd.DataFrame({
+            "trade_id": [1, 2],
+            "created_time": [
+                entry + pd.Timedelta(seconds=1),
+                entry + pd.Timedelta(seconds=2),
+            ],
+            "yes_price_dollars": [.61, .59],
+            "count_fp": [100, 100],
+            "taker_outcome_side": ["yes", "no"],
+        })
+        config = TradeTapeConfig(latch_reversion_exit=True)
+        fill, pending, _ = replay_position_exit(
+            trades, position, .6, config=config
+        )
+        self.assertIsNotNone(fill)
+        self.assertEqual(fill["price"], .59)
+        self.assertIsNone(pending)
+
+    def test_live_exit_supports_frozen_target_and_maximum_hold(self):
+        entry = pd.Timestamp("2026-07-20T12:00:00Z")
+        position = Position(
+            "yes", 10, .4, .1, entry.to_pydatetime(), .6, .6, 1
+        )
+        trades = pd.DataFrame({
+            "trade_id": [1, 2],
+            "created_time": [
+                entry + pd.Timedelta(seconds=121),
+                entry + pd.Timedelta(seconds=122),
+            ],
+            "yes_price_dollars": [.45, .46],
+            "count_fp": [100, 100],
+            "taker_outcome_side": ["yes", "no"],
+        })
+        config = TradeTapeConfig(
+            maximum_hold_seconds=120, exit_target_mode="frozen"
+        )
+        fill, _, _ = replay_position_exit(
+            trades, position, .9, config=config
+        )
+        self.assertIsNotNone(fill)
+        self.assertEqual(fill["reason"], "TIMEOUT")
+
     def test_doubleheader_pairs_all_games_before_filtering_final(self):
         games = [
             {
@@ -374,6 +421,23 @@ class TradeTapeStrategyTests(unittest.TestCase):
         self.assertEqual(result.reversion_exits, 1)
         self.assertEqual(result.settlements, 0)
         self.assertEqual(result.records[0].exit_reason, "reversion")
+
+    def test_taker_direction_filter_can_be_disabled(self):
+        trades, updates = self._frames(include_reversion=True)
+        # Every prospective entry and exit fill has the opposite taker side.
+        trades.loc[trades.index.isin([1, 2, 3]), "taker_outcome_side"] = "no"
+        trades.loc[trades.index.isin([5, 6]), "taker_outcome_side"] = "yes"
+        strict = simulate_trade_tape(
+            trades, updates, TradeTapeConfig(minimum_edge=0.05)
+        )
+        relaxed = simulate_trade_tape(
+            trades, updates, TradeTapeConfig(
+                minimum_edge=0.05, require_compatible_taker=False
+            )
+        )
+        self.assertEqual(strict.trades, 0)
+        self.assertEqual(relaxed.trades, 1)
+        self.assertEqual(relaxed.reversion_exits, 1)
 
     def test_favorable_velocity_delays_exit_until_trailing_giveback(self):
         trades, updates = self._frames(include_reversion=False)

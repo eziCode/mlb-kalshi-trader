@@ -9,6 +9,7 @@ Usage:
   docker run [docker-options] IMAGE STRATEGY [OPERATION] [operation-options]
   docker run [docker-options] IMAGE setup-data STRATEGY [setup-options]
   docker run [docker-options] IMAGE paper-both [--date YYYY-MM-DD]
+  docker run [docker-options] IMAGE live-both [--date YYYY-MM-DD]
 
 Strategies and operations:
   mispricing [backtest]       Run the settlement-value holdout backtest
@@ -136,6 +137,9 @@ if [ "$#" -gt 0 ]; then shift; fi
 case "$strategy" in
     paper-both|paper_both|combined-paper)
         exec python "$APP_ROOT/combined_paper.py" "$@"
+        ;;
+    live-both|live_both|combined-live)
+        exec python "$APP_ROOT/combined_live.py" "$@"
         ;;
     setup-data|setup_data)
         exec python "$APP_ROOT/setup_data.py" "$@"

@@ -1,10 +1,4 @@
-"""Sub-second trade-tape simulation for the hybrid hit residual strategy.
-
-The tape contains executed trades, not quotes. Fills therefore require a
-strictly later observed trade on the compatible taker outcome side and enough
-reported trade size. This is still a proxy for execution, not a reconstructed
-order book.
-"""
+"""Sub-second trade-tape simulation for the hybrid hit residual strategy."""
 
 from __future__ import annotations
 
@@ -35,9 +29,13 @@ class TradeTapeConfig:
     minimum_seconds_between_entries: float = 180.0
     allowed_event_types: tuple[str, ...] = ("single", "double", "triple")
     maximum_hold_seconds: float = 0.0
+    exit_target_mode: str = "dynamic"
+    latch_reversion_exit: bool = False
     minimum_reversion_move: float = 0.0
     side_filter: str = "both"
     position_sizing: str = "fixed_payout"
+    require_compatible_taker: bool = True
+    require_post_signal_trade: bool = True
     minimum_edges_by_segment: dict[str, float] = field(default_factory=dict)
     confirmation_seconds_by_segment: dict[str, float] = field(
         default_factory=dict
@@ -217,6 +215,16 @@ def _dynamic_target(candidate_or_position, current_fair: float) -> float:
         candidate_or_position.anchor_fair,
         current_fair,
     ))
+
+
+def _position_exit_target(
+    position: TapePosition, current_fair: float, config: TradeTapeConfig,
+) -> float:
+    if config.exit_target_mode == "frozen":
+        return float(position.anchor_target)
+    if config.exit_target_mode == "dynamic":
+        return _dynamic_target(position, current_fair)
+    raise ValueError(f"Unknown exit_target_mode: {config.exit_target_mode}")
 
 
 def _ns_to_timestamp(value: int | None) -> pd.Timestamp | None:
@@ -406,7 +414,7 @@ def simulate_trade_tape(
             remaining_size = size
             closed_positions: list[TapePosition] = []
             for position in positions:
-                target = _dynamic_target(position, current_fair)
+                target = _position_exit_target(position, current_fair, config)
                 held_price = yes_price if position.side == "yes" else no_price
                 reverted = (
                     position.side == "yes" and yes_price >= target
@@ -429,13 +437,22 @@ def simulate_trade_tape(
                     if (
                         position.pending_exit_reason == "reversion"
                         and not reverted
+                        and not config.latch_reversion_exit
                     ):
                         position.pending_exit_ns = None
                         position.pending_exit_reason = None
                     elif (
                         trade_ns > position.pending_exit_ns
-                        and compatible_taker(exit_taker_side, taker_side)
+                        and (
+                            not config.require_compatible_taker
+                            or compatible_taker(exit_taker_side, taker_side)
+                        )
                         and remaining_size >= position.contracts
+                        and (
+                            reverted
+                            or config.latch_reversion_exit
+                            or position.pending_exit_reason != "reversion"
+                        )
                     ):
                         exit_price = held_price
                         exit_fee = taker_fee(position.contracts, exit_price)
@@ -526,7 +543,10 @@ def simulate_trade_tape(
                     pending_entry = None
                 elif (
                     trade_ns > pending_entry.created_ns
-                    and compatible_taker(side, taker_side)
+                    and (
+                        not config.require_compatible_taker
+                        or compatible_taker(side, taker_side)
+                    )
                     and (
                         last_entry_ns is None
                         or trade_ns - last_entry_ns >= int(
@@ -588,6 +608,38 @@ def simulate_trade_tape(
                 if side is None:
                     candidate.watch_side = None
                     candidate.watch_started_ns = None
+                elif not config.require_post_signal_trade:
+                    if (
+                        last_entry_ns is None
+                        or trade_ns - last_entry_ns >= int(
+                            config.minimum_seconds_between_entries * 1e9
+                        )
+                    ):
+                        entry_price = yes_price if side == "yes" else no_price
+                        contracts = position_contracts(entry_price, config)
+                        if remaining_size >= contracts:
+                            entry_fee = taker_fee(contracts, entry_price)
+                            positions.append(TapePosition(
+                                side=side, contracts=contracts,
+                                entry_price=entry_price, entry_fee=entry_fee,
+                                entry_ns=trade_ns,
+                                anchor_target=candidate.anchor_target,
+                                anchor_fair=candidate.anchor_fair,
+                                event_type=candidate.event_type,
+                                trigger_at_bat=candidate.trigger_at_bat,
+                                trigger_pitch=candidate.trigger_pitch,
+                                trigger_event_time_ns=candidate.event_time_ns,
+                                held_price_history=[(trade_ns, entry_price)],
+                            ))
+                            last_entry_ns = trade_ns
+                            result.confirmed_signals += 1
+                            result.trades += 1
+                            result.yes_trades += int(side == "yes")
+                            result.no_trades += int(side == "no")
+                            result.capital += contracts * entry_price + entry_fee
+                            result.fees += entry_fee
+                            candidate = None
+                            continue
                 elif candidate.watch_side != side:
                     candidate.watch_side = side
                     candidate.watch_started_ns = trade_ns

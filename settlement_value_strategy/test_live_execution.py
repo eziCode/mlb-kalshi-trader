@@ -19,8 +19,13 @@ class FakeClient:
     def available_balance(self):
         return self.balance
 
-    def create_fill_or_kill(self, ticker, count, price, client_order_id):
-        self.orders.append((ticker, count, price, client_order_id))
+    def create_fill_or_kill(
+        self, ticker, count, price, client_order_id,
+        order_side="bid", reduce_only=False,
+    ):
+        self.orders.append((
+            ticker, count, price, client_order_id, order_side, reduce_only,
+        ))
         return {
             "fill_count": f"{count:.2f}",
             "average_fill_price": f"{price:.4f}",
@@ -81,6 +86,24 @@ class LiveExecutionTests(unittest.TestCase):
             self.assertLessEqual(fill.capital, 0.75 + 1e-6)
             self.assertEqual(len(executor.client.orders), 1)
 
+    def test_strategy_order_budget_can_be_lower_than_global_cap(self):
+        with tempfile.TemporaryDirectory() as directory:
+            executor = LiveExecutor.__new__(LiveExecutor)
+            executor.per_order_budget = 2.0
+            executor.maximum_capital = 34.0
+            executor.client = FakeClient()
+            executor.ledger = LiveRiskLedger(Path(directory) / "risk.db", 34.0)
+            fill = executor.execute(
+                trigger_key="hit:1", game_pk=1, ticker="TEST",
+                price=0.51, settlement_probability=0.90,
+                original_bet_size=10.0, original_minimum_expected_pnl=0.0,
+                minimum_seconds_between_entries=0, order_budget=1.0,
+                strategy="hit_reversion",
+            )
+            self.assertTrue(fill.filled)
+            self.assertLessEqual(fill.capital, 1.0 + 1e-6)
+            self.assertGreater(fill.capital, 0.90)
+
     def test_execute_refuses_when_real_balance_is_too_low(self):
         with tempfile.TemporaryDirectory() as directory:
             executor = LiveExecutor.__new__(LiveExecutor)
@@ -127,6 +150,26 @@ class LiveExecutionTests(unittest.TestCase):
             rows = ledger.filled_for_game(1)
             self.assertEqual(len(rows), 1)
             self.assertEqual(rows[0]["settlement_probability"], .9)
+
+    def test_reduce_only_exit_releases_shared_capital(self):
+        with tempfile.TemporaryDirectory() as directory:
+            executor = LiveExecutor.__new__(LiveExecutor)
+            executor.client = FakeClient()
+            executor.ledger = LiveRiskLedger(Path(directory) / "risk.db", 15.0)
+            entry_id = executor.ledger.reserve(
+                "hr-entry", 1, "TEST", 2.0, 60, .8
+            )
+            executor.ledger.finish(type("Fill", (), {
+                "filled": True, "capital": 2.0, "contracts": 3.0,
+                "price": .60, "fee": .20, "client_order_id": entry_id,
+            })())
+            fill = executor.execute_exit(
+                trigger_key="hr-exit", entry_client_order_id=entry_id,
+                ticker="TEST", contracts=3.0, price=.70,
+            )
+            self.assertTrue(fill.filled)
+            self.assertEqual(executor.client.orders[-1][-2:], ("ask", True))
+            self.assertEqual(executor.ledger.committed(), 0.0)
 
 
 if __name__ == "__main__":
