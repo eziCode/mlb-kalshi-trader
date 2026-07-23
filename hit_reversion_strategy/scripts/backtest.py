@@ -63,7 +63,6 @@ def main() -> None:
         and result.roi > 0 and pnl_without_best_game > 0
     )
     deployment_config = replace(config, enabled=deployment_enabled)
-    CONFIG_PATH.write_text(json.dumps(asdict(deployment_config), indent=2))
     summary = {
         "selected_config": asdict(config),
         "deployment_config": asdict(deployment_config),

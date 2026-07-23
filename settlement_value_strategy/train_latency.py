@@ -53,6 +53,7 @@ def main() -> None:
         conditional_stacking=True,
         excluded_price_min=.45,
         excluded_price_max=.55,
+        confirmation_taker_side="any",
     )
     MODEL.mkdir(exist_ok=True)
     model.save_model(MODEL / "latency_value.cbm")

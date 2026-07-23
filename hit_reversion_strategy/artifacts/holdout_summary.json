@@ -28,7 +28,7 @@
     "minimum_reversion_moves_by_segment": {}
   },
   "deployment_config": {
-    "enabled": true,
+    "enabled": false,
     "minimum_edge": 0.025,
     "confirmation_seconds": 0.0,
     "maximum_pre_event_trade_age_seconds": 10.0,
@@ -55,58 +55,58 @@
     "confirmation_seconds_by_segment": {},
     "minimum_reversion_moves_by_segment": {}
   },
-  "games": 220,
-  "trade_tape_rows": 1836701,
-  "state_updates": 64470,
-  "observed_hits": 3029,
-  "eligible_hit_updates": 2924,
-  "rejected_fair_updates": 105,
-  "invalidated_candidates": 82,
-  "expired_candidates": 2401,
-  "fresh_hit_anchors": 2619,
-  "confirmed_signals": 636,
-  "trades": 136,
-  "yes_trades": 77,
-  "no_trades": 59,
-  "reversion_exits": 111,
+  "games": 264,
+  "trade_tape_rows": 2141733,
+  "state_updates": 77293,
+  "observed_hits": 3662,
+  "eligible_hit_updates": 3568,
+  "rejected_fair_updates": 94,
+  "invalidated_candidates": 109,
+  "expired_candidates": 2894,
+  "fresh_hit_anchors": 3171,
+  "confirmed_signals": 729,
+  "trades": 168,
+  "yes_trades": 94,
+  "no_trades": 74,
+  "reversion_exits": 139,
   "momentum_exits": 0,
   "timeout_exits": 0,
-  "settlements": 25,
-  "fees": 30.549999999999994,
-  "capital": 794.6200000000002,
-  "pnl": 23.050000000000008,
-  "roi": 0.029007575948251995,
-  "pnl_without_best_game": 18.120000000000008,
-  "pnl_without_top_four_games": 5.0900000000000105,
+  "settlements": 29,
+  "fees": 38.430000000000014,
+  "capital": 990.1,
+  "pnl": 4.770000000000011,
+  "roi": 0.004817695182304829,
+  "pnl_without_best_game": -0.1599999999999877,
+  "pnl_without_top_four_games": -13.519999999999989,
   "segment_results": {
     "double:no": {
-      "trades": 17,
-      "pnl": -4.6,
-      "wins": 13
+      "trades": 23,
+      "pnl": -14.57,
+      "wins": 16
     },
     "double:yes": {
-      "trades": 20,
-      "pnl": 4.229999999999998,
-      "wins": 14
+      "trades": 30,
+      "pnl": 2.409999999999999,
+      "wins": 18
     },
     "single:no": {
-      "trades": 39,
-      "pnl": 6.470000000000005,
-      "wins": 28
+      "trades": 48,
+      "pnl": -2.16999999999999,
+      "wins": 33
     },
     "single:yes": {
-      "trades": 50,
-      "pnl": 8.790000000000004,
-      "wins": 32
+      "trades": 57,
+      "pnl": 10.670000000000002,
+      "wins": 35
     },
     "triple:no": {
       "trades": 3,
-      "pnl": 4.4,
+      "pnl": 4.390000000000001,
       "wins": 3
     },
     "triple:yes": {
       "trades": 7,
-      "pnl": 3.759999999999999,
+      "pnl": 4.039999999999998,
       "wins": 6
     }
   },

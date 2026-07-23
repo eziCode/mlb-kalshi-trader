@@ -13,6 +13,7 @@ import time
 from urllib.parse import urlparse
 
 import requests
+from requests.adapters import HTTPAdapter
 
 
 MLB_API = "https://statsapi.mlb.com/api"
@@ -26,6 +27,8 @@ class GameFeed:
     status: str = "Unknown"
     failures: int = 0
     last_error: str | None = None
+    last_error_kind: str | None = None
+    last_status_code: int | None = None
 
 
 class FeedState:
@@ -57,6 +60,8 @@ class FeedState:
                 "game_pk": int(game_pk), "payload": game.payload,
                 "received_at": game.received_at, "status": game.status,
                 "failures": game.failures, "last_error": game.last_error,
+                "last_error_kind": game.last_error_kind,
+                "last_status_code": game.last_status_code,
             }
 
     @staticmethod
@@ -67,40 +72,110 @@ class FeedState:
             return float(os.getenv("MLB_FINAL_POLL_SECONDS", "300"))
         return float(os.getenv("MLB_PREGAME_POLL_SECONDS", "30"))
 
+    @staticmethod
+    def _failure_interval(
+        status: str, failures: int, error_kind: str = "connection",
+        retry_after: float | None = None,
+    ) -> float:
+        if error_kind == "rate_limit":
+            return min(300.0, max(1.0, retry_after or 30.0))
+        if error_kind == "client_error":
+            return 60.0
+        if status == "Live" and error_kind in {"dns", "connection"}:
+            # Long backoffs during a game can miss several pitches after the
+            # connection has returned. Keep retries bounded while avoiding a
+            # tight loop against an unavailable upstream.
+            return min(5.0, 0.5 * 2.0 ** min(max(failures - 1, 0), 4))
+        if status == "Live" and error_kind == "timeout":
+            return min(10.0, 1.0 * 2.0 ** min(max(failures - 1, 0), 4))
+        if error_kind == "server_error":
+            return min(30.0, 2.0 ** min(failures, 5))
+        return min(60.0, 2.0 ** min(failures, 6))
+
+    @staticmethod
+    def _classify_failure(
+        error: Exception,
+    ) -> tuple[str, int | None, float | None]:
+        if isinstance(error, requests.Timeout):
+            return "timeout", None, None
+        if isinstance(error, requests.HTTPError):
+            response = error.response
+            code = response.status_code if response is not None else None
+            retry_after = None
+            if response is not None:
+                try:
+                    retry_after = float(response.headers.get("Retry-After", ""))
+                except (TypeError, ValueError):
+                    pass
+            if code == 429:
+                return "rate_limit", code, retry_after
+            if code is not None and code >= 500:
+                return "server_error", code, None
+            return "client_error", code, None
+        if isinstance(error, requests.ConnectionError):
+            message = str(error).lower()
+            if "nameresolutionerror" in message or "failed to resolve" in message:
+                return "dns", None, None
+            return "connection", None, None
+        if isinstance(error, (ValueError, json.JSONDecodeError)):
+            return "invalid_response", None, None
+        return "unknown", None, None
+
+    @staticmethod
+    def _new_session() -> requests.Session:
+        session = requests.Session()
+        adapter = HTTPAdapter(pool_connections=1, pool_maxsize=2, max_retries=0)
+        session.mount("https://", adapter)
+        return session
+
     def _poll_game(self, game_pk: int) -> None:
-        while not self.stopping.is_set():
-            started = time.monotonic()
-            try:
-                response = requests.get(
-                    f"{MLB_API}/v1.1/game/{game_pk}/feed/live", timeout=10
-                )
-                response.raise_for_status()
-                payload = response.json()
-                status = str(payload.get("gameData", {}).get(
-                    "status", {}
-                ).get("abstractGameState") or "Unknown")
-                with self.lock:
-                    game = self.games[game_pk]
-                    game.payload = payload
-                    game.received_at = datetime.now(timezone.utc).isoformat()
-                    game.status = status
-                    game.failures = 0
-                    game.last_error = None
-                delay = self._interval(status)
-            except Exception as error:
-                with self.lock:
-                    game = self.games[game_pk]
-                    game.failures += 1
-                    game.last_error = str(error)
-                    failures = game.failures
-                delay = min(60.0, 2.0 ** min(failures, 6))
-                delay *= random.uniform(0.8, 1.2)
-                print(
-                    f"MLB feed {game_pk} failed ({failures}): {error}; "
-                    f"retrying in {delay:.1f}s", flush=True,
-                )
-            remaining = max(0.05, delay - (time.monotonic() - started))
-            self.stopping.wait(remaining)
+        session = self._new_session()
+        try:
+            while not self.stopping.is_set():
+                started = time.monotonic()
+                try:
+                    response = session.get(
+                        f"{MLB_API}/v1.1/game/{game_pk}/feed/live",
+                        timeout=(3.05, 10),
+                    )
+                    response.raise_for_status()
+                    payload = response.json()
+                    status = str(payload.get("gameData", {}).get(
+                        "status", {}
+                    ).get("abstractGameState") or "Unknown")
+                    with self.lock:
+                        game = self.games[game_pk]
+                        game.payload = payload
+                        game.received_at = datetime.now(timezone.utc).isoformat()
+                        game.status = status
+                        game.failures = 0
+                        game.last_error = None
+                        game.last_error_kind = None
+                        game.last_status_code = None
+                    delay = self._interval(status)
+                except Exception as error:
+                    kind, status_code, retry_after = self._classify_failure(error)
+                    with self.lock:
+                        game = self.games[game_pk]
+                        game.failures += 1
+                        game.last_error = str(error)
+                        game.last_error_kind = kind
+                        game.last_status_code = status_code
+                        failures = game.failures
+                        status = game.status
+                    delay = self._failure_interval(
+                        status, failures, kind, retry_after
+                    )
+                    delay *= random.uniform(0.8, 1.2)
+                    print(
+                        f"MLB feed {game_pk} failed kind={kind} "
+                        f"status={status_code} ({failures}): {error}; "
+                        f"retrying in {delay:.1f}s", flush=True,
+                    )
+                remaining = max(0.05, delay - (time.monotonic() - started))
+                self.stopping.wait(remaining)
+        finally:
+            session.close()
 
 
 STATE = FeedState()

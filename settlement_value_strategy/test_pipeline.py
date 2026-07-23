@@ -232,10 +232,33 @@ class PipelineTests(unittest.TestCase):
             trades, signal, .80, [], "yes", config,
         )
         self.assertIsNotNone(fill)
-        self.assertEqual(fill["price"], .42)
+        self.assertEqual(fill["price"], .41)
         self.assertEqual(
-            pd.Timestamp(fill["time"]), signal + pd.Timedelta(seconds=2)
+            pd.Timestamp(fill["time"]), signal + pd.Timedelta(seconds=1)
         )
+
+    def test_live_confirmation_uses_actual_order_budget_and_keeps_fee_check(self):
+        signal = pd.Timestamp("2026-07-01T12:00:00Z")
+        trades = pd.DataFrame({
+            "trade_id": [1],
+            "created_time": [signal + pd.Timedelta(seconds=1)],
+            "yes_price_dollars": [.40],
+            "count_fp": [5.0],
+            "taker_outcome_side": ["no"],
+        })
+        config = MispricingPredictor().config
+        fill = replay_fill_from_observed_trades(
+            trades, signal, .45, [], "yes", config,
+            confirmation_budget=2.0,
+        )
+        self.assertIsNotNone(fill)
+        self.assertAlmostEqual(fill["contracts"], 5.0)
+        self.assertGreaterEqual(fill["edge"], .02)
+        self.assertGreaterEqual(fill["expected_pnl"], 0.0)
+        self.assertIsNone(replay_fill_from_observed_trades(
+            trades, signal, .41, [], "yes", config,
+            confirmation_budget=2.0,
+        ))
 
     def test_startup_reconciles_positions_from_final_games(self):
         now = pd.Timestamp("2026-07-01T12:00:00Z").to_pydatetime()
