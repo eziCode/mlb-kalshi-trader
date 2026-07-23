@@ -1,10 +1,4 @@
-"""Sub-second trade-tape simulation for the hybrid hit residual strategy.
-
-The tape contains executed trades, not quotes. Fills therefore require a
-strictly later observed trade on the compatible taker outcome side and enough
-reported trade size. This is still a proxy for execution, not a reconstructed
-order book.
-"""
+"""Sub-second trade-tape simulation for the hybrid hit residual strategy."""
 
 from __future__ import annotations
 
@@ -40,6 +34,7 @@ class TradeTapeConfig:
     minimum_reversion_move: float = 0.0
     side_filter: str = "both"
     position_sizing: str = "fixed_payout"
+    require_compatible_taker: bool = True
     minimum_edges_by_segment: dict[str, float] = field(default_factory=dict)
     confirmation_seconds_by_segment: dict[str, float] = field(
         default_factory=dict
@@ -447,7 +442,10 @@ def simulate_trade_tape(
                         position.pending_exit_reason = None
                     elif (
                         trade_ns > position.pending_exit_ns
-                        and compatible_taker(exit_taker_side, taker_side)
+                        and (
+                            not config.require_compatible_taker
+                            or compatible_taker(exit_taker_side, taker_side)
+                        )
                         and remaining_size >= position.contracts
                         and (
                             reverted
@@ -544,7 +542,10 @@ def simulate_trade_tape(
                     pending_entry = None
                 elif (
                     trade_ns > pending_entry.created_ns
-                    and compatible_taker(side, taker_side)
+                    and (
+                        not config.require_compatible_taker
+                        or compatible_taker(side, taker_side)
+                    )
                     and (
                         last_entry_ns is None
                         or trade_ns - last_entry_ns >= int(

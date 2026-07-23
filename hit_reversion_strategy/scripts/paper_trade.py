@@ -865,7 +865,7 @@ def replay_candidate_entry(
     trades: pd.DataFrame, candidate: EventCandidate, current_fair: float,
     positions: list[Position], config: TradeTapeConfig,
 ) -> dict | None:
-    """Replay the backtest's confirmation and later compatible entry fill."""
+    """Replay the backtest's confirmation and strictly later entry fill."""
     if trades.empty:
         return None
     target = float(anchored_event_target(
@@ -897,7 +897,10 @@ def replay_candidate_entry(
                 return None
             if (
                 when > pending_created
-                and str(trade.taker_outcome_side) == candidate.side
+                and (
+                    not config.require_compatible_taker
+                    or str(trade.taker_outcome_side) == candidate.side
+                )
                 and (
                     last_entry is None
                     or (when - last_entry).total_seconds()
@@ -987,7 +990,10 @@ def replay_position_exit(
             continue
         if (
             when > pending_time
-            and str(trade.taker_outcome_side) == exit_taker_side
+            and (
+                not config.require_compatible_taker
+                or str(trade.taker_outcome_side) == exit_taker_side
+            )
             and (reverted or timed_out or config.latch_reversion_exit)
         ):
             price = yes_price if position.side == "yes" else 1.0 - yes_price
@@ -1245,6 +1251,7 @@ async def main() -> None:
         f"Hybrid threshold={hybrid_config.minimum_edge:.1%}, "
         f"confirmation={hybrid_config.confirmation_seconds:g} seconds, "
         f"entry expiry={hybrid_config.maximum_event_to_entry_seconds:g} seconds, "
+        f"taker direction={'required' if hybrid_config.require_compatible_taker else 'either'}, "
         "target-reversion exit"
     )
 

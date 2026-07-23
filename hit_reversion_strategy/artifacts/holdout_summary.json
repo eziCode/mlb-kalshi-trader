@@ -25,6 +25,7 @@
     "minimum_reversion_move": 0.0,
     "side_filter": "both",
     "position_sizing": "fixed_payout",
+    "require_compatible_taker": false,
     "minimum_edges_by_segment": {},
     "confirmation_seconds_by_segment": {},
     "minimum_reversion_moves_by_segment": {}
@@ -55,58 +56,64 @@
     "minimum_reversion_move": 0.0,
     "side_filter": "both",
     "position_sizing": "fixed_payout",
+    "require_compatible_taker": false,
     "minimum_edges_by_segment": {},
     "confirmation_seconds_by_segment": {},
     "minimum_reversion_moves_by_segment": {}
   },
-  "games": 264,
-  "trade_tape_rows": 2141733,
-  "state_updates": 77293,
-  "observed_hits": 3662,
-  "eligible_hit_updates": 3519,
-  "rejected_fair_updates": 143,
-  "invalidated_candidates": 106,
-  "expired_candidates": 2983,
-  "fresh_hit_anchors": 3131,
-  "confirmed_signals": 248,
-  "trades": 42,
-  "yes_trades": 20,
-  "no_trades": 22,
-  "reversion_exits": 11,
+  "games": 292,
+  "trade_tape_rows": 2374552,
+  "state_updates": 85505,
+  "observed_hits": 4070,
+  "eligible_hit_updates": 3912,
+  "rejected_fair_updates": 158,
+  "invalidated_candidates": 121,
+  "expired_candidates": 3283,
+  "fresh_hit_anchors": 3464,
+  "confirmed_signals": 212,
+  "trades": 60,
+  "yes_trades": 25,
+  "no_trades": 35,
+  "reversion_exits": 22,
   "momentum_exits": 0,
-  "timeout_exits": 30,
+  "timeout_exits": 37,
   "settlements": 1,
-  "fees": 11.77,
-  "capital": 236.82000000000002,
-  "pnl": 4.03,
-  "roi": 0.017017143822312304,
-  "pnl_without_best_game": 0.2400000000000002,
-  "pnl_without_top_four_games": -3.7399999999999993,
+  "fees": 16.589999999999996,
+  "capital": 328.8899999999999,
+  "pnl": 21.209999999999997,
+  "roi": 0.06448964699443585,
+  "pnl_without_best_game": 16.81,
+  "pnl_without_top_four_games": 11.319999999999999,
   "segment_results": {
     "double:no": {
-      "trades": 10,
-      "pnl": -3.080000000000001,
-      "wins": 5
+      "trades": 15,
+      "pnl": 1.9199999999999988,
+      "wins": 9
     },
     "double:yes": {
-      "trades": 3,
-      "pnl": 0.02000000000000024,
-      "wins": 2
+      "trades": 5,
+      "pnl": 2.099999999999998,
+      "wins": 4
     },
     "single:no": {
-      "trades": 11,
-      "pnl": -2.169999999999996,
-      "wins": 5
+      "trades": 19,
+      "pnl": 2.180000000000004,
+      "wins": 11
     },
     "single:yes": {
-      "trades": 17,
-      "pnl": 9.749999999999996,
-      "wins": 13
+      "trades": 18,
+      "pnl": 13.299999999999997,
+      "wins": 14
     },
     "triple:no": {
       "trades": 1,
-      "pnl": -0.49000000000000143,
+      "pnl": -0.2000000000000007,
       "wins": 0
+    },
+    "triple:yes": {
+      "trades": 2,
+      "pnl": 1.910000000000001,
+      "wins": 1
     }
   },
   "time_based_exit": true,

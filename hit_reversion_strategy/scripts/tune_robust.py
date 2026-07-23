@@ -70,6 +70,7 @@ def candidate_config(parameters) -> TradeTapeConfig:
         minimum_reversion_move=0.0,
         side_filter="both",
         position_sizing="fixed_payout",
+        require_compatible_taker=False,
         exit_target_mode=target_mode,
         latch_reversion_exit=latch,
     )

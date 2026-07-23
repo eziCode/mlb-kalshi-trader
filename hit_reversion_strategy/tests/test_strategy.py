@@ -422,6 +422,23 @@ class TradeTapeStrategyTests(unittest.TestCase):
         self.assertEqual(result.settlements, 0)
         self.assertEqual(result.records[0].exit_reason, "reversion")
 
+    def test_taker_direction_filter_can_be_disabled(self):
+        trades, updates = self._frames(include_reversion=True)
+        # Every prospective entry and exit fill has the opposite taker side.
+        trades.loc[trades.index.isin([1, 2, 3]), "taker_outcome_side"] = "no"
+        trades.loc[trades.index.isin([5, 6]), "taker_outcome_side"] = "yes"
+        strict = simulate_trade_tape(
+            trades, updates, TradeTapeConfig(minimum_edge=0.05)
+        )
+        relaxed = simulate_trade_tape(
+            trades, updates, TradeTapeConfig(
+                minimum_edge=0.05, require_compatible_taker=False
+            )
+        )
+        self.assertEqual(strict.trades, 0)
+        self.assertEqual(relaxed.trades, 1)
+        self.assertEqual(relaxed.reversion_exits, 1)
+
     def test_favorable_velocity_delays_exit_until_trailing_giveback(self):
         trades, updates = self._frames(include_reversion=False)
         momentum = pd.DataFrame({
