@@ -19,6 +19,9 @@ class FakeClient:
     def available_balance(self):
         return self.balance
 
+    def positions(self):
+        return []
+
     def create_fill_or_kill(
         self, ticker, count, price, client_order_id,
         order_side="bid", reduce_only=False,
@@ -34,6 +37,37 @@ class FakeClient:
 
 
 class LiveExecutionTests(unittest.TestCase):
+    def test_executor_can_use_all_liquid_cash_without_fixed_total_cap(self):
+        with (
+            tempfile.TemporaryDirectory() as directory,
+            patch.dict("os.environ", {
+                "LIVE_TRADING_ENABLED": "YES_I_UNDERSTAND_THIS_PLACES_REAL_ORDERS",
+                "LIVE_MAX_ORDER_CAPITAL": "2",
+                "LIVE_MAX_TOTAL_CAPITAL": "ALL_LIQUID_CASH",
+            }),
+            patch(
+                "settlement_value_strategy.live_execution.KalshiAccountClient",
+                return_value=FakeClient(balance=38.70),
+            ),
+        ):
+            executor = LiveExecutor(Path(directory) / "risk.db")
+            self.assertIsNone(executor.maximum_capital)
+            self.assertEqual(
+                executor.account_status()["strategy_remaining"], 38.70
+            )
+
+    def test_liquid_cash_mode_atomically_caps_pending_reservations(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = LiveRiskLedger(Path(directory) / "risk.db", None)
+            self.assertIsNotNone(ledger.reserve(
+                "trigger-1", 1, "ticker-1", 2.0, 0,
+                available_cash=3.0,
+            ))
+            self.assertIsNone(ledger.reserve(
+                "trigger-2", 2, "ticker-2", 2.0, 0,
+                available_cash=3.0,
+            ))
+
     def test_executor_accepts_account_sized_total_with_two_dollar_orders(self):
         with (
             tempfile.TemporaryDirectory() as directory,

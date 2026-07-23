@@ -69,6 +69,7 @@ SLATE_TIMEZONE = ZoneInfo(os.getenv("SLATE_TIMEZONE", "America/Chicago"))
 KALSHI_EVENT_TIMEZONE = ZoneInfo("America/New_York")
 MAX_EVENT_TIME_DELTA = timedelta(minutes=90)
 LIVE_MODE = os.getenv("LIVE_TRADING_ENABLED") == REAL_MONEY_ACK
+LIVE_ORDER_BUDGET = 2.0
 
 MLB_TEAM_CODES = {
     108: "LAA", 109: "ARI", 110: "BAL", 111: "BOS", 112: "CHC",
@@ -638,9 +639,6 @@ def run_daily_coordinator(game_date: date) -> int:
     portfolio = SharedPaperPortfolio(
         portfolio_path,
         float(os.getenv("PAPER_STARTING_CASH", "1000")),
-    )
-    live_executor = (
-        LiveExecutor(Path(os.environ["LIVE_RISK_DB"])) if LIVE_MODE else None
     )
     children: list[
         tuple[DiscoveredGame, subprocess.Popen, object, threading.Thread]
@@ -1273,6 +1271,9 @@ async def main() -> None:
         portfolio_path,
         float(os.getenv("PAPER_STARTING_CASH", "1000")),
     )
+    live_executor = (
+        LiveExecutor(Path(os.environ["LIVE_RISK_DB"])) if LIVE_MODE else None
+    )
     pregame_prob = await wait_for_pregame_anchor()
     print(f"Causal pre-first-pitch market anchor: {pregame_prob:.1%}")
     print(
@@ -1661,7 +1662,7 @@ async def main() -> None:
                             signal_time=candidate.observed_at,
                             signal_price=float(executable.ask),
                             edge_at_submission=actual_edge,
-                            order_budget=1.0,
+                            order_budget=LIVE_ORDER_BUDGET,
                         )
                         if not live_fill.filled:
                             action = f"LIVE_SKIP_{live_fill.reason.upper()}"

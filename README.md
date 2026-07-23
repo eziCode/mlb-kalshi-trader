@@ -199,8 +199,10 @@ docker exec \
 Real execution is a separate settlement-value-only container. It consumes the
 paper container's private shared feed and never starts hit-reversion execution.
 The executor uses fill-or-kill orders, checks the real available balance before
-every order, limits principal plus fees to the configured per-order amount, and
-durably caps cumulative strategy capital at the configured total allocation.
+every order, and limits principal plus fees to the configured per-order amount.
+Set `LIVE_MAX_TOTAL_CAPITAL=ALL_LIQUID_CASH` to make all currently available
+Kalshi cash eligible while atomically reserving concurrent pending orders. A
+numeric value retains a fixed total allocation cap.
 Both acknowledgements are intentionally required because the packaged model
 remains unvalidated and disabled.
 
@@ -218,7 +220,7 @@ docker run -d \
   -e KALSHI_FEED_URL=http://mlb-paper:8765 \
   -e LIVE_TRADING_ENABLED=YES_I_UNDERSTAND_THIS_PLACES_REAL_ORDERS \
   -e ALLOW_UNVALIDATED_LIVE=YES_I_ACCEPT_THE_UNVALIDATED_MODEL_RISK \
-  -e LIVE_MAX_TOTAL_CAPITAL=15 \
+  -e LIVE_MAX_TOTAL_CAPITAL=ALL_LIQUID_CASH \
   -e LIVE_MAX_ORDER_CAPITAL=0.75 \
   -e LIVE_RISK_DB=/app/live-state/risk.sqlite3 \
   -e PAPER_PORTFOLIO_DB=/app/live-state/portfolio.sqlite3 \

@@ -120,7 +120,7 @@ def contracts_for_budget(price: float, budget: float) -> float:
 
 
 class LiveRiskLedger:
-    def __init__(self, path: Path, maximum_capital: float):
+    def __init__(self, path: Path, maximum_capital: float | None):
         self.path = Path(path)
         self.maximum_capital = maximum_capital
         self.path.parent.mkdir(parents=True, exist_ok=True)
@@ -185,10 +185,24 @@ class LiveRiskLedger:
             if owns:
                 connection.close()
 
+    def pending(self, connection: sqlite3.Connection | None = None) -> float:
+        owns = connection is None
+        connection = connection or self._connect()
+        try:
+            row = connection.execute(
+                "SELECT COALESCE(SUM(reserved_capital), 0) "
+                "FROM live_orders WHERE status='pending'"
+            ).fetchone()
+            return float(row[0])
+        finally:
+            if owns:
+                connection.close()
+
     def reserve(
         self, trigger_key: str, game_pk: int, ticker: str, budget: float,
         minimum_seconds_between_entries: float,
         settlement_probability: float = 0.0,
+        available_cash: float | None = None,
     ) -> str | None:
         digest = hashlib.sha256(f"{ticker}|{trigger_key}".encode()).hexdigest()[:24]
         client_id = f"sv-{digest}"
@@ -208,7 +222,14 @@ class LiveRiskLedger:
                 now - datetime.fromisoformat(latest[0])
             ).total_seconds() < minimum_seconds_between_entries:
                 return None
-            if self.committed(connection) + budget > self.maximum_capital + 1e-9:
+            if self.maximum_capital is None:
+                if (
+                    available_cash is None
+                    or not math.isfinite(available_cash)
+                    or self.pending(connection) + budget > available_cash + 1e-9
+                ):
+                    return None
+            elif self.committed(connection) + budget > self.maximum_capital + 1e-9:
                 return None
             stamp = now.isoformat()
             connection.execute(
@@ -321,11 +342,20 @@ class LiveExecutor:
         if os.getenv("LIVE_TRADING_ENABLED") != REAL_MONEY_ACK:
             raise RuntimeError("Real-money trading acknowledgement is missing")
         self.per_order_budget = float(os.getenv("LIVE_MAX_ORDER_CAPITAL", "0.75"))
-        self.maximum_capital = float(os.getenv("LIVE_MAX_TOTAL_CAPITAL", "15.00"))
+        total_cap = os.getenv("LIVE_MAX_TOTAL_CAPITAL", "ALL_LIQUID_CASH")
+        self.maximum_capital = (
+            None if total_cap.upper() == "ALL_LIQUID_CASH" else float(total_cap)
+        )
         if not (
             math.isfinite(self.per_order_budget)
-            and math.isfinite(self.maximum_capital)
-            and 0 < self.per_order_budget <= self.maximum_capital
+            and 0 < self.per_order_budget
+            and (
+                self.maximum_capital is None
+                or (
+                    math.isfinite(self.maximum_capital)
+                    and self.per_order_budget <= self.maximum_capital
+                )
+            )
         ):
             raise RuntimeError(
                 "Live capital limits must be finite and satisfy "
@@ -335,10 +365,16 @@ class LiveExecutor:
         self.ledger = LiveRiskLedger(ledger_path, self.maximum_capital)
 
     def account_status(self) -> dict:
+        available = self.client.available_balance()
+        remaining = (
+            max(0.0, available - self.ledger.pending())
+            if self.maximum_capital is None
+            else self.maximum_capital - self.ledger.committed()
+        )
         return {
-            "available_balance": self.client.available_balance(),
+            "available_balance": available,
             "strategy_committed": self.ledger.committed(),
-            "strategy_remaining": self.maximum_capital - self.ledger.committed(),
+            "strategy_remaining": remaining,
             "account_positions": self.client.positions(),
         }
 
@@ -382,9 +418,11 @@ class LiveExecutor:
         }
         self.ledger.record_attempt(attempt)
         count = contracts_for_budget(price, effective_budget)
+        available_cash = self.client.available_balance()
         client_id = self.ledger.reserve(
             trigger_key, game_pk, ticker, effective_budget,
             minimum_seconds_between_entries, settlement_probability,
+            available_cash=available_cash,
         )
         if client_id is None:
             attempt.update(status="not_submitted", reason="risk_limit_cooldown_or_duplicate")
@@ -495,16 +533,10 @@ def main() -> None:
         default=Path(os.getenv("LIVE_RISK_DB", "/app/live-state/risk.sqlite3")),
     )
     args = parser.parse_args()
-    client = KalshiAccountClient()
-    ledger = LiveRiskLedger(
-        args.ledger, float(os.getenv("LIVE_MAX_TOTAL_CAPITAL", "15"))
-    )
-    print(json.dumps({
-        "available_balance": client.available_balance(),
-        "strategy_committed": ledger.committed(),
-        "strategy_remaining": ledger.maximum_capital - ledger.committed(),
-        "open_positions": client.positions(),
-    }, indent=2))
+    executor = LiveExecutor(args.ledger)
+    status = executor.account_status()
+    status["open_positions"] = status.pop("account_positions")
+    print(json.dumps(status, indent=2))
 
 
 if __name__ == "__main__":

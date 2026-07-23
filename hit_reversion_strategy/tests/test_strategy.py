@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import inspect
 import unittest
 from pathlib import Path
 import tempfile
@@ -8,9 +9,9 @@ import pandas as pd
 
 from scripts.paper_trade import (
     EventCandidate, match_games_to_home_markets, pre_pitch_trade_anchor,
-    Position, replay_candidate_entry, replay_position_exit,
+    LIVE_ORDER_BUDGET, Position, replay_candidate_entry, replay_position_exit,
     SharedPaperPortfolio, state_model_frame,
-    should_surface_worker_line,
+    main, should_surface_worker_line,
 )
 from trade_tape_strategy.core import (
     TradeTapeConfig,
@@ -21,6 +22,15 @@ from trade_tape_strategy.core import (
 
 
 class TradeTapeStrategyTests(unittest.TestCase):
+    def test_live_orders_use_two_dollar_budget(self):
+        self.assertEqual(LIVE_ORDER_BUDGET, 2.0)
+
+    def test_live_worker_initializes_executor_before_candidate_loop(self):
+        source = inspect.getsource(main)
+        initialization = source.index("live_executor = (")
+        candidate_loop = source.index("while True:")
+        self.assertLess(initialization, candidate_loop)
+
     def test_segmented_policy_supports_yes_and_no_for_every_hit_type(self):
         segments = {
             f"{event}:{side}": 0.01
