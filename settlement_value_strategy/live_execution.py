@@ -59,6 +59,13 @@ class KalshiAccountClient:
             method, f"{API_ROOT}{path}",
             headers=self._headers(method, path), timeout=10, **kwargs,
         )
+        if not response.ok:
+            body = " ".join(response.text.split())[:1000]
+            print(
+                f"KALSHI API ERROR method={method.upper()} path={path} "
+                f"status={response.status_code} response={body!r}",
+                flush=True,
+            )
         response.raise_for_status()
         return response.json()
 
@@ -514,34 +521,52 @@ class LiveExecutor:
         )
         if client_id is None:
             return LiveFill(False, "", ticker, reason="duplicate_exit")
+        # Kalshi rejected a valid reduce-only ASK with HTTP 400 in production
+        # on 2026-07-23. Verify ownership ourselves, then omit reduce_only from
+        # the order so that rejection cannot prevent an otherwise valid exit.
+        try:
+            owned = self.client.position_contracts(ticker)
+        except requests.RequestException as error:
+            self.ledger.finish_exit(client_id, False, 0.0)
+            print(
+                f"KALSHI EXIT POSITION CHECK FAILED ticker={ticker} "
+                f"client_order_id={client_id} error={error!r}",
+                flush=True,
+            )
+            return LiveFill(False, client_id, ticker, reason="position_check_error")
+        if owned + 1e-9 < contracts:
+            self.ledger.finish_exit(client_id, False, 0.0)
+            print(
+                f"KALSHI EXIT BLOCKED ticker={ticker} contracts={contracts:.2f} "
+                f"owned={owned:.2f} reason=insufficient_exchange_position",
+                flush=True,
+            )
+            return LiveFill(
+                False, client_id, ticker, reason="insufficient_exchange_position"
+            )
+        print(
+            f"KALSHI EXIT SUBMIT ticker={ticker} contracts={contracts:.2f} "
+            f"price={price:.4f} verified_owned={owned:.2f} reduce_only=false",
+            flush=True,
+        )
         try:
             result = self.client.create_fill_or_kill(
                 ticker, contracts, price, client_id,
-                order_side="ask", reduce_only=True,
+                order_side="ask", reduce_only=False,
             )
         except requests.HTTPError as error:
             status = error.response.status_code if error.response is not None else 0
             details = error.response.text if error.response is not None else str(error)
-            # Kalshi rejected a valid reduce-only ASK with HTTP 400 in production
-            # on 2026-07-23. A 4xx is definite (the first order did not exist), so
-            # safely retry without the flag only after independently confirming
-            # that the account owns at least this many YES contracts.
-            owned = self.client.position_contracts(ticker)
-            if status == 400 and owned + 1e-9 >= contracts:
-                try:
-                    result = self.client.create_fill_or_kill(
-                        ticker, contracts, price, client_id,
-                        order_side="ask", reduce_only=False,
-                    )
-                except requests.RequestException:
-                    self.ledger.finish_exit(client_id, False, 0.0)
-                    raise
-            else:
-                self.ledger.finish_exit(client_id, False, 0.0)
-                return LiveFill(
-                    False, client_id, ticker,
-                    reason=f"exit_http_{status}:{details[:200]}",
-                )
+            self.ledger.finish_exit(client_id, False, 0.0)
+            print(
+                f"KALSHI EXIT REJECTED ticker={ticker} client_order_id={client_id} "
+                f"status={status} response={details[:500]!r}",
+                flush=True,
+            )
+            return LiveFill(
+                False, client_id, ticker,
+                reason=f"exit_http_{status}:{details[:200]}",
+            )
         except requests.RequestException:
             # Leave an ambiguous exit pending. A duplicate will be rejected.
             raise

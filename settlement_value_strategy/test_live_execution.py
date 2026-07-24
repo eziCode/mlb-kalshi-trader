@@ -4,18 +4,21 @@ from pathlib import Path
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
+from contextlib import redirect_stdout
+from io import StringIO
 
 import requests
 
 from settlement_value_strategy.live_execution import (
-    LiveExecutor, LiveRiskLedger, contracts_for_budget,
+    KalshiAccountClient, LiveExecutor, LiveRiskLedger, contracts_for_budget,
 )
 from settlement_value_strategy.strategy import taker_fee
 
 
 class FakeClient:
-    def __init__(self, balance: float = 15.0):
+    def __init__(self, balance: float = 15.0, position: float = 100.0):
         self.balance = balance
+        self.position = position
         self.orders = []
 
     def available_balance(self):
@@ -25,7 +28,7 @@ class FakeClient:
         return []
 
     def position_contracts(self, ticker):
-        return 0.0
+        return self.position
 
     def create_fill_or_kill(
         self, ticker, count, price, client_order_id,
@@ -42,6 +45,26 @@ class FakeClient:
 
 
 class LiveExecutionTests(unittest.TestCase):
+    def test_api_error_log_includes_status_path_and_response_body(self):
+        client = KalshiAccountClient.__new__(KalshiAccountClient)
+        client._headers = Mock(return_value={})
+        response = Mock(
+            ok=False, status_code=400,
+            text='{"code":"invalid_order","message":"bad reduce_only"}',
+        )
+        response.raise_for_status.side_effect = requests.HTTPError(response=response)
+        output = StringIO()
+        with (
+            patch("settlement_value_strategy.live_execution.requests.request", return_value=response),
+            redirect_stdout(output),
+            self.assertRaises(requests.HTTPError),
+        ):
+            client.request("POST", "/portfolio/events/orders", json={})
+        logged = output.getvalue()
+        self.assertIn("status=400", logged)
+        self.assertIn("path=/portfolio/events/orders", logged)
+        self.assertIn("invalid_order", logged)
+
     def test_executor_can_use_all_liquid_cash_without_fixed_total_cap(self):
         with (
             tempfile.TemporaryDirectory() as directory,
@@ -190,7 +213,7 @@ class LiveExecutionTests(unittest.TestCase):
             self.assertEqual(len(rows), 1)
             self.assertEqual(rows[0]["settlement_probability"], .9)
 
-    def test_reduce_only_exit_releases_shared_capital(self):
+    def test_verified_non_reduce_only_exit_releases_shared_capital(self):
         with tempfile.TemporaryDirectory() as directory:
             executor = LiveExecutor.__new__(LiveExecutor)
             executor.client = FakeClient()
@@ -207,23 +230,13 @@ class LiveExecutionTests(unittest.TestCase):
                 ticker="TEST", contracts=3.0, price=.70,
             )
             self.assertTrue(fill.filled)
-            self.assertEqual(executor.client.orders[-1][-2:], ("ask", True))
+            self.assertEqual(executor.client.orders[-1][-2:], ("ask", False))
             self.assertEqual(executor.ledger.committed(), 0.0)
 
-    def test_exit_retries_rejected_reduce_only_after_position_check(self):
-        class ReduceOnlyRejectingClient(FakeClient):
-            def position_contracts(self, ticker):
-                return 3.0
-
-            def create_fill_or_kill(self, *args, **kwargs):
-                if kwargs.get("reduce_only"):
-                    response = Mock(status_code=400, text='{"error":"reduce_only"}')
-                    raise requests.HTTPError(response=response)
-                return super().create_fill_or_kill(*args, **kwargs)
-
+    def test_exit_checks_position_and_never_attempts_reduce_only(self):
         with tempfile.TemporaryDirectory() as directory:
             executor = LiveExecutor.__new__(LiveExecutor)
-            executor.client = ReduceOnlyRejectingClient()
+            executor.client = FakeClient(position=3.0)
             executor.ledger = LiveRiskLedger(Path(directory) / "risk.db", 15.0)
             entry_id = executor.ledger.reserve("entry", 1, "TEST", 2.0, 0, .8)
             executor.ledger.finish(type("Fill", (), {
@@ -235,8 +248,27 @@ class LiveExecutionTests(unittest.TestCase):
                 ticker="TEST", contracts=3.0, price=.36,
             )
             self.assertTrue(fill.filled)
+            self.assertEqual(len(executor.client.orders), 1)
             self.assertEqual(executor.client.orders[-1][-2:], ("ask", False))
             self.assertEqual(executor.ledger.committed(), 0.0)
+
+    def test_exit_is_not_submitted_without_sufficient_exchange_position(self):
+        with tempfile.TemporaryDirectory() as directory:
+            executor = LiveExecutor.__new__(LiveExecutor)
+            executor.client = FakeClient(position=2.99)
+            executor.ledger = LiveRiskLedger(Path(directory) / "risk.db", 15.0)
+            entry_id = executor.ledger.reserve("entry", 1, "TEST", 2.0, 0, .8)
+            executor.ledger.finish(type("Fill", (), {
+                "filled": True, "capital": 2.0, "contracts": 3.0,
+                "price": .60, "fee": .20, "client_order_id": entry_id,
+            })())
+            fill = executor.execute_exit(
+                trigger_key="exit", entry_client_order_id=entry_id,
+                ticker="TEST", contracts=3.0, price=.36,
+            )
+            self.assertFalse(fill.filled)
+            self.assertEqual(fill.reason, "insufficient_exchange_position")
+            self.assertFalse(executor.client.orders)
 
 
 if __name__ == "__main__":
