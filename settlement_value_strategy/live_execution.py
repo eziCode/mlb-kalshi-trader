@@ -71,6 +71,15 @@ class KalshiAccountClient:
             params={"limit": 1000, "count_filter": "position"},
         ).get("market_positions") or [])
 
+    def position_contracts(self, ticker: str) -> float:
+        for position in self.request(
+            "GET", "/portfolio/positions",
+            params={"ticker": ticker, "count_filter": "position"},
+        ).get("market_positions") or []:
+            if position.get("ticker") == ticker:
+                return float(position.get("position_fp") or 0)
+        return 0.0
+
     def create_fill_or_kill(
         self, ticker: str, count: float, price: float, client_order_id: str,
         order_side: str = "bid", reduce_only: bool = False,
@@ -510,6 +519,29 @@ class LiveExecutor:
                 ticker, contracts, price, client_id,
                 order_side="ask", reduce_only=True,
             )
+        except requests.HTTPError as error:
+            status = error.response.status_code if error.response is not None else 0
+            details = error.response.text if error.response is not None else str(error)
+            # Kalshi rejected a valid reduce-only ASK with HTTP 400 in production
+            # on 2026-07-23. A 4xx is definite (the first order did not exist), so
+            # safely retry without the flag only after independently confirming
+            # that the account owns at least this many YES contracts.
+            owned = self.client.position_contracts(ticker)
+            if status == 400 and owned + 1e-9 >= contracts:
+                try:
+                    result = self.client.create_fill_or_kill(
+                        ticker, contracts, price, client_id,
+                        order_side="ask", reduce_only=False,
+                    )
+                except requests.RequestException:
+                    self.ledger.finish_exit(client_id, False, 0.0)
+                    raise
+            else:
+                self.ledger.finish_exit(client_id, False, 0.0)
+                return LiveFill(
+                    False, client_id, ticker,
+                    reason=f"exit_http_{status}:{details[:200]}",
+                )
         except requests.RequestException:
             # Leave an ambiguous exit pending. A duplicate will be rejected.
             raise

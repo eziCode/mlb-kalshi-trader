@@ -12,6 +12,7 @@ import settlement_value_strategy.live_paper_trader as live_paper_trader
 from catboost import CatBoostClassifier
 
 from settlement_value_strategy.prepare_data import compact_execution_tape
+from settlement_value_strategy.backtest_live_policy import deployed_config
 from settlement_value_strategy.predict import MispricingPredictor
 from settlement_value_strategy.build_normalized_raw import pitch_times, state_model_frame
 from settlement_value_strategy.live_paper_trader import (
@@ -43,6 +44,13 @@ class PregameAnchorRetryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result, 0.55)
         self.assertEqual(fetch.call_count, 2)
         sleep.assert_awaited_once()
+
+
+class DeployedPolicyTests(unittest.TestCase):
+    def test_live_and_backtest_require_post_signal_fill_within_five_seconds(self):
+        config = deployed_config()
+        self.assertTrue(config.require_post_signal_trade)
+        self.assertEqual(config.maximum_fill_delay_seconds, 5.0)
 
 
 class PipelineTests(unittest.TestCase):

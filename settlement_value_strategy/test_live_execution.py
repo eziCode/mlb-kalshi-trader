@@ -3,7 +3,9 @@ from __future__ import annotations
 from pathlib import Path
 import tempfile
 import unittest
-from unittest.mock import patch
+from unittest.mock import Mock, patch
+
+import requests
 
 from settlement_value_strategy.live_execution import (
     LiveExecutor, LiveRiskLedger, contracts_for_budget,
@@ -21,6 +23,9 @@ class FakeClient:
 
     def positions(self):
         return []
+
+    def position_contracts(self, ticker):
+        return 0.0
 
     def create_fill_or_kill(
         self, ticker, count, price, client_order_id,
@@ -203,6 +208,34 @@ class LiveExecutionTests(unittest.TestCase):
             )
             self.assertTrue(fill.filled)
             self.assertEqual(executor.client.orders[-1][-2:], ("ask", True))
+            self.assertEqual(executor.ledger.committed(), 0.0)
+
+    def test_exit_retries_rejected_reduce_only_after_position_check(self):
+        class ReduceOnlyRejectingClient(FakeClient):
+            def position_contracts(self, ticker):
+                return 3.0
+
+            def create_fill_or_kill(self, *args, **kwargs):
+                if kwargs.get("reduce_only"):
+                    response = Mock(status_code=400, text='{"error":"reduce_only"}')
+                    raise requests.HTTPError(response=response)
+                return super().create_fill_or_kill(*args, **kwargs)
+
+        with tempfile.TemporaryDirectory() as directory:
+            executor = LiveExecutor.__new__(LiveExecutor)
+            executor.client = ReduceOnlyRejectingClient()
+            executor.ledger = LiveRiskLedger(Path(directory) / "risk.db", 15.0)
+            entry_id = executor.ledger.reserve("entry", 1, "TEST", 2.0, 0, .8)
+            executor.ledger.finish(type("Fill", (), {
+                "filled": True, "capital": 2.0, "contracts": 3.0,
+                "price": .60, "fee": .20, "client_order_id": entry_id,
+            })())
+            fill = executor.execute_exit(
+                trigger_key="exit", entry_client_order_id=entry_id,
+                ticker="TEST", contracts=3.0, price=.36,
+            )
+            self.assertTrue(fill.filled)
+            self.assertEqual(executor.client.orders[-1][-2:], ("ask", False))
             self.assertEqual(executor.ledger.committed(), 0.0)
 
 
