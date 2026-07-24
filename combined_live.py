@@ -62,13 +62,13 @@ def run(selected: date | None) -> int:
         "PAPER_LOG_DIR": os.getenv("PAPER_LOG_DIR", "/app/live-logs"),
     })
     settlement = common.copy()
-    settlement.setdefault(
-        "PAPER_PORTFOLIO_DB",
-        str(state / f"settlement_value_portfolio_{state_date}.sqlite3"),
+    settlement["PAPER_PORTFOLIO_DB"] = str(
+        state / f"settlement_value_portfolio_{state_date}.sqlite3"
     )
     hit = common.copy()
     hit.update({
         "ALLOW_UNVALIDATED_HYBRID": "1",
+        "SUPPRESS_SLATE_SUMMARY": "1",
         "PAPER_PORTFOLIO_DB": str(
             state / "hit-reversion" / f"hit_reversion_portfolio_{state_date}.sqlite3"
         ),

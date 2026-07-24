@@ -616,19 +616,23 @@ def run_daily_coordinator(game_date: date) -> int:
             "Set ALLOW_UNVALIDATED_HYBRID=1 to run multi-game paper mode."
         )
     games, warnings = discover_daily_games(game_date)
-    for warning in warnings:
-        print(f"WARNING: {warning}")
+    show_slate = os.getenv("SUPPRESS_SLATE_SUMMARY") != "1"
+    if show_slate:
+        for warning in warnings:
+            print(f"WARNING: {warning}")
     if not games:
-        print(f"No active matched MLB/Kalshi games for {game_date}")
+        if show_slate:
+            print(f"No active matched MLB/Kalshi games for {game_date}")
         return 0
-    print(f"Games for {game_date} ({len(games)}):", flush=True)
-    for game in games:
-        print(
-            f"  {game.scheduled_time.isoformat()} "
-            f"{game.away_code}@{game.home_code} game_pk={game.game_pk} "
-            f"ticker={game.market_ticker}",
-            flush=True,
-        )
+    if show_slate:
+        print(f"Games for {game_date} ({len(games)}):", flush=True)
+        for game in games:
+            print(
+                f"  {game.scheduled_time.isoformat()} "
+                f"{game.away_code}@{game.home_code} game_pk={game.game_pk} "
+                f"ticker={game.market_ticker}",
+                flush=True,
+            )
 
     log_dir = LOG_DIR
     log_dir.mkdir(parents=True, exist_ok=True)
@@ -636,10 +640,15 @@ def run_daily_coordinator(game_date: date) -> int:
         "PAPER_PORTFOLIO_DB",
         str(log_dir / f"hit_reversion_portfolio_{game_date.isoformat()}.sqlite3"),
     ))
-    portfolio = SharedPaperPortfolio(
-        portfolio_path,
-        float(os.getenv("PAPER_STARTING_CASH", "1000")),
-    )
+    live_available_cash = None
+    starting_cash = float(os.getenv("PAPER_STARTING_CASH", "1000"))
+    if LIVE_MODE:
+        live_available_cash = LiveExecutor(
+            Path(os.environ["LIVE_RISK_DB"])
+        ).client.available_balance()
+        if not portfolio_path.exists():
+            starting_cash = live_available_cash
+    portfolio = SharedPaperPortfolio(portfolio_path, starting_cash)
     children: list[
         tuple[DiscoveredGame, subprocess.Popen, object, threading.Thread]
     ] = []
@@ -681,11 +690,20 @@ def run_daily_coordinator(game_date: date) -> int:
                 flush=True,
             )
         opening = portfolio.metrics()
-        print(
-            f"Running {len(children)} isolated "
-            f"{'LIVE' if LIVE_MODE else 'paper'} traders with shared "
-            f"cash=${opening.cash:.2f}."
-        )
+        if show_slate:
+            if LIVE_MODE:
+                live_available_cash = LiveExecutor(
+                    Path(os.environ["LIVE_RISK_DB"])
+                ).client.available_balance()
+                print(
+                    f"Running {len(children)} isolated LIVE traders with "
+                    f"Kalshi available cash=${live_available_cash:.2f}."
+                )
+            else:
+                print(
+                    f"Running {len(children)} isolated paper traders with "
+                    f"shared cash=${opening.cash:.2f}."
+                )
         return_code = 0
         for game, process, _, relay in children:
             code = process.wait()
@@ -693,12 +711,13 @@ def run_daily_coordinator(game_date: date) -> int:
             if code:
                 return_code = code
                 print(f"Game {game.game_pk} exited with status {code}")
-        final = portfolio.metrics()
-        print(
-            f"Shared portfolio: cash=${final.cash:.2f} "
-            f"equity=${final.equity:.2f} PnL=${final.pnl:+.2f} "
-            f"open_positions={final.open_positions}"
-        )
+        if show_slate:
+            final = portfolio.metrics()
+            print(
+                f"Shared portfolio: cash=${final.cash:.2f} "
+                f"equity=${final.equity:.2f} PnL=${final.pnl:+.2f} "
+                f"open_positions={final.open_positions}"
+            )
         return return_code
     except KeyboardInterrupt:
         print("Stopping all paper traders...")
@@ -1340,7 +1359,8 @@ async def main() -> None:
                         position.entry_client_order_id
                     )
                 print(
-                    f"TRADE SETTLE {position.side.upper()} "
+                    f"TRADE SETTLE strategy=hit_reversion "
+                    f"side={position.side.upper()} "
                     f"result={'WIN' if won else 'LOSS'} "
                     f"contracts={position.contracts:.4f} payout={payout:.4f} "
                     f"reason=GAME_FINAL game_pk={GAME_PK} "
@@ -1457,7 +1477,8 @@ async def main() -> None:
                 reason = str(exit_fill.get("reason") or "TARGET_REVERSION")
                 action = f"CLOSE_{position.side.upper()}_{reason}"
                 print(
-                    f"TRADE SELL {closed_side.upper()} "
+                    f"TRADE SELL strategy=hit_reversion "
+                    f"side={closed_side.upper()} "
                     f"contracts={closed_contracts:.4f} price={price:.4f} "
                     f"fee={fee:.4f} reason={reason} game_pk={GAME_PK} "
                     f"ticker={MARKET_TICKER}",
@@ -1694,7 +1715,8 @@ async def main() -> None:
                             f"{candidate.event_type.upper()}"
                         )
                         print(
-                            f"TRADE BUY {candidate.side.upper()} "
+                            f"TRADE BUY strategy=hit_reversion "
+                            f"side={candidate.side.upper()} "
                             f"contracts={contracts:.4f} price={price:.4f} "
                             f"fee={fee:.4f} reason={candidate.event_type.upper()} "
                             f"game_pk={GAME_PK} ticker={MARKET_TICKER}",

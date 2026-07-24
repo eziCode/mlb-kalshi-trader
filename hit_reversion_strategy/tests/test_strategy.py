@@ -10,7 +10,7 @@ import pandas as pd
 from scripts.paper_trade import (
     EventCandidate, match_games_to_home_markets, pre_pitch_trade_anchor,
     LIVE_ORDER_BUDGET, Position, replay_candidate_entry, replay_position_exit,
-    SharedPaperPortfolio, state_model_frame,
+    run_daily_coordinator, SharedPaperPortfolio, state_model_frame,
     main, should_surface_worker_line,
 )
 from trade_tape_strategy.core import (
@@ -22,6 +22,10 @@ from trade_tape_strategy.core import (
 
 
 class TradeTapeStrategyTests(unittest.TestCase):
+    def test_combined_runtime_can_suppress_duplicate_slate_summary(self):
+        source = inspect.getsource(run_daily_coordinator)
+        self.assertIn('os.getenv("SUPPRESS_SLATE_SUMMARY") != "1"', source)
+
     def test_live_orders_use_two_dollar_budget(self):
         self.assertEqual(LIVE_ORDER_BUDGET, 2.0)
 
@@ -324,7 +328,9 @@ class TradeTapeStrategyTests(unittest.TestCase):
 
     def test_main_log_surfaces_readiness_and_trades(self):
         self.assertTrue(should_surface_worker_line("TRADER READY game_pk=1"))
-        self.assertTrue(should_surface_worker_line("TRADE SELL YES"))
+        self.assertTrue(should_surface_worker_line(
+            "TRADE SELL strategy=hit_reversion side=YES"
+        ))
         self.assertFalse(should_surface_worker_line("Initialized baseline"))
 
     def test_trade_signal_is_relative_to_yes_price_after_fees(self):

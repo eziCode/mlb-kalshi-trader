@@ -223,7 +223,6 @@ docker run -d \
   -e LIVE_MAX_TOTAL_CAPITAL=ALL_LIQUID_CASH \
   -e LIVE_MAX_ORDER_CAPITAL=0.75 \
   -e LIVE_RISK_DB=/app/live-state/risk.sqlite3 \
-  -e PAPER_PORTFOLIO_DB=/app/live-state/portfolio.sqlite3 \
   -e PAPER_STARTING_CASH=15 \
   -e PAPER_LOG_DIR=/app/live-logs \
   -v "$PWD/secrets/kalshi-private.key:/run/secrets/kalshi-private.key:ro" \

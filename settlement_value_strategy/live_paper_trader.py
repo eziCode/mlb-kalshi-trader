@@ -1043,7 +1043,8 @@ async def run_worker() -> None:
                     payout = position.contracts if won else 0.0
                     total_payout += payout
                     print(
-                        f"TRADE SETTLE {position.side.upper()} "
+                        f"TRADE SETTLE strategy=settlement_value "
+                        f"side={position.side.upper()} "
                         f"result={'WIN' if won else 'LOSS'} "
                         f"contracts={position.contracts:.4f} "
                         f"payout={payout:.4f} reason=GAME_FINAL "
@@ -1314,7 +1315,8 @@ async def run_worker() -> None:
                         positions.append(proposed)
                         action = f"OPEN_{execution_side.upper()}"
                         print(
-                            f"TRADE BUY {'AWAY YES' if route_away_yes else side.upper()} "
+                            f"TRADE BUY strategy=settlement_value "
+                            f"side={'AWAY YES' if route_away_yes else side.upper()} "
                             f"contracts={contracts:.4f} "
                             f"price={price:.4f} fee={fee:.4f} "
                             f"signal_age={execution_age:.3f}s "
@@ -1429,9 +1431,15 @@ def run_all_games(game_date: date) -> int:
         "PAPER_PORTFOLIO_DB",
         str(LOG_DIR / f"settlement_value_portfolio_{game_date}.sqlite3"),
     ))
-    portfolio = SharedPaperPortfolio(
-        database, float(os.getenv("PAPER_STARTING_CASH", "1000"))
-    )
+    live_available_cash = None
+    starting_cash = float(os.getenv("PAPER_STARTING_CASH", "1000"))
+    if LIVE_MODE:
+        live_available_cash = LiveExecutor(
+            Path(os.environ["LIVE_RISK_DB"])
+        ).client.available_balance()
+        if not database.exists():
+            starting_cash = live_available_cash
+    portfolio = SharedPaperPortfolio(database, starting_cash)
     reconcile_final_positions(portfolio)
     games, warnings = discover_daily_games(game_date)
     for warning in warnings:
@@ -1499,11 +1507,19 @@ def run_all_games(game_date: date) -> int:
         for game in games:
             start_worker(game)
         opening = portfolio.metrics()
-        print(
-            f"Running {len(children)} isolated "
-            f"{'LIVE' if LIVE_MODE else 'paper'} traders with shared "
-            f"cash=${opening.cash:.2f}."
-        )
+        if LIVE_MODE:
+            live_available_cash = LiveExecutor(
+                Path(os.environ["LIVE_RISK_DB"])
+            ).client.available_balance()
+            print(
+                f"Running {len(children)} isolated LIVE traders with "
+                f"Kalshi available cash=${live_available_cash:.2f}."
+            )
+        else:
+            print(
+                f"Running {len(children)} isolated paper traders with shared "
+                f"cash=${opening.cash:.2f}."
+            )
         return_code = 0
         while children:
             for game_pk, child in list(children.items()):

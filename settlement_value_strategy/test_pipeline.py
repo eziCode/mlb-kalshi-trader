@@ -292,7 +292,9 @@ class PipelineTests(unittest.TestCase):
 
     def test_main_log_surfaces_readiness_and_trades(self):
         self.assertTrue(should_surface_worker_line("TRADER READY game_pk=1"))
-        self.assertTrue(should_surface_worker_line("TRADE BUY NO"))
+        self.assertTrue(should_surface_worker_line(
+            "TRADE BUY strategy=settlement_value side=NO"
+        ))
         self.assertFalse(should_surface_worker_line("INITIALIZE_LIVE_BASELINE"))
 
     def test_live_pitch_sequence_rejects_polling_gap(self):
