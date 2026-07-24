@@ -1,4 +1,4 @@
-"""Authenticated Kalshi execution with durable, conservative risk limits."""
+"""Shared authenticated Kalshi execution and durable account-level risk limits."""
 
 from __future__ import annotations
 
@@ -21,11 +21,17 @@ from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import padding
 import requests
 
-from settlement_value_strategy.strategy import taker_fee
-
-
 API_ROOT = "https://external-api.kalshi.com/trade-api/v2"
 REAL_MONEY_ACK = "YES_I_UNDERSTAND_THIS_PLACES_REAL_ORDERS"
+TAKER_FEE_RATE = 0.07
+
+
+def taker_fee(contracts: float, price: float) -> float:
+    """Kalshi taker fee shared by every live strategy."""
+    if contracts <= 0:
+        return 0.0
+    raw = TAKER_FEE_RATE * contracts * price * (1.0 - price)
+    return math.ceil(raw * 100.0 - 1e-12) / 100.0
 
 
 class KalshiAccountClient:

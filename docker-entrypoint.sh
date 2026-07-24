@@ -73,7 +73,7 @@ run_mispricing() {
                 --all-games "$@"
             ;;
         live-status|live_status)
-            exec python -m settlement_value_strategy.live_execution \
+            exec python -m live_trading.execution \
                 account-status "$@"
             ;;
         portfolio-status|portfolio_status|status)

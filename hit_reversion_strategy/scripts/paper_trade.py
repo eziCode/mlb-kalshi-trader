@@ -43,7 +43,7 @@ from trade_tape_strategy.strategy import (  # noqa: E402
 )
 from shared_kalshi_feed import get_market as get_shared_market  # noqa: E402
 from shared_mlb_feed import get_game as get_shared_game  # noqa: E402
-from settlement_value_strategy.live_execution import (  # noqa: E402
+from live_trading.execution import (  # noqa: E402
     LiveExecutor, REAL_MONEY_ACK,
 )
 

@@ -9,7 +9,7 @@ from io import StringIO
 
 import requests
 
-from settlement_value_strategy.live_execution import (
+from live_trading.execution import (
     KalshiAccountClient, LiveExecutor, LiveRiskLedger, contracts_for_budget,
 )
 from settlement_value_strategy.strategy import taker_fee
@@ -55,7 +55,7 @@ class LiveExecutionTests(unittest.TestCase):
         response.raise_for_status.side_effect = requests.HTTPError(response=response)
         output = StringIO()
         with (
-            patch("settlement_value_strategy.live_execution.requests.request", return_value=response),
+            patch("live_trading.execution.requests.request", return_value=response),
             redirect_stdout(output),
             self.assertRaises(requests.HTTPError),
         ):
@@ -74,7 +74,7 @@ class LiveExecutionTests(unittest.TestCase):
                 "LIVE_MAX_TOTAL_CAPITAL": "ALL_LIQUID_CASH",
             }),
             patch(
-                "settlement_value_strategy.live_execution.KalshiAccountClient",
+                "live_trading.execution.KalshiAccountClient",
                 return_value=FakeClient(balance=38.70),
             ),
         ):
@@ -105,7 +105,7 @@ class LiveExecutionTests(unittest.TestCase):
                 "LIVE_MAX_TOTAL_CAPITAL": "34.36",
             }),
             patch(
-                "settlement_value_strategy.live_execution.KalshiAccountClient",
+                "live_trading.execution.KalshiAccountClient",
                 return_value=FakeClient(balance=34.36),
             ),
         ):

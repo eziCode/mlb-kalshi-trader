@@ -40,7 +40,7 @@ if str(REPOSITORY_ROOT) not in sys.path:
 
 from settlement_value_strategy.build_normalized_raw import state_model_frame
 from settlement_value_strategy.predict import MispricingPredictor
-from settlement_value_strategy.live_execution import (
+from live_trading.execution import (
     LiveExecutor, REAL_MONEY_ACK,
 )
 from settlement_value_strategy.strategy import (

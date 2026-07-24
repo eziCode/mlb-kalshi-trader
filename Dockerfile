@@ -23,6 +23,7 @@ RUN pip install --no-cache-dir \
 
 COPY settlement_value_strategy /app/settlement_value_strategy
 COPY hit_reversion_strategy /app/hit_reversion_strategy
+COPY live_trading /app/live_trading
 COPY data /app/data
 COPY setup_data.py /app/setup_data.py
 COPY shared_kalshi_feed.py /app/shared_kalshi_feed.py
