@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import os
+import json
+from pathlib import Path
+import tempfile
 import unittest
 from unittest.mock import Mock, patch
 
@@ -98,6 +101,37 @@ class SharedMlbFeedTests(unittest.TestCase):
         self.assertIn("event_type=single", messages)
         self.assertIn("runners_populated=True", messages)
         self.assertIn("MLB_ATBAT_PROGRESSION", messages)
+
+    def test_persists_raw_transition_evidence_and_upstream_timing(self):
+        state = feed.FeedState()
+        game = feed.GameFeed()
+        play = {
+            "atBatIndex": 4,
+            "about": {"isComplete": False},
+            "result": {"eventType": "single"},
+            "runners": [{"movement": {"end": "1B", "isOut": False}}],
+            "playEvents": [{"isPitch": True, "endTime": "pitch-end"}],
+        }
+        payload = {
+            "gameData": {"status": {"abstractGameState": "Live"}},
+            "liveData": {
+                "plays": {"allPlays": [play]},
+                "linescore": {"currentInning": 3},
+            },
+        }
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            os.environ, {"PAPER_LOG_DIR": directory}
+        ), patch("builtins.print"):
+            state._log_play_transitions(
+                123, game, payload, "2026-07-25T01:00:01+00:00",
+                {"request_elapsed_seconds": 0.125, "age": "0"},
+            )
+            path = Path(directory) / "mlb_feed_transitions_2026-07-25.jsonl"
+            record = json.loads(path.read_text().strip())
+        self.assertEqual(record["play"]["result"]["eventType"], "single")
+        self.assertEqual(record["linescore"]["currentInning"], 3)
+        self.assertEqual(record["upstream"]["request_elapsed_seconds"], .125)
+        self.assertEqual(record["upstream"]["age"], "0")
 
 
 if __name__ == "__main__":

@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
 import os
+from pathlib import Path
 import random
 import threading
 import time
@@ -131,8 +132,22 @@ class FeedState:
         return session
 
     @staticmethod
+    def _append_transition_record(record: dict, observed_at: str) -> None:
+        log_dir = Path(os.getenv("PAPER_LOG_DIR", "live_logs"))
+        try:
+            log_dir.mkdir(parents=True, exist_ok=True)
+            date = observed_at[:10] if len(observed_at) >= 10 else "unknown"
+            path = log_dir / f"mlb_feed_transitions_{date}.jsonl"
+            with path.open("a", encoding="utf-8") as output:
+                output.write(json.dumps(record, separators=(",", ":")))
+                output.write("\n")
+        except OSError as error:
+            print(f"MLB_TRANSITION_LOG_ERROR error={error}", flush=True)
+
+    @staticmethod
     def _log_play_transitions(
         game_pk: int, game: GameFeed, payload: dict, observed_at: str,
+        upstream: dict | None = None,
     ) -> None:
         plays = payload.get("liveData", {}).get("plays", {}) or {}
         values = list(plays.get("allPlays") or [])
@@ -146,7 +161,9 @@ class FeedState:
             return
         play = max(indexed, key=lambda item: int(item["atBatIndex"]))
         at_bat = int(play["atBatIndex"])
-        if game.last_at_bat_index is not None and at_bat > game.last_at_bat_index:
+        previous_at_bat = game.last_at_bat_index
+        progressed = previous_at_bat is not None and at_bat > previous_at_bat
+        if progressed:
             print(
                 f"MLB_ATBAT_PROGRESSION game_pk={game_pk} "
                 f"previous_at_bat={game.last_at_bat_index} "
@@ -174,6 +191,29 @@ class FeedState:
                 f"latest_pitch_end={stage[4]} observed_at={observed_at}",
                 flush=True,
             )
+            previous_play = next((
+                item for item in indexed
+                if progressed and int(item["atBatIndex"]) == previous_at_bat
+            ), None)
+            FeedState._append_transition_record({
+                "kind": "mlb_play_transition",
+                "game_pk": game_pk,
+                "observed_at": observed_at,
+                "previous_at_bat": previous_at_bat,
+                "at_bat": at_bat,
+                "at_bat_progressed": progressed,
+                "stage": {
+                    "event_type": event_type or None,
+                    "runners_populated": stage[2],
+                    "is_complete": stage[3],
+                    "latest_pitch_end": stage[4],
+                },
+                "upstream": upstream or {},
+                "play": play,
+                "previous_play": previous_play,
+                "linescore": payload.get("liveData", {}).get("linescore"),
+                "game_status": payload.get("gameData", {}).get("status"),
+            }, observed_at)
             game.last_play_stage = stage
 
     def _poll_game(self, game_pk: int) -> None:
@@ -192,10 +232,18 @@ class FeedState:
                         "status", {}
                     ).get("abstractGameState") or "Unknown")
                     observed_at = datetime.now(timezone.utc).isoformat()
+                    upstream = {
+                        "request_elapsed_seconds": response.elapsed.total_seconds(),
+                        "date": response.headers.get("Date"),
+                        "age": response.headers.get("Age"),
+                        "cache_control": response.headers.get("Cache-Control"),
+                        "etag": response.headers.get("ETag"),
+                        "last_modified": response.headers.get("Last-Modified"),
+                    }
                     with self.lock:
                         game = self.games[game_pk]
                         self._log_play_transitions(
-                            game_pk, game, payload, observed_at
+                            game_pk, game, payload, observed_at, upstream
                         )
                         game.payload = payload
                         game.received_at = observed_at
