@@ -163,13 +163,6 @@ class FeedState:
         at_bat = int(play["atBatIndex"])
         previous_at_bat = game.last_at_bat_index
         progressed = previous_at_bat is not None and at_bat > previous_at_bat
-        if progressed:
-            print(
-                f"MLB_ATBAT_PROGRESSION game_pk={game_pk} "
-                f"previous_at_bat={game.last_at_bat_index} "
-                f"current_at_bat={at_bat} observed_at={observed_at}",
-                flush=True,
-            )
         game.last_at_bat_index = max(game.last_at_bat_index or at_bat, at_bat)
         event_type = str(play.get("result", {}).get("eventType") or "")
         runners = play.get("runners")
@@ -184,13 +177,6 @@ class FeedState:
             max(pitch_ends) if pitch_ends else None,
         )
         if stage != game.last_play_stage:
-            print(
-                f"MLB_PLAY_STAGE game_pk={game_pk} at_bat={at_bat} "
-                f"event_type={event_type or 'NONE'} "
-                f"runners_populated={stage[2]} is_complete={stage[3]} "
-                f"latest_pitch_end={stage[4]} observed_at={observed_at}",
-                flush=True,
-            )
             previous_play = next((
                 item for item in indexed
                 if progressed and int(item["atBatIndex"]) == previous_at_bat

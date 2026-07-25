@@ -79,7 +79,7 @@ class SharedMlbFeedTests(unittest.TestCase):
         finally:
             session.close()
 
-    def test_logs_result_runners_and_at_bat_progression(self):
+    def test_stores_result_runners_and_at_bat_progression_without_printing(self):
         state = feed.FeedState()
         game = feed.GameFeed()
         play = {
@@ -90,17 +90,26 @@ class SharedMlbFeedTests(unittest.TestCase):
             "playEvents": [{"isPitch": True, "endTime": "2026-07-25T01:00:00Z"}],
         }
         payload = {"liveData": {"plays": {"allPlays": [play]}}}
-        with patch("builtins.print") as output:
-            state._log_play_transitions(123, game, payload, "observed-1")
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            os.environ, {"PAPER_LOG_DIR": directory}
+        ), patch("builtins.print") as output:
+            state._log_play_transitions(
+                123, game, payload, "2026-07-25T01:00:01+00:00"
+            )
             payload["liveData"]["plays"]["allPlays"].append({
                 "atBatIndex": 5, "about": {}, "result": {},
                 "runners": [], "playEvents": [],
             })
-            state._log_play_transitions(123, game, payload, "observed-2")
-        messages = "\n".join(str(call.args[0]) for call in output.call_args_list)
-        self.assertIn("event_type=single", messages)
-        self.assertIn("runners_populated=True", messages)
-        self.assertIn("MLB_ATBAT_PROGRESSION", messages)
+            state._log_play_transitions(
+                123, game, payload, "2026-07-25T01:00:02+00:00"
+            )
+            path = Path(directory) / "mlb_feed_transitions_2026-07-25.jsonl"
+            records = [json.loads(line) for line in path.read_text().splitlines()]
+        output.assert_not_called()
+        self.assertEqual(records[0]["stage"]["event_type"], "single")
+        self.assertTrue(records[0]["stage"]["runners_populated"])
+        self.assertTrue(records[1]["at_bat_progressed"])
+        self.assertEqual(records[1]["previous_at_bat"], 4)
 
     def test_persists_raw_transition_evidence_and_upstream_timing(self):
         state = feed.FeedState()
