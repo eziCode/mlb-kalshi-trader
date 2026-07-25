@@ -620,6 +620,33 @@ def _latest_pitch(payload: dict) -> tuple[int, int, str] | None:
     return latest
 
 
+def _completed_play_score_for_pitch(
+    payload: dict, pitch_token: tuple[int, int, str] | None,
+) -> tuple[int, int] | None:
+    """Return (home, away) when the latest pitch's play is complete.
+
+    MLB can publish a completed scoring play in ``allPlays`` one poll before
+    updating ``linescore``. Combining that new pitch with the old score creates
+    a game state that never existed. Only compare scores when the latest pitch
+    belongs to a completed play; an in-progress at-bat may legitimately have a
+    linescore newer than the preceding completed play (for example, a wild
+    pitch that scores a run).
+    """
+    if pitch_token is None:
+        return None
+    latest_at_bat = pitch_token[0]
+    for play in payload.get("liveData", {}).get("plays", {}).get("allPlays", []):
+        if int(play.get("atBatIndex", -1)) != latest_at_bat:
+            continue
+        if not bool(play.get("about", {}).get("isComplete")):
+            return None
+        result = play.get("result") or {}
+        if "homeScore" not in result or "awayScore" not in result:
+            return None
+        return int(result["homeScore"]), int(result["awayScore"])
+    return None
+
+
 def fetch_mlb_payload(
     game_pk: int, timeout: float = 5.0,
 ) -> tuple[dict, datetime]:
@@ -658,6 +685,19 @@ def fetch_game_snapshot() -> GameSnapshot:
     teams = linescore.get("teams") or {}
     home = int(teams.get("home", {}).get("runs") or 0)
     away = int(teams.get("away", {}).get("runs") or 0)
+    pitch_token = _latest_pitch(payload)
+    completed_play_score = _completed_play_score_for_pitch(payload, pitch_token)
+    if (
+        status == "Live"
+        and completed_play_score is not None
+        and completed_play_score != (home, away)
+    ):
+        raise RuntimeError(
+            "Inconsistent MLB snapshot: latest completed play reports "
+            f"home={completed_play_score[0]} away={completed_play_score[1]} "
+            f"but linescore reports home={home} away={away}; waiting for "
+            "an atomic score update"
+        )
     offense = linescore.get("offense") or {}
     state = {
         "inning": int(linescore.get("currentInning") or 1),
@@ -672,7 +712,7 @@ def fetch_game_snapshot() -> GameSnapshot:
     }
     return GameSnapshot(
         received_at, status, state, home, away,
-        _latest_pitch(payload),
+        pitch_token,
     )
 
 

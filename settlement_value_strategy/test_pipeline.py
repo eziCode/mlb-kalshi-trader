@@ -54,6 +54,61 @@ class DeployedPolicyTests(unittest.TestCase):
 
 
 class PipelineTests(unittest.TestCase):
+    @staticmethod
+    def _scoring_play_payload(linescore_away: int) -> dict:
+        return {
+            "gameData": {"status": {"abstractGameState": "Live"}},
+            "liveData": {
+                "linescore": {
+                    "inningState": "Top",
+                    "currentInning": 10,
+                    "outs": 2,
+                    "balls": 2,
+                    "strikes": 0,
+                    "teams": {
+                        "home": {"runs": 1},
+                        "away": {"runs": linescore_away},
+                    },
+                    "offense": {"first": {}, "second": {}},
+                },
+                "plays": {"allPlays": [{
+                    "atBatIndex": 71,
+                    "about": {"isComplete": True},
+                    "result": {"homeScore": 1, "awayScore": 2},
+                    "playEvents": [{
+                        "isPitch": True,
+                        "pitchNumber": 3,
+                        "endTime": "2026-07-25T01:07:33.298Z",
+                    }],
+                }]},
+            },
+        }
+
+    def test_live_snapshot_rejects_completed_scoring_play_with_stale_linescore(self):
+        payload = self._scoring_play_payload(linescore_away=1)
+        with (
+            patch.object(live_paper_trader, "GAME_PK", 823352),
+            patch(
+                "settlement_value_strategy.live_paper_trader.fetch_mlb_payload",
+                return_value=(payload, pd.Timestamp("2026-07-25T01:07:34Z").to_pydatetime()),
+            ),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "Inconsistent MLB snapshot"):
+                live_paper_trader.fetch_game_snapshot()
+
+    def test_live_snapshot_accepts_scoring_play_after_linescore_catches_up(self):
+        payload = self._scoring_play_payload(linescore_away=2)
+        with (
+            patch.object(live_paper_trader, "GAME_PK", 823352),
+            patch(
+                "settlement_value_strategy.live_paper_trader.fetch_mlb_payload",
+                return_value=(payload, pd.Timestamp("2026-07-25T01:07:44Z").to_pydatetime()),
+            ),
+        ):
+            snapshot = live_paper_trader.fetch_game_snapshot()
+        self.assertEqual(snapshot.pitch_token[:2], (71, 3))
+        self.assertEqual(snapshot.state["score_diff"], -1)
+
     def test_postponed_doubleheader_matches_original_ticker_date(self):
         response = Mock()
         response.raise_for_status.return_value = None
