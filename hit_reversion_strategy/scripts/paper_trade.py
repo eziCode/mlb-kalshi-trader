@@ -117,6 +117,8 @@ class GameSnapshot:
     latest_completed_pitch_token: tuple | None
     event_is_complete: bool | None = None
     event_source: str | None = None
+    event_state: dict | None = None
+    event_terminal_reason: str | None = None
 
 
 @dataclass
@@ -914,6 +916,81 @@ def resolved_play_score(play: dict | None) -> tuple[int, int] | None:
     return int(result["homeScore"]), int(result["awayScore"])
 
 
+def play_has_atomic_runner_state(play: dict | None) -> bool:
+    """Require a complete, internally usable runner movement list."""
+    if not play:
+        return False
+    runners = play.get("runners")
+    if not isinstance(runners, list) or not runners:
+        return False
+    for runner in runners:
+        movement = runner.get("movement") or {}
+        if movement.get("end") is None and not bool(movement.get("isOut")):
+            return False
+    return True
+
+
+def maximum_at_bat_index(payload: dict) -> int | None:
+    plays = payload.get("liveData", {}).get("plays", {}) or {}
+    values = list(plays.get("allPlays") or [])
+    if isinstance(plays.get("currentPlay"), dict):
+        values.append(plays["currentPlay"])
+    indices = [
+        int(play["atBatIndex"])
+        for play in values
+        if isinstance(play, dict) and play.get("atBatIndex") is not None
+    ]
+    return max(indices) if indices else None
+
+
+def play_terminal_reason(payload: dict, play: dict | None) -> str | None:
+    if not play or play.get("atBatIndex") is None:
+        return None
+    if bool(play.get("about", {}).get("isComplete")):
+        return "isComplete"
+    maximum = maximum_at_bat_index(payload)
+    if maximum is not None and maximum > int(play["atBatIndex"]):
+        return "atBatProgression"
+    return None
+
+
+def event_within_entry_window(
+    game: GameSnapshot, now: datetime, maximum_age_seconds: float,
+) -> bool:
+    event_time = pitch_token_time(game.completed_event_pitch_token)
+    return bool(
+        event_time is not None
+        and 0 <= (now - event_time).total_seconds() <= maximum_age_seconds
+    )
+
+
+def state_from_play(play: dict) -> dict:
+    """Build post-play model state only from one atomic play object."""
+    result = play.get("result") or {}
+    about = play.get("about") or {}
+    count = play.get("count") or {}
+    required = {"homeScore", "awayScore"}
+    if not required.issubset(result) or "outs" not in count:
+        raise ValueError("Resolved play lacks post-play score or outs")
+    occupied = {"1B": 0, "2B": 0, "3B": 0}
+    for runner in play.get("runners") or []:
+        movement = runner.get("movement") or {}
+        end = movement.get("end")
+        if not bool(movement.get("isOut")) and end in occupied:
+            occupied[end] = 1
+    return {
+        "inning": int(about.get("inning") or 1),
+        "inning_topbot": int(not bool(about.get("isTopInning"))),
+        "outs_when_up": int(count["outs"]),
+        "score_diff": int(result["homeScore"]) - int(result["awayScore"]),
+        "balls": 0,
+        "strikes": 0,
+        "runner_on_first": occupied["1B"],
+        "runner_on_second": occupied["2B"],
+        "runner_on_third": occupied["3B"],
+    }
+
+
 def event_inputs_aligned(game: GameSnapshot) -> bool:
     """Require the event and newest pitch/state observation to be one play."""
     event_token = game.completed_event_pitch_token
@@ -1166,7 +1243,15 @@ def fetch_game_snapshot() -> GameSnapshot:
     home_score = int(teams.get("home", {}).get("runs") or 0)
     away_score = int(teams.get("away", {}).get("runs") or 0)
     offense = linescore.get("offense") or {}
-    latest_play, event_source = latest_resolved_play(payload)
+    resolved_play, event_source = latest_resolved_play(payload)
+    terminal_reason = play_terminal_reason(payload, resolved_play)
+    latest_play = (
+        resolved_play
+        if play_has_atomic_runner_state(resolved_play)
+        else None
+    )
+    if latest_play is not None and terminal_reason is None:
+        terminal_reason = "atomicPlay"
     completed_event_id = (
         int(latest_play.get("atBatIndex"))
         if latest_play is not None and latest_play.get("atBatIndex") is not None
@@ -1182,16 +1267,6 @@ def fetch_game_snapshot() -> GameSnapshot:
         if latest_play is not None
         else None
     )
-    play_score = resolved_play_score(latest_play)
-    if status == "Live" and play_score is not None and play_score != (
-        home_score, away_score
-    ):
-        raise RuntimeError(
-            "Inconsistent MLB hit-reversion snapshot: resolved play reports "
-            f"home={play_score[0]} away={play_score[1]} but linescore reports "
-            f"home={home_score} away={away_score}; waiting for an atomic "
-            "score update"
-        )
     state = {
         "inning": int(linescore.get("currentInning") or 1),
         "inning_topbot": topbot,
@@ -1212,7 +1287,9 @@ def fetch_game_snapshot() -> GameSnapshot:
             bool(latest_play.get("about", {}).get("isComplete"))
             if latest_play is not None else None
         ),
-        event_source,
+        event_source if latest_play is not None else None,
+        state_from_play(latest_play) if latest_play is not None else None,
+        terminal_reason if latest_play is not None else None,
     )
 
 
@@ -1404,7 +1481,8 @@ async def main() -> None:
                 "decision_time", "market_received_at", "state_received_at",
                 "bid", "ask", "inning", "outs", "score_diff", "fair_prob",
                 "completed_event_id", "completed_event", "event_is_complete",
-                "event_source", "event_pitch_end", "event_detection_latency_seconds",
+                "event_source", "event_terminal_reason", "event_pitch_end",
+                "event_detection_latency_seconds",
                 "latest_pitch_at_bat", "latest_pitch_number", "target", "excess_move",
                 "edge", "continuation_value", "exit_advantage", "action",
                 "portfolio_cash", "portfolio_equity", "portfolio_pnl",
@@ -1502,12 +1580,14 @@ async def main() -> None:
             game.completed_event,
             game.completed_event_pitch_token,
             game.event_is_complete,
+            game.event_terminal_reason,
         )
         if event_signature != last_logged_event_signature:
             print(
                 "MLB_EVENT_TRANSITION strategy=hit_reversion "
                 f"game_pk={GAME_PK} event_id={game.completed_event_id} "
                 f"event={game.completed_event} source={game.event_source} "
+                f"terminal_reason={game.event_terminal_reason} "
                 f"is_complete={game.event_is_complete} "
                 f"event_pitch={game.completed_event_pitch_token} "
                 f"latest_pitch={game.latest_completed_pitch_token} "
@@ -1632,7 +1712,8 @@ async def main() -> None:
                 candidate is not None
                 and (
                     game.completed_event_id != candidate.event_id
-                    or material_state(game.state) != candidate.material_state
+                    or game.event_state is None
+                    or material_state(game.event_state) != candidate.material_state
                 )
             ):
                 candidate = None
@@ -1644,8 +1725,15 @@ async def main() -> None:
                 and previous_market is not None
                 and previous_fair is not None
                 and pitch_token_time(game.latest_completed_pitch_token) is not None
+                and event_within_entry_window(
+                    game, now,
+                    hybrid_config.maximum_event_to_entry_seconds,
+                )
             ):
                 event_pitch_token = game.completed_event_pitch_token
+                event_fair_prob = home_fair_probability(
+                    state_model, pregame_prob, game.event_state
+                )
                 pitch_start = pitch_token_start_time(event_pitch_token)
                 pre_event_market = (
                     pre_pitch_trade_anchor(
@@ -1655,7 +1743,7 @@ async def main() -> None:
                     if pitch_start is not None else None
                 )
                 signed_fair_move = (
-                    float(fair_prob) - previous_fair
+                    float(event_fair_prob) - previous_fair
                 ) * (
                     1.0 if game.completed_event_batting_home else -1.0
                 )
@@ -1664,7 +1752,7 @@ async def main() -> None:
                     and pre_event_market is not None
                 ):
                     target = float(anchored_event_target(
-                        pre_event_market, previous_fair, fair_prob
+                        pre_event_market, previous_fair, event_fair_prob
                     ))
                     event_type = str(game.completed_event)
                     side_candidates = []
@@ -1713,8 +1801,8 @@ async def main() -> None:
                             ),
                             pre_market=pre_event_market,
                             pre_fair=previous_fair,
-                            post_fair=fair_prob,
-                            material_state=material_state(game.state),
+                            post_fair=event_fair_prob,
+                            material_state=material_state(game.event_state),
                             pitch_token=event_pitch_token,
                         )
                         if side is not None
@@ -1859,6 +1947,7 @@ async def main() -> None:
                 game.state["score_diff"], fair_prob,
                 game.completed_event_id, game.completed_event,
                 game.event_is_complete, game.event_source,
+                game.event_terminal_reason,
                 (
                     game.completed_event_pitch_token[2]
                     if game.completed_event_pitch_token else None

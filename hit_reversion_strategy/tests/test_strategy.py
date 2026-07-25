@@ -9,7 +9,8 @@ import tempfile
 import pandas as pd
 
 from scripts.paper_trade import (
-    completed_play_pitch_token, event_inputs_aligned, EventCandidate,
+    completed_play_pitch_token, event_inputs_aligned,
+    event_within_entry_window, EventCandidate,
     fetch_game_snapshot, GameSnapshot, latest_resolved_play,
     match_games_to_home_markets, pre_pitch_trade_anchor,
     LIVE_ORDER_BUDGET, Position, replay_candidate_entry, replay_position_exit,
@@ -29,10 +30,18 @@ class TradeTapeStrategyTests(unittest.TestCase):
     def _early_hit_payload(linescore_home: int = 1) -> dict:
         play = {
             "atBatIndex": 50,
-            "about": {"isComplete": False, "isTopInning": False},
+            "about": {
+                "isComplete": False, "isTopInning": False, "inning": 7,
+            },
             "result": {
                 "eventType": "single", "homeScore": 1, "awayScore": 0,
             },
+            "count": {"balls": 0, "strikes": 0, "outs": 0},
+            "runners": [{
+                "movement": {
+                    "start": None, "end": "1B", "isOut": False,
+                },
+            }],
             "playEvents": [{
                 "isPitch": True, "pitchNumber": 4,
                 "startTime": "2026-07-25T01:00:50Z",
@@ -55,7 +64,7 @@ class TradeTapeStrategyTests(unittest.TestCase):
             },
         }
 
-    def test_incomplete_play_with_resolved_result_is_available_immediately(self):
+    def test_atomic_incomplete_play_is_available_without_at_bat_progression(self):
         payload = self._early_hit_payload()
         play, source = latest_resolved_play(payload)
         self.assertEqual(play["atBatIndex"], 50)
@@ -63,6 +72,7 @@ class TradeTapeStrategyTests(unittest.TestCase):
         self.assertEqual(source, "currentPlay")
         with (
             patch("scripts.paper_trade.GAME_PK", 1),
+            patch.dict("os.environ", {"ATOMIC_PLAY_EVENTS_ENABLED": "1"}),
             patch(
                 "scripts.paper_trade.fetch_mlb_payload",
                 return_value=(
@@ -73,13 +83,65 @@ class TradeTapeStrategyTests(unittest.TestCase):
         ):
             game = fetch_game_snapshot()
         self.assertEqual(game.completed_event, "single")
-        self.assertFalse(game.event_is_complete)
+        self.assertEqual(game.event_terminal_reason, "atomicPlay")
         self.assertTrue(event_inputs_aligned(game))
 
-    def test_resolved_scoring_play_waits_for_linescore(self):
-        payload = self._early_hit_payload(linescore_home=0)
+        payload["liveData"]["plays"]["currentPlay"] = {
+            "atBatIndex": 51,
+            "about": {"isComplete": False, "isTopInning": False, "inning": 7},
+            "result": {}, "runners": [], "playEvents": [],
+        }
+        payload["liveData"]["plays"]["allPlays"].append(
+            payload["liveData"]["plays"]["currentPlay"]
+        )
         with (
             patch("scripts.paper_trade.GAME_PK", 1),
+            patch.dict("os.environ", {"ATOMIC_PLAY_EVENTS_ENABLED": "1"}),
+            patch(
+                "scripts.paper_trade.fetch_mlb_payload",
+                return_value=(
+                    payload,
+                    pd.Timestamp("2026-07-25T01:00:56Z").to_pydatetime(),
+                ),
+            ),
+        ):
+            game = fetch_game_snapshot()
+        self.assertEqual(game.completed_event, "single")
+        self.assertFalse(game.event_is_complete)
+        self.assertEqual(game.event_terminal_reason, "atBatProgression")
+        self.assertEqual(game.event_state["runner_on_first"], 1)
+        self.assertEqual(game.event_state["score_diff"], 1)
+        self.assertTrue(event_inputs_aligned(game))
+
+    def test_atomic_event_is_rejected_after_twenty_seconds(self):
+        payload = self._early_hit_payload()
+        with (
+            patch("scripts.paper_trade.GAME_PK", 1),
+            patch(
+                "scripts.paper_trade.fetch_mlb_payload",
+                return_value=(
+                    payload,
+                    pd.Timestamp("2026-07-25T01:01:15Z").to_pydatetime(),
+                ),
+            ),
+        ):
+            game = fetch_game_snapshot()
+        self.assertFalse(event_within_entry_window(
+            game,
+            pd.Timestamp("2026-07-25T01:01:15Z").to_pydatetime(),
+            20.0,
+        ))
+
+    def test_event_state_uses_atomic_play_instead_of_stale_linescore(self):
+        payload = self._early_hit_payload(linescore_home=0)
+        payload["liveData"]["plays"]["currentPlay"] = {
+            "atBatIndex": 51,
+            "about": {"isComplete": False, "isTopInning": False, "inning": 7},
+            "result": {}, "runners": [], "playEvents": [],
+        }
+        with (
+            patch("scripts.paper_trade.GAME_PK", 1),
+            patch.dict("os.environ", {"ATOMIC_PLAY_EVENTS_ENABLED": "1"}),
             patch(
                 "scripts.paper_trade.fetch_mlb_payload",
                 return_value=(
@@ -88,8 +150,10 @@ class TradeTapeStrategyTests(unittest.TestCase):
                 ),
             ),
         ):
-            with self.assertRaisesRegex(RuntimeError, "atomic score update"):
-                fetch_game_snapshot()
+            game = fetch_game_snapshot()
+        self.assertEqual(game.home_score, 0)
+        self.assertEqual(game.event_state["score_diff"], 1)
+        self.assertEqual(game.event_state["runner_on_first"], 1)
 
     def test_live_event_inputs_cannot_mix_completed_play_with_newer_pitch(self):
         event_token = (50, 6, "2026-07-25T01:00:54Z", "2026-07-25T01:00:43Z")
@@ -477,6 +541,7 @@ class TradeTapeStrategyTests(unittest.TestCase):
             trades, updates, TradeTapeConfig(minimum_edge=0.05)
         )
         self.assertEqual(result.trades, 0)
+        self.assertEqual(result.misaligned_event_updates, 0)
         self.assertEqual(result.invalidated_candidates, 1)
 
     def test_next_pitch_invalidates_candidate_before_entry(self):

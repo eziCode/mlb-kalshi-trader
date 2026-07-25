@@ -29,6 +29,8 @@ class GameFeed:
     last_error: str | None = None
     last_error_kind: str | None = None
     last_status_code: int | None = None
+    last_play_stage: tuple | None = None
+    last_at_bat_index: int | None = None
 
 
 class FeedState:
@@ -128,6 +130,52 @@ class FeedState:
         session.mount("https://", adapter)
         return session
 
+    @staticmethod
+    def _log_play_transitions(
+        game_pk: int, game: GameFeed, payload: dict, observed_at: str,
+    ) -> None:
+        plays = payload.get("liveData", {}).get("plays", {}) or {}
+        values = list(plays.get("allPlays") or [])
+        if isinstance(plays.get("currentPlay"), dict):
+            values.append(plays["currentPlay"])
+        indexed = [
+            play for play in values
+            if isinstance(play, dict) and play.get("atBatIndex") is not None
+        ]
+        if not indexed:
+            return
+        play = max(indexed, key=lambda item: int(item["atBatIndex"]))
+        at_bat = int(play["atBatIndex"])
+        if game.last_at_bat_index is not None and at_bat > game.last_at_bat_index:
+            print(
+                f"MLB_ATBAT_PROGRESSION game_pk={game_pk} "
+                f"previous_at_bat={game.last_at_bat_index} "
+                f"current_at_bat={at_bat} observed_at={observed_at}",
+                flush=True,
+            )
+        game.last_at_bat_index = max(game.last_at_bat_index or at_bat, at_bat)
+        event_type = str(play.get("result", {}).get("eventType") or "")
+        runners = play.get("runners")
+        pitch_ends = [
+            str(event["endTime"])
+            for event in play.get("playEvents") or []
+            if event.get("isPitch") and event.get("endTime")
+        ]
+        stage = (
+            at_bat, event_type, bool(isinstance(runners, list) and runners),
+            bool(play.get("about", {}).get("isComplete")),
+            max(pitch_ends) if pitch_ends else None,
+        )
+        if stage != game.last_play_stage:
+            print(
+                f"MLB_PLAY_STAGE game_pk={game_pk} at_bat={at_bat} "
+                f"event_type={event_type or 'NONE'} "
+                f"runners_populated={stage[2]} is_complete={stage[3]} "
+                f"latest_pitch_end={stage[4]} observed_at={observed_at}",
+                flush=True,
+            )
+            game.last_play_stage = stage
+
     def _poll_game(self, game_pk: int) -> None:
         session = self._new_session()
         try:
@@ -143,10 +191,14 @@ class FeedState:
                     status = str(payload.get("gameData", {}).get(
                         "status", {}
                     ).get("abstractGameState") or "Unknown")
+                    observed_at = datetime.now(timezone.utc).isoformat()
                     with self.lock:
                         game = self.games[game_pk]
+                        self._log_play_transitions(
+                            game_pk, game, payload, observed_at
+                        )
                         game.payload = payload
-                        game.received_at = datetime.now(timezone.utc).isoformat()
+                        game.received_at = observed_at
                         game.status = status
                         game.failures = 0
                         game.last_error = None

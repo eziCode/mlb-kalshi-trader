@@ -76,6 +76,29 @@ class SharedMlbFeedTests(unittest.TestCase):
         finally:
             session.close()
 
+    def test_logs_result_runners_and_at_bat_progression(self):
+        state = feed.FeedState()
+        game = feed.GameFeed()
+        play = {
+            "atBatIndex": 4,
+            "about": {"isComplete": False},
+            "result": {"eventType": "single"},
+            "runners": [{"movement": {"end": "1B", "isOut": False}}],
+            "playEvents": [{"isPitch": True, "endTime": "2026-07-25T01:00:00Z"}],
+        }
+        payload = {"liveData": {"plays": {"allPlays": [play]}}}
+        with patch("builtins.print") as output:
+            state._log_play_transitions(123, game, payload, "observed-1")
+            payload["liveData"]["plays"]["allPlays"].append({
+                "atBatIndex": 5, "about": {}, "result": {},
+                "runners": [], "playEvents": [],
+            })
+            state._log_play_transitions(123, game, payload, "observed-2")
+        messages = "\n".join(str(call.args[0]) for call in output.call_args_list)
+        self.assertIn("event_type=single", messages)
+        self.assertIn("runners_populated=True", messages)
+        self.assertIn("MLB_ATBAT_PROGRESSION", messages)
+
 
 if __name__ == "__main__":
     unittest.main()

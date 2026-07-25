@@ -78,6 +78,9 @@ The selected segmented research policy currently uses:
 - next-pitch invalidation;
 - completed-event alignment: the event's terminal pitch must still be the
   newest MLB state visible at the decision point;
+- atomic hit state derived from the play's own runner movements, score, and
+  outs; at-bat progression is logged for validation but never authorizes a
+  late entry;
 - minimum local fair move of 0.5 points.
 
 Fees use Kalshi’s rounded taker-fee formula.
