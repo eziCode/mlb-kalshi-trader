@@ -115,6 +115,8 @@ class GameSnapshot:
     completed_event_batting_home: bool | None
     completed_event_pitch_token: tuple | None
     latest_completed_pitch_token: tuple | None
+    event_is_complete: bool | None = None
+    event_source: str | None = None
 
 
 @dataclass
@@ -831,20 +833,23 @@ def fetch_market_snapshot(ticker: str | None = None) -> MarketSnapshot:
 
 def latest_completed_pitch_token(payload: dict) -> tuple | None:
     """Return a stable identity for the latest pitch with an end timestamp."""
-    latest: tuple | None = None
-    for play in payload.get("liveData", {}).get("plays", {}).get("allPlays", []):
+    tokens: list[tuple] = []
+    plays = payload.get("liveData", {}).get("plays", {}) or {}
+    values = list(plays.get("allPlays") or [])
+    if isinstance(plays.get("currentPlay"), dict):
+        values.append(plays["currentPlay"])
+    for play in values:
         at_bat = play.get("atBatIndex")
         for event in play.get("playEvents") or []:
             if not event.get("isPitch") or not event.get("endTime"):
                 continue
-            token = (
+            tokens.append((
                 int(at_bat) if at_bat is not None else -1,
                 int(event.get("pitchNumber") or event.get("index") or 0),
                 str(event["endTime"]),
                 str(event.get("startTime") or event["endTime"]),
-            )
-            latest = token
-    return latest
+            ))
+    return max(tokens, key=lambda token: token[:3]) if tokens else None
 
 
 def completed_play_pitch_token(play: dict | None) -> tuple | None:
@@ -863,6 +868,50 @@ def completed_play_pitch_token(play: dict | None) -> tuple | None:
             str(event.get("startTime") or event["endTime"]),
         )
     return latest
+
+
+def latest_resolved_play(payload: dict) -> tuple[dict | None, str | None]:
+    """Return the newest play with an outcome and an ended pitch.
+
+    MLB's live feed can populate ``result.eventType`` well before it flips
+    ``about.isComplete``.  The result plus a pitch ending in the same at-bat
+    is sufficient to identify the event; downstream alignment and score
+    checks prevent that event from being paired with a newer game state.
+    """
+    plays = payload.get("liveData", {}).get("plays", {}) or {}
+    candidates: list[tuple[int, int, dict, str]] = []
+    for source_priority, source, values in (
+        (0, "allPlays", plays.get("allPlays") or []),
+        (1, "currentPlay", [plays.get("currentPlay")]),
+    ):
+        for play in values:
+            if not isinstance(play, dict):
+                continue
+            at_bat = play.get("atBatIndex")
+            event_type = str(
+                play.get("result", {}).get("eventType") or ""
+            ).strip().lower()
+            if (
+                at_bat is None
+                or not event_type
+                or completed_play_pitch_token(play) is None
+            ):
+                continue
+            candidates.append((int(at_bat), source_priority, play, source))
+    if not candidates:
+        return None, None
+    _, _, play, source = max(candidates, key=lambda item: item[:2])
+    return play, source
+
+
+def resolved_play_score(play: dict | None) -> tuple[int, int] | None:
+    """Return (home, away) when the resolved play includes both scores."""
+    if not play:
+        return None
+    result = play.get("result") or {}
+    if "homeScore" not in result or "awayScore" not in result:
+        return None
+    return int(result["homeScore"]), int(result["awayScore"])
 
 
 def event_inputs_aligned(game: GameSnapshot) -> bool:
@@ -1117,11 +1166,7 @@ def fetch_game_snapshot() -> GameSnapshot:
     home_score = int(teams.get("home", {}).get("runs") or 0)
     away_score = int(teams.get("away", {}).get("runs") or 0)
     offense = linescore.get("offense") or {}
-    completed_plays = [
-        play for play in (live.get("plays", {}).get("allPlays") or [])
-        if play.get("about", {}).get("isComplete")
-    ]
-    latest_play = completed_plays[-1] if completed_plays else None
+    latest_play, event_source = latest_resolved_play(payload)
     completed_event_id = (
         int(latest_play.get("atBatIndex"))
         if latest_play is not None and latest_play.get("atBatIndex") is not None
@@ -1137,6 +1182,16 @@ def fetch_game_snapshot() -> GameSnapshot:
         if latest_play is not None
         else None
     )
+    play_score = resolved_play_score(latest_play)
+    if status == "Live" and play_score is not None and play_score != (
+        home_score, away_score
+    ):
+        raise RuntimeError(
+            "Inconsistent MLB hit-reversion snapshot: resolved play reports "
+            f"home={play_score[0]} away={play_score[1]} but linescore reports "
+            f"home={home_score} away={away_score}; waiting for an atomic "
+            "score update"
+        )
     state = {
         "inning": int(linescore.get("currentInning") or 1),
         "inning_topbot": topbot,
@@ -1153,6 +1208,11 @@ def fetch_game_snapshot() -> GameSnapshot:
         completed_event_id, completed_event, completed_event_batting_home,
         completed_play_pitch_token(latest_play),
         latest_completed_pitch_token(payload),
+        (
+            bool(latest_play.get("about", {}).get("isComplete"))
+            if latest_play is not None else None
+        ),
+        event_source,
     )
 
 
@@ -1336,14 +1396,16 @@ async def main() -> None:
 
     log_dir = LOG_DIR
     log_dir.mkdir(parents=True, exist_ok=True)
-    log_path = log_dir / f"hit_reversion_decisions_{MARKET_TICKER}.csv"
+    log_path = log_dir / f"hit_reversion_decisions_v2_{MARKET_TICKER}.csv"
     new_log = not log_path.exists() or log_path.stat().st_size == 0
     if new_log:
         with log_path.open("a", newline="") as handle:
             csv.writer(handle).writerow([
                 "decision_time", "market_received_at", "state_received_at",
                 "bid", "ask", "inning", "outs", "score_diff", "fair_prob",
-                "completed_event_id", "completed_event", "target", "excess_move",
+                "completed_event_id", "completed_event", "event_is_complete",
+                "event_source", "event_pitch_end", "event_detection_latency_seconds",
+                "latest_pitch_at_bat", "latest_pitch_number", "target", "excess_move",
                 "edge", "continuation_value", "exit_advantage", "action",
                 "portfolio_cash", "portfolio_equity", "portfolio_pnl",
                 "portfolio_open_positions",
@@ -1359,6 +1421,7 @@ async def main() -> None:
     previous_market: float | None = None
     previous_fair: float | None = None
     previous_event_id: int | None = None
+    last_logged_event_signature: tuple | None = None
     exit_pending_trade: dict[int, datetime] = {}
     exit_scanned_through: dict[int, datetime] = {
         position.event_id: position.entry_time for position in positions
@@ -1427,6 +1490,32 @@ async def main() -> None:
         fair_prob = home_fair_probability(
             state_model, pregame_prob, game.state
         )
+        event_latency = (
+            (game.received_at - pitch_token_time(
+                game.completed_event_pitch_token
+            )).total_seconds()
+            if pitch_token_time(game.completed_event_pitch_token) is not None
+            else float("nan")
+        )
+        event_signature = (
+            game.completed_event_id,
+            game.completed_event,
+            game.completed_event_pitch_token,
+            game.event_is_complete,
+        )
+        if event_signature != last_logged_event_signature:
+            print(
+                "MLB_EVENT_TRANSITION strategy=hit_reversion "
+                f"game_pk={GAME_PK} event_id={game.completed_event_id} "
+                f"event={game.completed_event} source={game.event_source} "
+                f"is_complete={game.event_is_complete} "
+                f"event_pitch={game.completed_event_pitch_token} "
+                f"latest_pitch={game.latest_completed_pitch_token} "
+                f"received_at={game.received_at.isoformat()} "
+                f"detection_latency_seconds={event_latency:.3f}",
+                flush=True,
+            )
+            last_logged_event_signature = event_signature
         action = "HOLD"
         edge = float("nan")
         target = float("nan")
@@ -1768,7 +1857,22 @@ async def main() -> None:
                 game.received_at.isoformat(), market.bid, market.ask,
                 game.state["inning"], game.state["outs_when_up"],
                 game.state["score_diff"], fair_prob,
-                game.completed_event_id, game.completed_event, target,
+                game.completed_event_id, game.completed_event,
+                game.event_is_complete, game.event_source,
+                (
+                    game.completed_event_pitch_token[2]
+                    if game.completed_event_pitch_token else None
+                ),
+                event_latency,
+                (
+                    game.latest_completed_pitch_token[0]
+                    if game.latest_completed_pitch_token else None
+                ),
+                (
+                    game.latest_completed_pitch_token[1]
+                    if game.latest_completed_pitch_token else None
+                ),
+                target,
                 excess_move, edge, continuation_value, exit_advantage,
                 action, metrics.cash, metrics.equity, metrics.pnl,
                 metrics.open_positions,

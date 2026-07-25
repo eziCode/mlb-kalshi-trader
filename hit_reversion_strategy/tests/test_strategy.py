@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import inspect
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 import tempfile
 
@@ -9,7 +10,8 @@ import pandas as pd
 
 from scripts.paper_trade import (
     completed_play_pitch_token, event_inputs_aligned, EventCandidate,
-    GameSnapshot, match_games_to_home_markets, pre_pitch_trade_anchor,
+    fetch_game_snapshot, GameSnapshot, latest_resolved_play,
+    match_games_to_home_markets, pre_pitch_trade_anchor,
     LIVE_ORDER_BUDGET, Position, replay_candidate_entry, replay_position_exit,
     run_daily_coordinator, SharedPaperPortfolio, state_model_frame,
     main, should_surface_worker_line,
@@ -23,6 +25,72 @@ from trade_tape_strategy.core import (
 
 
 class TradeTapeStrategyTests(unittest.TestCase):
+    @staticmethod
+    def _early_hit_payload(linescore_home: int = 1) -> dict:
+        play = {
+            "atBatIndex": 50,
+            "about": {"isComplete": False, "isTopInning": False},
+            "result": {
+                "eventType": "single", "homeScore": 1, "awayScore": 0,
+            },
+            "playEvents": [{
+                "isPitch": True, "pitchNumber": 4,
+                "startTime": "2026-07-25T01:00:50Z",
+                "endTime": "2026-07-25T01:00:54Z",
+            }],
+        }
+        return {
+            "gameData": {"status": {"abstractGameState": "Live"}},
+            "liveData": {
+                "linescore": {
+                    "inningState": "Bottom", "currentInning": 7,
+                    "outs": 0, "balls": 0, "strikes": 0,
+                    "teams": {
+                        "home": {"runs": linescore_home},
+                        "away": {"runs": 0},
+                    },
+                    "offense": {"first": {}},
+                },
+                "plays": {"allPlays": [play], "currentPlay": play},
+            },
+        }
+
+    def test_incomplete_play_with_resolved_result_is_available_immediately(self):
+        payload = self._early_hit_payload()
+        play, source = latest_resolved_play(payload)
+        self.assertEqual(play["atBatIndex"], 50)
+        self.assertEqual(play["result"]["eventType"], "single")
+        self.assertEqual(source, "currentPlay")
+        with (
+            patch("scripts.paper_trade.GAME_PK", 1),
+            patch(
+                "scripts.paper_trade.fetch_mlb_payload",
+                return_value=(
+                    payload,
+                    pd.Timestamp("2026-07-25T01:00:55Z").to_pydatetime(),
+                ),
+            ),
+        ):
+            game = fetch_game_snapshot()
+        self.assertEqual(game.completed_event, "single")
+        self.assertFalse(game.event_is_complete)
+        self.assertTrue(event_inputs_aligned(game))
+
+    def test_resolved_scoring_play_waits_for_linescore(self):
+        payload = self._early_hit_payload(linescore_home=0)
+        with (
+            patch("scripts.paper_trade.GAME_PK", 1),
+            patch(
+                "scripts.paper_trade.fetch_mlb_payload",
+                return_value=(
+                    payload,
+                    pd.Timestamp("2026-07-25T01:00:55Z").to_pydatetime(),
+                ),
+            ),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "atomic score update"):
+                fetch_game_snapshot()
+
     def test_live_event_inputs_cannot_mix_completed_play_with_newer_pitch(self):
         event_token = (50, 6, "2026-07-25T01:00:54Z", "2026-07-25T01:00:43Z")
         newer_token = (51, 2, "2026-07-25T01:01:43Z", "2026-07-25T01:01:30Z")
