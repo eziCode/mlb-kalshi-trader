@@ -113,6 +113,7 @@ class GameSnapshot:
     completed_event_id: int | None
     completed_event: str | None
     completed_event_batting_home: bool | None
+    completed_event_pitch_token: tuple | None
     latest_completed_pitch_token: tuple | None
 
 
@@ -846,6 +847,35 @@ def latest_completed_pitch_token(payload: dict) -> tuple | None:
     return latest
 
 
+def completed_play_pitch_token(play: dict | None) -> tuple | None:
+    """Return the terminal pitch belonging to one specific completed play."""
+    if not play:
+        return None
+    at_bat = play.get("atBatIndex")
+    latest = None
+    for event in play.get("playEvents") or []:
+        if not event.get("isPitch") or not event.get("endTime"):
+            continue
+        latest = (
+            int(at_bat) if at_bat is not None else -1,
+            int(event.get("pitchNumber") or event.get("index") or 0),
+            str(event["endTime"]),
+            str(event.get("startTime") or event["endTime"]),
+        )
+    return latest
+
+
+def event_inputs_aligned(game: GameSnapshot) -> bool:
+    """Require the event and newest pitch/state observation to be one play."""
+    event_token = game.completed_event_pitch_token
+    return bool(
+        game.completed_event_id is not None
+        and event_token is not None
+        and int(event_token[0]) == game.completed_event_id
+        and event_token == game.latest_completed_pitch_token
+    )
+
+
 def pitch_token_time(token: tuple | None) -> datetime | None:
     if token is None:
         return None
@@ -1121,6 +1151,7 @@ def fetch_game_snapshot() -> GameSnapshot:
     return GameSnapshot(
         received_at, status, state, home_score, away_score,
         completed_event_id, completed_event, completed_event_batting_home,
+        completed_play_pitch_token(latest_play),
         latest_completed_pitch_token(payload),
     )
 
@@ -1519,14 +1550,14 @@ async def main() -> None:
 
             if (
                 new_event
+                and event_inputs_aligned(game)
                 and game.completed_event in hybrid_config.allowed_event_types
                 and previous_market is not None
                 and previous_fair is not None
                 and pitch_token_time(game.latest_completed_pitch_token) is not None
             ):
-                pitch_start = pitch_token_start_time(
-                    game.latest_completed_pitch_token
-                )
+                event_pitch_token = game.completed_event_pitch_token
+                pitch_start = pitch_token_start_time(event_pitch_token)
                 pre_event_market = (
                     pre_pitch_trade_anchor(
                         recent_trades, pitch_start,
@@ -1589,13 +1620,13 @@ async def main() -> None:
                             event_type=str(game.completed_event),
                             observed_at=now,
                             event_time=pitch_token_time(
-                                game.latest_completed_pitch_token
+                                event_pitch_token
                             ),
                             pre_market=pre_event_market,
                             pre_fair=previous_fair,
                             post_fair=fair_prob,
                             material_state=material_state(game.state),
-                            pitch_token=game.latest_completed_pitch_token,
+                            pitch_token=event_pitch_token,
                         )
                         if side is not None
                         else None

@@ -76,6 +76,8 @@ The selected segmented research policy currently uses:
 - five-second maximum pre-event anchor age;
 - ten-second event-to-entry deadline;
 - next-pitch invalidation;
+- completed-event alignment: the event's terminal pitch must still be the
+  newest MLB state visible at the decision point;
 - minimum local fair move of 0.5 points.
 
 Fees use Kalshi’s rounded taker-fee formula.

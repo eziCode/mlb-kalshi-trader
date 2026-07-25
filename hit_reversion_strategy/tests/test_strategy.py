@@ -8,7 +8,8 @@ import tempfile
 import pandas as pd
 
 from scripts.paper_trade import (
-    EventCandidate, match_games_to_home_markets, pre_pitch_trade_anchor,
+    completed_play_pitch_token, event_inputs_aligned, EventCandidate,
+    GameSnapshot, match_games_to_home_markets, pre_pitch_trade_anchor,
     LIVE_ORDER_BUDGET, Position, replay_candidate_entry, replay_position_exit,
     run_daily_coordinator, SharedPaperPortfolio, state_model_frame,
     main, should_surface_worker_line,
@@ -22,6 +23,31 @@ from trade_tape_strategy.core import (
 
 
 class TradeTapeStrategyTests(unittest.TestCase):
+    def test_live_event_inputs_cannot_mix_completed_play_with_newer_pitch(self):
+        event_token = (50, 6, "2026-07-25T01:00:54Z", "2026-07-25T01:00:43Z")
+        newer_token = (51, 2, "2026-07-25T01:01:43Z", "2026-07-25T01:01:30Z")
+        game = GameSnapshot(
+            pd.Timestamp.now(tz="UTC").to_pydatetime(), "Live", {}, 3, 2,
+            50, "single", False, event_token, newer_token,
+        )
+        self.assertFalse(event_inputs_aligned(game))
+
+    def test_completed_event_uses_pitch_from_that_play_only(self):
+        play = {
+            "atBatIndex": 50,
+            "playEvents": [
+                {"isPitch": True, "pitchNumber": 1,
+                 "startTime": "2026-07-25T01:00:01Z",
+                 "endTime": "2026-07-25T01:00:02Z"},
+                {"isPitch": True, "pitchNumber": 2,
+                 "startTime": "2026-07-25T01:00:10Z",
+                 "endTime": "2026-07-25T01:00:11Z"},
+            ],
+        }
+        self.assertEqual(completed_play_pitch_token(play)[0:3], (
+            50, 2, "2026-07-25T01:00:11Z",
+        ))
+
     def test_combined_runtime_can_suppress_duplicate_slate_summary(self):
         source = inspect.getsource(run_daily_coordinator)
         self.assertIn('os.getenv("SUPPRESS_SLATE_SUMMARY") != "1"', source)
@@ -408,7 +434,35 @@ class TradeTapeStrategyTests(unittest.TestCase):
             TradeTapeConfig(minimum_edge=0.05),
         )
         self.assertEqual(result.trades, 0)
+        self.assertEqual(result.misaligned_event_updates, 0)
         self.assertEqual(result.invalidated_candidates, 1)
+
+    def test_backtest_requires_completed_event_pitch_to_be_newest_state(self):
+        trades, updates = self._frames(include_reversion=False)
+        newer_pitch = updates.iloc[0].copy()
+        newer_pitch["pitch_start_time"] = pd.Timestamp(
+            "2026-07-01T12:00:01.01Z"
+        )
+        newer_pitch["pitch_end_time"] = pd.Timestamp(
+            "2026-07-01T12:00:01.05Z"
+        )
+        newer_pitch["is_hit"] = False
+        newer_pitch["completed_event"] = None
+        newer_pitch["completed_event_batting_home"] = None
+        newer_pitch["at_bat_number"] = 2
+        newer_pitch["pitch_number"] = 1
+        updates = pd.concat(
+            [updates, newer_pitch.to_frame().T], ignore_index=True
+        )
+
+        result = simulate_trade_tape(
+            trades, updates, TradeTapeConfig(minimum_edge=0.05)
+        )
+
+        self.assertEqual(result.observed_hits, 1)
+        self.assertEqual(result.misaligned_event_updates, 1)
+        self.assertEqual(result.eligible_hit_updates, 0)
+        self.assertEqual(result.trades, 0)
 
     def test_event_candidate_expires_before_late_fill(self):
         trades, updates = self._frames(include_reversion=False)

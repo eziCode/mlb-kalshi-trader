@@ -109,6 +109,7 @@ class TapeTradeRecord:
 @dataclass
 class TradeTapeResult:
     observed_hits: int = 0
+    misaligned_event_updates: int = 0
     fresh_hit_anchors: int = 0
     eligible_hit_updates: int = 0
     rejected_fair_updates: int = 0
@@ -322,6 +323,14 @@ def simulate_trade_tape(
         last_entry_ns: int | None = None
 
         for trade_index, trade_ns in enumerate(times):
+            newest_visible_update_index = update_index - 1
+            while (
+                newest_visible_update_index + 1 < len(update_rows)
+                and pd.Timestamp(
+                    update_rows[newest_visible_update_index + 1].pitch_end_time
+                ).value <= trade_ns
+            ):
+                newest_visible_update_index += 1
             while (
                 update_index < len(update_rows)
                 and pd.Timestamp(update_rows[update_index].pitch_end_time).value
@@ -350,7 +359,12 @@ def simulate_trade_tape(
                 current_fair = float(update.fair_after)
                 if bool(update.is_hit) and str(update.completed_event) in allowed_events:
                     result.observed_hits += 1
-                    if pd.notna(update.completed_event):
+                    event_inputs_aligned = (
+                        update_index == newest_visible_update_index
+                    )
+                    if not event_inputs_aligned:
+                        result.misaligned_event_updates += 1
+                    elif pd.notna(update.completed_event):
                         batting_home = bool(update.completed_event_batting_home)
                         signed_fair_move = (
                             float(update.fair_after) - float(update.fair_before)

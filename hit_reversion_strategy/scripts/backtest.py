@@ -68,6 +68,7 @@ def main() -> None:
         "trade_tape_rows": len(test_trades),
         "state_updates": len(test_updates),
         "observed_hits": result.observed_hits,
+        "misaligned_event_updates": result.misaligned_event_updates,
         "eligible_hit_updates": result.eligible_hit_updates,
         "rejected_fair_updates": result.rejected_fair_updates,
         "invalidated_candidates": result.invalidated_candidates,
@@ -113,6 +114,7 @@ def main() -> None:
     print(f"Games:                 {len(test_games):,}")
     print(f"Observed trades:       {len(test_trades):,}")
     print(f"Observed hits:         {result.observed_hits:,}")
+    print(f"Misaligned hit state:  {result.misaligned_event_updates:,}")
     print(f"Eligible fair moves:   {result.eligible_hit_updates:,}")
     print(f"Rejected fair moves:   {result.rejected_fair_updates:,}")
     print(f"Invalidated signals:   {result.invalidated_candidates:,}")
