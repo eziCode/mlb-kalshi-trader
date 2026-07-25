@@ -82,6 +82,32 @@ class MispricingTests(unittest.TestCase):
         )
         self.assertEqual(result.trades, 0)
 
+    def test_paired_both_ioc_uses_partial_available_volume_and_actual_capital(self):
+        start = pd.Timestamp("2026-06-01T12:00:00Z")
+        frame = pd.DataFrame({
+            "game_pk": [1], "signal_time": [start],
+            "next_update_time": [start + pd.Timedelta(seconds=5)],
+            "market_home_price": [.40], "home_win": [1],
+        })
+        home = pd.DataFrame({
+            "game_pk": [1], "trade_id": [1],
+            "created_time": [start + pd.Timedelta(seconds=1)],
+            "yes_price_dollars": [.50], "count_fp": [1.25],
+            "taker_outcome_side": ["yes"],
+        })
+        result = simulate_paired_both(
+            frame, [.80], home, home.iloc[:0],
+            MispricingConfig(
+                bet_size=2.0, minimum_expected_pnl=0,
+                minimum_probability_edge=0, execution_contract="paired_both",
+            ),
+        )
+        self.assertEqual(result.trades, 1)
+        self.assertEqual(result.records[0]["contracts"], 1.25)
+        expected_capital = 1.25 * .50 + result.records[0]["entry_fee"]
+        self.assertAlmostEqual(result.capital, expected_capital)
+        self.assertLess(result.capital, 2.0)
+
     def test_two_sided_policy_can_trade_yes_then_no_after_sixty_seconds(self):
         start = pd.Timestamp("2026-06-01T12:00:00Z")
         frame = pd.DataFrame({

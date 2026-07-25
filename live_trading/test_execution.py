@@ -43,6 +43,18 @@ class FakeClient:
             "average_fee_paid": f"{taker_fee(count, price) / count:.8f}",
         }
 
+    def create_immediate_or_cancel(
+        self, ticker, count, price, client_order_id,
+    ):
+        self.orders.append((
+            ticker, count, price, client_order_id, "bid", False, "ioc",
+        ))
+        return {
+            "fill_count": f"{count:.2f}",
+            "average_fill_price": f"{price:.4f}",
+            "average_fee_paid": f"{taker_fee(count, price) / count:.8f}",
+        }
+
 
 class LiveExecutionTests(unittest.TestCase):
     def test_api_error_log_includes_status_path_and_response_body(self):
@@ -131,7 +143,7 @@ class LiveExecutionTests(unittest.TestCase):
             ))
             self.assertAlmostEqual(ledger.committed(), 15.0)
 
-    def test_execute_checks_balance_and_places_fill_or_kill(self):
+    def test_execute_checks_balance_and_places_immediate_or_cancel(self):
         with tempfile.TemporaryDirectory() as directory:
             executor = LiveExecutor.__new__(LiveExecutor)
             executor.per_order_budget = 0.75
@@ -147,6 +159,40 @@ class LiveExecutionTests(unittest.TestCase):
             self.assertTrue(fill.filled)
             self.assertLessEqual(fill.capital, 0.75 + 1e-6)
             self.assertEqual(len(executor.client.orders), 1)
+            self.assertEqual(executor.client.orders[0][-1], "ioc")
+
+    def test_ioc_partial_fill_commits_only_actual_exchange_amount(self):
+        class PartialClient(FakeClient):
+            def create_immediate_or_cancel(
+                self, ticker, count, price, client_order_id,
+            ):
+                self.orders.append((ticker, count, price, client_order_id, "ioc"))
+                return {
+                    "fill_count": "1.25",
+                    "average_fill_price": "0.5100",
+                    "average_fee_paid": "0.01000000",
+                }
+
+        with tempfile.TemporaryDirectory() as directory:
+            executor = LiveExecutor.__new__(LiveExecutor)
+            executor.per_order_budget = 2.0
+            executor.maximum_capital = 20.0
+            executor.client = PartialClient()
+            executor.ledger = LiveRiskLedger(Path(directory) / "risk.db", 20.0)
+            fill = executor.execute(
+                trigger_key="partial", game_pk=1, ticker="TEST",
+                price=.51, settlement_probability=.90,
+                original_bet_size=10.0, original_minimum_expected_pnl=0.0,
+                minimum_seconds_between_entries=0,
+            )
+            self.assertTrue(fill.filled)
+            self.assertEqual(fill.contracts, 1.25)
+            self.assertAlmostEqual(fill.fee, .0125)
+            self.assertAlmostEqual(fill.capital, .65)
+            row = executor.ledger.filled_for_game(1)[0]
+            self.assertEqual(row["contracts"], 1.25)
+            self.assertAlmostEqual(row["committed_capital"], .65)
+            self.assertAlmostEqual(executor.ledger.committed(), .65)
 
     def test_strategy_order_budget_can_be_lower_than_global_cap(self):
         with tempfile.TemporaryDirectory() as directory:

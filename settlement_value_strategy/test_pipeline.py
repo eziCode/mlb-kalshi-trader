@@ -315,7 +315,10 @@ class PipelineTests(unittest.TestCase):
             confirmation_budget=2.0,
         )
         self.assertIsNotNone(fill)
-        self.assertAlmostEqual(fill["contracts"], 5.0)
+        self.assertLess(fill["contracts"], 5.0)
+        self.assertLessEqual(
+            fill["contracts"] * fill["price"] + fill["fee"], 2.0
+        )
         self.assertGreaterEqual(fill["edge"], .02)
         self.assertGreaterEqual(fill["expected_pnl"], 0.0)
         self.assertIsNone(replay_fill_from_observed_trades(

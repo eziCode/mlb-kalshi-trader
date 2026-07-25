@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 import math
+from decimal import Decimal, ROUND_DOWN
 
 import numpy as np
 import pandas as pd
@@ -68,6 +69,23 @@ def taker_fee(contracts: float, price: float) -> float:
         return 0.0
     raw = TAKER_FEE_RATE * contracts * price * (1.0 - price)
     return math.ceil(raw * 100.0 - 1e-12) / 100.0
+
+
+def contracts_for_budget(
+    price: float, budget: float, available_contracts: float | None = None,
+) -> float:
+    """IOC quantity filled at one observed price, including fees in budget."""
+    count = float(Decimal(str(budget / price)).quantize(
+        Decimal("0.01"), rounding=ROUND_DOWN
+    ))
+    while count > 0 and count * price + taker_fee(count, price) > budget + 1e-9:
+        count = round(count - .01, 2)
+    if available_contracts is not None:
+        available = float(Decimal(str(max(0.0, available_contracts))).quantize(
+            Decimal("0.01"), rounding=ROUND_DOWN
+        ))
+        count = min(count, available)
+    return max(0.0, count)
 
 
 def compatible_taker(side: str, taker_outcome_side: str) -> bool:
@@ -368,8 +386,9 @@ def simulate_mispricing(
                 price = float(yes[i] if side == "yes" else no[i])
                 if not execution_price_allowed(price, config):
                     continue
-                contracts = config.bet_size / price
-                if sizes[i] < contracts:
+                requested_contracts = contracts_for_budget(price, config.bet_size)
+                contracts = contracts_for_budget(price, config.bet_size, sizes[i])
+                if contracts <= 0:
                     continue
                 fill_yes = float(yes[i])
                 fill_yes_ev, fill_no_ev = signal_economics(
@@ -382,7 +401,14 @@ def simulate_mispricing(
                 )
                 if fill_expected < config.minimum_expected_pnl or fill_edge < config.minimum_probability_edge:
                     continue
+                # Eligibility is decided for the requested order, as it is
+                # live; an IOC may then return a smaller actual fill.
+                requested_fee = taker_fee(requested_contracts, price)
+                requested_expected = requested_contracts * fill_edge - requested_fee
+                if requested_expected < config.minimum_expected_pnl:
+                    continue
                 fee = taker_fee(contracts, price)
+                fill_expected = contracts * fill_edge - fee
                 won = (side == "yes" and row.home_win == 1) or (
                     side == "no" and row.home_win == 0
                 )
@@ -391,7 +417,7 @@ def simulate_mispricing(
                 result.yes_trades += int(side == "yes")
                 result.no_trades += int(side == "no")
                 result.fees += fee
-                result.capital += config.bet_size + fee
+                result.capital += contracts * price + fee
                 result.pnl += pnl
                 result.records.append({
                     **row._asdict(), "side": side,
@@ -489,15 +515,22 @@ def simulate_away_yes(
                 price = float(prices[index])
                 if not execution_price_allowed(price, config):
                     continue
-                contracts = config.bet_size / price
-                if sizes[index] < contracts:
+                requested_contracts = contracts_for_budget(price, config.bet_size)
+                contracts = contracts_for_budget(
+                    price, config.bet_size, sizes[index]
+                )
+                if contracts <= 0:
                     continue
                 fee = taker_fee(contracts, price)
                 expected = contracts * (away_fair - price) - fee
                 edge = away_fair - price
-                expected_return = expected / (config.bet_size + fee)
+                requested_fee = taker_fee(requested_contracts, price)
+                requested_expected = (
+                    requested_contracts * edge - requested_fee
+                )
+                expected_return = expected / (contracts * price + fee)
                 if (
-                    expected < config.minimum_expected_pnl
+                    requested_expected < config.minimum_expected_pnl
                     or edge < config.minimum_probability_edge
                 ):
                     continue
@@ -511,7 +544,7 @@ def simulate_away_yes(
                 result.trades += 1
                 result.yes_trades += 1
                 result.fees += fee
-                result.capital += config.bet_size + fee
+                result.capital += contracts * price + fee
                 result.pnl += pnl
                 result.records.append({
                     **row._asdict(),
@@ -611,15 +644,22 @@ def simulate_paired_both(
                 price = float(prices[index])
                 if not execution_price_allowed(price, config):
                     continue
-                contracts = config.bet_size / price
-                if sizes[index] < contracts:
+                requested_contracts = contracts_for_budget(price, config.bet_size)
+                contracts = contracts_for_budget(
+                    price, config.bet_size, sizes[index]
+                )
+                if contracts <= 0:
                     continue
                 fee = taker_fee(contracts, price)
                 edge = execution_probability - price
                 expected = contracts * edge - fee
-                expected_return = expected / (config.bet_size + fee)
+                requested_fee = taker_fee(requested_contracts, price)
+                requested_expected = (
+                    requested_contracts * edge - requested_fee
+                )
+                expected_return = expected / (contracts * price + fee)
                 if (
-                    expected < config.minimum_expected_pnl
+                    requested_expected < config.minimum_expected_pnl
                     or edge < config.minimum_probability_edge
                 ):
                     continue
@@ -632,12 +672,13 @@ def simulate_paired_both(
                     (model_side == "yes" and int(row.home_win) == 1)
                     or (model_side == "no" and int(row.home_win) == 0)
                 )
-                pnl = (contracts if won else 0.0) - config.bet_size - fee
+                principal = contracts * price
+                pnl = (contracts if won else 0.0) - principal - fee
                 result.trades += 1
                 result.yes_trades += int(model_side == "yes")
                 result.no_trades += int(model_side == "no")
                 result.fees += fee
-                result.capital += config.bet_size + fee
+                result.capital += principal + fee
                 result.pnl += pnl
                 result.records.append({
                     **row._asdict(), "model_side": model_side,

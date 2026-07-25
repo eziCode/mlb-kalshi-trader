@@ -45,7 +45,7 @@ from live_trading.execution import (
 )
 from settlement_value_strategy.strategy import (
     MISPRICING_FEATURES, anchored_event_target, confirmation_taker_allowed,
-    execution_price_allowed, taker_fee,
+    contracts_for_budget, execution_price_allowed, taker_fee,
 )
 from shared_kalshi_feed import get_market as get_shared_market
 from shared_mlb_feed import get_game as get_shared_game
@@ -528,15 +528,18 @@ def replay_fill_from_observed_trades(
         price = float(trade.yes_price_dollars)
         if not execution_price_allowed(price, config):
             continue
-        contracts = budget / price
-        if float(trade.count_fp) < contracts:
+        requested_contracts = contracts_for_budget(price, budget)
+        contracts = contracts_for_budget(price, budget, float(trade.count_fp))
+        if contracts <= 0:
             continue
         fee = taker_fee(contracts, price)
         edge = execution_probability - price
         expected = contracts * edge - fee
-        expected_return = expected / (budget + fee)
+        requested_fee = taker_fee(requested_contracts, price)
+        requested_expected = requested_contracts * edge - requested_fee
+        expected_return = expected / (contracts * price + fee)
         if (
-            expected < config.minimum_expected_pnl
+            requested_expected < config.minimum_expected_pnl
             or edge < config.minimum_probability_edge
         ):
             continue
@@ -1205,7 +1208,10 @@ async def run_worker() -> None:
                         live_executor.per_order_budget
                         if live_executor is not None else predictor.config.bet_size
                     )
-                    immediate_contracts = immediate_budget / immediate_price
+                    immediate_contracts = contracts_for_budget(
+                        immediate_price, immediate_budget,
+                        float(immediate_market.ask_size),
+                    )
                     immediate_fee = taker_fee(immediate_contracts, immediate_price)
                     immediate_edge = execution_probability - immediate_price
                     fill = {

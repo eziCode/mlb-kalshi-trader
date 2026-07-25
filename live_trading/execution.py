@@ -93,9 +93,10 @@ class KalshiAccountClient:
                 return float(position.get("position_fp") or 0)
         return 0.0
 
-    def create_fill_or_kill(
+    def create_order(
         self, ticker: str, count: float, price: float, client_order_id: str,
         order_side: str = "bid", reduce_only: bool = False,
+        time_in_force: str = "fill_or_kill",
     ) -> dict:
         return self.request(
             "POST", "/portfolio/events/orders",
@@ -105,7 +106,7 @@ class KalshiAccountClient:
                 "side": order_side,
                 "count": f"{count:.2f}",
                 "price": f"{price:.4f}",
-                "time_in_force": "fill_or_kill",
+                "time_in_force": time_in_force,
                 "self_trade_prevention_type": "taker_at_cross",
                 "post_only": False,
                 "cancel_order_on_pause": True,
@@ -113,6 +114,23 @@ class KalshiAccountClient:
                 "subaccount": 0,
                 "exchange_index": 0,
             },
+        )
+
+    def create_fill_or_kill(
+        self, ticker: str, count: float, price: float, client_order_id: str,
+        order_side: str = "bid", reduce_only: bool = False,
+    ) -> dict:
+        return self.create_order(
+            ticker, count, price, client_order_id, order_side, reduce_only,
+            time_in_force="fill_or_kill",
+        )
+
+    def create_immediate_or_cancel(
+        self, ticker: str, count: float, price: float, client_order_id: str,
+    ) -> dict:
+        return self.create_order(
+            ticker, count, price, client_order_id,
+            time_in_force="immediate_or_cancel",
         )
 
 
@@ -481,7 +499,11 @@ class LiveExecutor:
         )
         self.ledger.record_attempt(attempt)
         try:
-            result = self.client.create_fill_or_kill(ticker, count, price, client_id)
+            # Entries are IOC: take every immediately available contract up to
+            # the configured budget and cancel only the unfilled remainder.
+            result = self.client.create_immediate_or_cancel(
+                ticker, count, price, client_id
+            )
         except requests.HTTPError as error:
             status = error.response.status_code if error.response is not None else 0
             self.ledger.mark_error(
@@ -498,7 +520,7 @@ class LiveExecutor:
             raise
         filled = float(result.get("fill_count") or 0)
         if filled <= 0:
-            fill = LiveFill(False, client_id, ticker, reason="fill_or_kill_not_filled")
+            fill = LiveFill(False, client_id, ticker, reason="ioc_not_filled")
         else:
             average_price = float(result["average_fill_price"])
             fee_per_contract = float(result.get("average_fee_paid") or 0)
