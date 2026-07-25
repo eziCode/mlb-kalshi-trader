@@ -67,8 +67,10 @@ def add_before_and_delta_state(updates: pd.DataFrame) -> pd.DataFrame:
 def taker_fee(contracts: float, price: float) -> float:
     if contracts <= 0:
         return 0.0
+    principal = contracts * price
     raw = TAKER_FEE_RATE * contracts * price * (1.0 - price)
-    return math.ceil(raw * 100.0 - 1e-12) / 100.0
+    rounded_total = math.ceil((principal + raw) * 10_000.0 - 1e-12) / 10_000.0
+    return max(0.0, rounded_total - principal)
 
 
 def contracts_for_budget(

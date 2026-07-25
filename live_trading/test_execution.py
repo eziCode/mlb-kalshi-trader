@@ -57,6 +57,10 @@ class FakeClient:
 
 
 class LiveExecutionTests(unittest.TestCase):
+    def test_taker_fee_uses_centicent_total_cost_rounding(self):
+        self.assertAlmostEqual(taker_fee(5.0, 0.34), 0.0786)
+        self.assertAlmostEqual(taker_fee(0.45, 0.33), 0.0070)
+
     def test_api_error_log_includes_status_path_and_response_body(self):
         client = KalshiAccountClient.__new__(KalshiAccountClient)
         client._headers = Mock(return_value={})
