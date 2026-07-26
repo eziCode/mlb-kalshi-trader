@@ -165,6 +165,26 @@ incompatible with changed anchors or preprocessing even if schemas match.
   settlement_value_strategy.test_pipeline -v
 ```
 
+## Early-exit research
+
+The research-only early-exit overlay keeps the deployed entry set fixed, then
+tests stop-loss exits against exact later executions:
+
+```bash
+.venv/bin/python -m settlement_value_strategy.research_early_exit
+```
+
+An exit requires a later scored MLB state, a strictly later opposite-taker
+execution within five seconds, and enough printed size to sell the full
+position. Exit fees are charged and positions without an executable exit still
+settle. Results are written to `results/early_exit_research_summary.json` and
+`results/early_exit_research_trades.csv`.
+
+The current study selected a 10-point stop after 60 seconds on the tuning
+folds, but it reduced untouched final-holdout PnL from $11.65 to $11.22. No
+tested stop improved every chronological selection fold. Early exits therefore
+remain research-only and are not part of paper or live execution.
+
 ## Paper trading
 
 Offline JSONL scoring:

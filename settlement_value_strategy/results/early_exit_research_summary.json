@@ -1,0 +1,1753 @@
+{
+  "method": "fixed entries; causal state-triggered exit with strictly later execution",
+  "selection_folds": [
+    "april",
+    "may",
+    "early_june",
+    "late_june",
+    "early_july"
+  ],
+  "untouched_holdout": "final_holdout",
+  "selected_config": {
+    "minimum_hold_seconds": 60.0,
+    "minimum_exit_inning": 1,
+    "maximum_fill_delay_seconds": 5.0,
+    "stop_loss_points": 0.1,
+    "exit_edge_threshold": null,
+    "require_opposite_taker": true
+  },
+  "baseline": {
+    "april": {
+      "trades": 465,
+      "early_exits": 119,
+      "settlements": 346,
+      "fees": 31.11999999999999,
+      "capital": 840.9290000000001,
+      "pnl": 60.226600000000005,
+      "roi": 0.0716191259904225
+    },
+    "may": {
+      "trades": 456,
+      "early_exits": 105,
+      "settlements": 351,
+      "fees": 27.113200000000006,
+      "capital": 820.8655,
+      "pnl": 62.2593,
+      "roi": 0.07584592116491679
+    },
+    "early_june": {
+      "trades": 216,
+      "early_exits": 42,
+      "settlements": 174,
+      "fees": 13.1184,
+      "capital": 401.8686,
+      "pnl": 0.7450000000000045,
+      "roi": 0.001853839787433018
+    },
+    "late_june": {
+      "trades": 154,
+      "early_exits": 32,
+      "settlements": 122,
+      "fees": 9.529099999999998,
+      "capital": 276.23310000000004,
+      "pnl": 37.32339999999999,
+      "roi": 0.13511559621203972
+    },
+    "early_july": {
+      "trades": 188,
+      "early_exits": 25,
+      "settlements": 163,
+      "fees": 10.178600000000001,
+      "capital": 340.6977,
+      "pnl": 58.1492,
+      "roi": 0.17067681994918077
+    },
+    "final_holdout": {
+      "trades": 39,
+      "early_exits": 6,
+      "settlements": 33,
+      "fees": 2.399499999999999,
+      "capital": 74.15589999999999,
+      "pnl": 11.648900000000001,
+      "roi": 0.15708662426051068
+    }
+  },
+  "early_exit": {
+    "april": {
+      "trades": 465,
+      "early_exits": 309,
+      "settlements": 156,
+      "fees": 40.004899999999985,
+      "capital": 840.9290000000001,
+      "pnl": 130.17430000000002,
+      "roi": 0.154798205318166
+    },
+    "may": {
+      "trades": 456,
+      "early_exits": 268,
+      "settlements": 188,
+      "fees": 34.540400000000005,
+      "capital": 820.8655,
+      "pnl": 79.92640000000002,
+      "roi": 0.09736844830243202
+    },
+    "early_june": {
+      "trades": 216,
+      "early_exits": 144,
+      "settlements": 72,
+      "fees": 17.8556,
+      "capital": 401.8686,
+      "pnl": 23.788800000000002,
+      "roi": 0.059195468369511825
+    },
+    "late_june": {
+      "trades": 154,
+      "early_exits": 87,
+      "settlements": 67,
+      "fees": 12.098099999999997,
+      "capital": 276.23310000000004,
+      "pnl": 46.53580000000001,
+      "roi": 0.16846569075176002
+    },
+    "early_july": {
+      "trades": 188,
+      "early_exits": 99,
+      "settlements": 89,
+      "fees": 13.530000000000001,
+      "capital": 340.6977,
+      "pnl": 46.0494,
+      "roi": 0.13516205128476066
+    },
+    "final_holdout": {
+      "trades": 39,
+      "early_exits": 21,
+      "settlements": 18,
+      "fees": 3.075599999999998,
+      "capital": 74.15589999999999,
+      "pnl": 11.223400000000002,
+      "roi": 0.15134871264457722
+    }
+  },
+  "grid": [
+    {
+      "config": {
+        "minimum_hold_seconds": 30.0,
+        "minimum_exit_inning": 1,
+        "maximum_fill_delay_seconds": 5.0,
+        "stop_loss_points": 0.05,
+        "exit_edge_threshold": null,
+        "require_opposite_taker": true
+      },
+      "folds": {
+        "april": {
+          "trades": 465,
+          "early_exits": 326,
+          "settlements": 139,
+          "fees": 41.221699999999984,
+          "capital": 840.9290000000001,
+          "pnl": 133.80350000000004,
+          "roi": 0.15911390854638147
+        },
+        "may": {
+          "trades": 456,
+          "early_exits": 296,
+          "settlements": 160,
+          "fees": 36.3616,
+          "capital": 820.8655,
+          "pnl": 62.88030000000001,
+          "roi": 0.07660243974195531
+        },
+        "early_june": {
+          "trades": 216,
+          "early_exits": 161,
+          "settlements": 55,
+          "fees": 18.800199999999997,
+          "capital": 401.8686,
+          "pnl": 7.265000000000003,
+          "roi": 0.018078048396913824
+        },
+        "late_june": {
+          "trades": 154,
+          "early_exits": 97,
+          "settlements": 57,
+          "fees": 12.697099999999997,
+          "capital": 276.23310000000004,
+          "pnl": 36.81210000000001,
+          "roi": 0.13326462324753985
+        },
+        "early_july": {
+          "trades": 188,
+          "early_exits": 113,
+          "settlements": 75,
+          "fees": 14.1343,
+          "capital": 340.6977,
+          "pnl": 38.105000000000004,
+          "roi": 0.11184401890590985
+        }
+      },
+      "tuning_pnl": 278.86590000000007,
+      "tuning_pnl_delta": 60.16240000000005,
+      "profitable_folds": 5
+    },
+    {
+      "config": {
+        "minimum_hold_seconds": 30.0,
+        "minimum_exit_inning": 1,
+        "maximum_fill_delay_seconds": 5.0,
+        "stop_loss_points": 0.1,
+        "exit_edge_threshold": null,
+        "require_opposite_taker": true
+      },
+      "folds": {
+        "april": {
+          "trades": 465,
+          "early_exits": 309,
+          "settlements": 156,
+          "fees": 40.00559999999999,
+          "capital": 840.9290000000001,
+          "pnl": 130.1501,
+          "roi": 0.15476942762111903
+        },
+        "may": {
+          "trades": 456,
+          "early_exits": 268,
+          "settlements": 188,
+          "fees": 34.540400000000005,
+          "capital": 820.8655,
+          "pnl": 79.92640000000002,
+          "roi": 0.09736844830243202
+        },
+        "early_june": {
+          "trades": 216,
+          "early_exits": 144,
+          "settlements": 72,
+          "fees": 17.8556,
+          "capital": 401.8686,
+          "pnl": 23.788800000000002,
+          "roi": 0.059195468369511825
+        },
+        "late_june": {
+          "trades": 154,
+          "early_exits": 87,
+          "settlements": 67,
+          "fees": 12.098099999999997,
+          "capital": 276.23310000000004,
+          "pnl": 46.53580000000001,
+          "roi": 0.16846569075176002
+        },
+        "early_july": {
+          "trades": 188,
+          "early_exits": 99,
+          "settlements": 89,
+          "fees": 13.530000000000001,
+          "capital": 340.6977,
+          "pnl": 46.0494,
+          "roi": 0.13516205128476066
+        }
+      },
+      "tuning_pnl": 326.45050000000003,
+      "tuning_pnl_delta": 107.74700000000001,
+      "profitable_folds": 5
+    },
+    {
+      "config": {
+        "minimum_hold_seconds": 30.0,
+        "minimum_exit_inning": 1,
+        "maximum_fill_delay_seconds": 5.0,
+        "stop_loss_points": 0.15,
+        "exit_edge_threshold": null,
+        "require_opposite_taker": true
+      },
+      "folds": {
+        "april": {
+          "trades": 465,
+          "early_exits": 294,
+          "settlements": 171,
+          "fees": 38.66569999999999,
+          "capital": 840.9290000000001,
+          "pnl": 114.35390000000001,
+          "roi": 0.13598520208008047
+        },
+        "may": {
+          "trades": 456,
+          "early_exits": 255,
+          "settlements": 201,
+          "fees": 33.2783,
+          "capital": 820.8655,
+          "pnl": 72.27010000000001,
+          "roi": 0.08804134173016166
+        },
+        "early_june": {
+          "trades": 216,
+          "early_exits": 134,
+          "settlements": 82,
+          "fees": 17.194899999999997,
+          "capital": 401.8686,
+          "pnl": 20.512000000000008,
+          "roi": 0.05104155935547094
+        },
+        "late_june": {
+          "trades": 154,
+          "early_exits": 80,
+          "settlements": 74,
+          "fees": 11.635999999999997,
+          "capital": 276.23310000000004,
+          "pnl": 41.3372,
+          "roi": 0.1496460778958061
+        },
+        "early_july": {
+          "trades": 188,
+          "early_exits": 90,
+          "settlements": 98,
+          "fees": 13.042300000000003,
+          "capital": 340.6977,
+          "pnl": 49.0089,
+          "roi": 0.1438486376632422
+        }
+      },
+      "tuning_pnl": 297.48210000000006,
+      "tuning_pnl_delta": 78.77860000000004,
+      "profitable_folds": 5
+    },
+    {
+      "config": {
+        "minimum_hold_seconds": 30.0,
+        "minimum_exit_inning": 5,
+        "maximum_fill_delay_seconds": 5.0,
+        "stop_loss_points": 0.05,
+        "exit_edge_threshold": null,
+        "require_opposite_taker": true
+      },
+      "folds": {
+        "april": {
+          "trades": 465,
+          "early_exits": 317,
+          "settlements": 148,
+          "fees": 40.13899999999999,
+          "capital": 840.9290000000001,
+          "pnl": 117.13070000000002,
+          "roi": 0.1392872644420635
+        },
+        "may": {
+          "trades": 456,
+          "early_exits": 276,
+          "settlements": 180,
+          "fees": 35.1177,
+          "capital": 820.8655,
+          "pnl": 67.7369,
+          "roi": 0.08251887794041778
+        },
+        "early_june": {
+          "trades": 216,
+          "early_exits": 153,
+          "settlements": 63,
+          "fees": 18.1636,
+          "capital": 401.8686,
+          "pnl": 2.416700000000006,
+          "roi": 0.0060136572003884
+        },
+        "late_june": {
+          "trades": 154,
+          "early_exits": 90,
+          "settlements": 64,
+          "fees": 12.175499999999998,
+          "capital": 276.23310000000004,
+          "pnl": 37.5681,
+          "roi": 0.13600144226017807
+        },
+        "early_july": {
+          "trades": 188,
+          "early_exits": 99,
+          "settlements": 89,
+          "fees": 13.375800000000002,
+          "capital": 340.6977,
+          "pnl": 50.89240000000001,
+          "roi": 0.14937699902288748
+        }
+      },
+      "tuning_pnl": 275.74480000000005,
+      "tuning_pnl_delta": 57.041300000000035,
+      "profitable_folds": 5
+    },
+    {
+      "config": {
+        "minimum_hold_seconds": 30.0,
+        "minimum_exit_inning": 5,
+        "maximum_fill_delay_seconds": 5.0,
+        "stop_loss_points": 0.1,
+        "exit_edge_threshold": null,
+        "require_opposite_taker": true
+      },
+      "folds": {
+        "april": {
+          "trades": 465,
+          "early_exits": 301,
+          "settlements": 164,
+          "fees": 39.018599999999985,
+          "capital": 840.9290000000001,
+          "pnl": 116.28860000000002,
+          "roi": 0.1382858719344915
+        },
+        "may": {
+          "trades": 456,
+          "early_exits": 254,
+          "settlements": 202,
+          "fees": 33.5651,
+          "capital": 820.8655,
+          "pnl": 82.34460000000001,
+          "roi": 0.10031436331530563
+        },
+        "early_june": {
+          "trades": 216,
+          "early_exits": 138,
+          "settlements": 78,
+          "fees": 17.3365,
+          "capital": 401.8686,
+          "pnl": 21.593200000000003,
+          "roi": 0.053731991004024704
+        },
+        "late_june": {
+          "trades": 154,
+          "early_exits": 81,
+          "settlements": 73,
+          "fees": 11.603799999999998,
+          "capital": 276.23310000000004,
+          "pnl": 48.510400000000004,
+          "roi": 0.17561400136334132
+        },
+        "early_july": {
+          "trades": 188,
+          "early_exits": 90,
+          "settlements": 98,
+          "fees": 12.9862,
+          "capital": 340.6977,
+          "pnl": 54.62969999999999,
+          "roi": 0.16034654768728993
+        }
+      },
+      "tuning_pnl": 323.36650000000003,
+      "tuning_pnl_delta": 104.66300000000001,
+      "profitable_folds": 5
+    },
+    {
+      "config": {
+        "minimum_hold_seconds": 30.0,
+        "minimum_exit_inning": 5,
+        "maximum_fill_delay_seconds": 5.0,
+        "stop_loss_points": 0.15,
+        "exit_edge_threshold": null,
+        "require_opposite_taker": true
+      },
+      "folds": {
+        "april": {
+          "trades": 465,
+          "early_exits": 289,
+          "settlements": 176,
+          "fees": 37.831299999999985,
+          "capital": 840.9290000000001,
+          "pnl": 100.18950000000001,
+          "roi": 0.119141449515952
+        },
+        "may": {
+          "trades": 456,
+          "early_exits": 245,
+          "settlements": 211,
+          "fees": 32.6134,
+          "capital": 820.8655,
+          "pnl": 72.26630000000002,
+          "roi": 0.0880367124699479
+        },
+        "early_june": {
+          "trades": 216,
+          "early_exits": 129,
+          "settlements": 87,
+          "fees": 16.7361,
+          "capital": 401.8686,
+          "pnl": 21.517700000000005,
+          "roi": 0.05354411864972781
+        },
+        "late_june": {
+          "trades": 154,
+          "early_exits": 76,
+          "settlements": 78,
+          "fees": 11.302299999999999,
+          "capital": 276.23310000000004,
+          "pnl": 46.3164,
+          "roi": 0.16767143401713985
+        },
+        "early_july": {
+          "trades": 188,
+          "early_exits": 85,
+          "settlements": 103,
+          "fees": 12.727600000000002,
+          "capital": 340.6977,
+          "pnl": 53.76339999999999,
+          "roi": 0.15780382432872306
+        }
+      },
+      "tuning_pnl": 294.05330000000004,
+      "tuning_pnl_delta": 75.34980000000002,
+      "profitable_folds": 5
+    },
+    {
+      "config": {
+        "minimum_hold_seconds": 30.0,
+        "minimum_exit_inning": 7,
+        "maximum_fill_delay_seconds": 5.0,
+        "stop_loss_points": 0.05,
+        "exit_edge_threshold": null,
+        "require_opposite_taker": true
+      },
+      "folds": {
+        "april": {
+          "trades": 465,
+          "early_exits": 289,
+          "settlements": 176,
+          "fees": 38.61809999999999,
+          "capital": 840.9290000000001,
+          "pnl": 123.46950000000001,
+          "roi": 0.14682511841071005
+        },
+        "may": {
+          "trades": 456,
+          "early_exits": 245,
+          "settlements": 211,
+          "fees": 33.1507,
+          "capital": 820.8655,
+          "pnl": 72.1803,
+          "roi": 0.08793194500195221
+        },
+        "early_june": {
+          "trades": 216,
+          "early_exits": 139,
+          "settlements": 77,
+          "fees": 17.1424,
+          "capital": 401.8686,
+          "pnl": -0.39449999999999186,
+          "roi": -0.0009816641558957127
+        },
+        "late_june": {
+          "trades": 154,
+          "early_exits": 82,
+          "settlements": 72,
+          "fees": 11.469699999999998,
+          "capital": 276.23310000000004,
+          "pnl": 41.8155,
+          "roi": 0.15137758653832575
+        },
+        "early_july": {
+          "trades": 188,
+          "early_exits": 91,
+          "settlements": 97,
+          "fees": 12.852400000000003,
+          "capital": 340.6977,
+          "pnl": 51.92250000000001,
+          "roi": 0.15240050050235152
+        }
+      },
+      "tuning_pnl": 288.99330000000003,
+      "tuning_pnl_delta": 70.28980000000001,
+      "profitable_folds": 4
+    },
+    {
+      "config": {
+        "minimum_hold_seconds": 30.0,
+        "minimum_exit_inning": 7,
+        "maximum_fill_delay_seconds": 5.0,
+        "stop_loss_points": 0.1,
+        "exit_edge_threshold": null,
+        "require_opposite_taker": true
+      },
+      "folds": {
+        "april": {
+          "trades": 465,
+          "early_exits": 279,
+          "settlements": 186,
+          "fees": 37.68109999999999,
+          "capital": 840.9290000000001,
+          "pnl": 120.72830000000002,
+          "roi": 0.143565390181573
+        },
+        "may": {
+          "trades": 456,
+          "early_exits": 233,
+          "settlements": 223,
+          "fees": 32.10940000000001,
+          "capital": 820.8655,
+          "pnl": 80.9975,
+          "roi": 0.09867329056952692
+        },
+        "early_june": {
+          "trades": 216,
+          "early_exits": 129,
+          "settlements": 87,
+          "fees": 16.5013,
+          "capital": 401.8686,
+          "pnl": 16.78250000000001,
+          "roi": 0.0417611627283147
+        },
+        "late_june": {
+          "trades": 154,
+          "early_exits": 77,
+          "settlements": 77,
+          "fees": 11.134699999999997,
+          "capital": 276.23310000000004,
+          "pnl": 44.6268,
+          "roi": 0.16155486073175154
+        },
+        "early_july": {
+          "trades": 188,
+          "early_exits": 84,
+          "settlements": 104,
+          "fees": 12.438100000000002,
+          "capital": 340.6977,
+          "pnl": 55.11639999999999,
+          "roi": 0.16177508682917435
+        }
+      },
+      "tuning_pnl": 318.2515,
+      "tuning_pnl_delta": 99.548,
+      "profitable_folds": 5
+    },
+    {
+      "config": {
+        "minimum_hold_seconds": 30.0,
+        "minimum_exit_inning": 7,
+        "maximum_fill_delay_seconds": 5.0,
+        "stop_loss_points": 0.15,
+        "exit_edge_threshold": null,
+        "require_opposite_taker": true
+      },
+      "folds": {
+        "april": {
+          "trades": 465,
+          "early_exits": 268,
+          "settlements": 197,
+          "fees": 36.75829999999999,
+          "capital": 840.9290000000001,
+          "pnl": 107.53450000000001,
+          "roi": 0.12787583731801377
+        },
+        "may": {
+          "trades": 456,
+          "early_exits": 225,
+          "settlements": 231,
+          "fees": 31.377100000000006,
+          "capital": 820.8655,
+          "pnl": 75.101,
+          "roi": 0.09149001876677726
+        },
+        "early_june": {
+          "trades": 216,
+          "early_exits": 121,
+          "settlements": 95,
+          "fees": 16.0244,
+          "capital": 401.8686,
+          "pnl": 18.185600000000008,
+          "roi": 0.045252602467572754
+        },
+        "late_june": {
+          "trades": 154,
+          "early_exits": 74,
+          "settlements": 80,
+          "fees": 10.892799999999998,
+          "capital": 276.23310000000004,
+          "pnl": 39.8302,
+          "roi": 0.1441905405253751
+        },
+        "early_july": {
+          "trades": 188,
+          "early_exits": 80,
+          "settlements": 108,
+          "fees": 12.259,
+          "capital": 340.6977,
+          "pnl": 57.95079999999999,
+          "roi": 0.17009448552191572
+        }
+      },
+      "tuning_pnl": 298.6021,
+      "tuning_pnl_delta": 79.89859999999999,
+      "profitable_folds": 5
+    },
+    {
+      "config": {
+        "minimum_hold_seconds": 60.0,
+        "minimum_exit_inning": 1,
+        "maximum_fill_delay_seconds": 5.0,
+        "stop_loss_points": 0.05,
+        "exit_edge_threshold": null,
+        "require_opposite_taker": true
+      },
+      "folds": {
+        "april": {
+          "trades": 465,
+          "early_exits": 326,
+          "settlements": 139,
+          "fees": 41.22459999999999,
+          "capital": 840.9290000000001,
+          "pnl": 133.14390000000003,
+          "roi": 0.15832953792769666
+        },
+        "may": {
+          "trades": 456,
+          "early_exits": 295,
+          "settlements": 161,
+          "fees": 36.3207,
+          "capital": 820.8655,
+          "pnl": 63.17320000000001,
+          "roi": 0.0769592582463266
+        },
+        "early_june": {
+          "trades": 216,
+          "early_exits": 161,
+          "settlements": 55,
+          "fees": 18.800199999999997,
+          "capital": 401.8686,
+          "pnl": 7.265000000000003,
+          "roi": 0.018078048396913824
+        },
+        "late_june": {
+          "trades": 154,
+          "early_exits": 97,
+          "settlements": 57,
+          "fees": 12.697099999999997,
+          "capital": 276.23310000000004,
+          "pnl": 36.81210000000001,
+          "roi": 0.13326462324753985
+        },
+        "early_july": {
+          "trades": 188,
+          "early_exits": 113,
+          "settlements": 75,
+          "fees": 14.1343,
+          "capital": 340.6977,
+          "pnl": 38.105000000000004,
+          "roi": 0.11184401890590985
+        }
+      },
+      "tuning_pnl": 278.49920000000003,
+      "tuning_pnl_delta": 59.79570000000001,
+      "profitable_folds": 5
+    },
+    {
+      "config": {
+        "minimum_hold_seconds": 60.0,
+        "minimum_exit_inning": 1,
+        "maximum_fill_delay_seconds": 5.0,
+        "stop_loss_points": 0.1,
+        "exit_edge_threshold": null,
+        "require_opposite_taker": true
+      },
+      "folds": {
+        "april": {
+          "trades": 465,
+          "early_exits": 309,
+          "settlements": 156,
+          "fees": 40.004899999999985,
+          "capital": 840.9290000000001,
+          "pnl": 130.17430000000002,
+          "roi": 0.154798205318166
+        },
+        "may": {
+          "trades": 456,
+          "early_exits": 268,
+          "settlements": 188,
+          "fees": 34.540400000000005,
+          "capital": 820.8655,
+          "pnl": 79.92640000000002,
+          "roi": 0.09736844830243202
+        },
+        "early_june": {
+          "trades": 216,
+          "early_exits": 144,
+          "settlements": 72,
+          "fees": 17.8556,
+          "capital": 401.8686,
+          "pnl": 23.788800000000002,
+          "roi": 0.059195468369511825
+        },
+        "late_june": {
+          "trades": 154,
+          "early_exits": 87,
+          "settlements": 67,
+          "fees": 12.098099999999997,
+          "capital": 276.23310000000004,
+          "pnl": 46.53580000000001,
+          "roi": 0.16846569075176002
+        },
+        "early_july": {
+          "trades": 188,
+          "early_exits": 99,
+          "settlements": 89,
+          "fees": 13.530000000000001,
+          "capital": 340.6977,
+          "pnl": 46.0494,
+          "roi": 0.13516205128476066
+        }
+      },
+      "tuning_pnl": 326.47470000000004,
+      "tuning_pnl_delta": 107.77120000000002,
+      "profitable_folds": 5
+    },
+    {
+      "config": {
+        "minimum_hold_seconds": 60.0,
+        "minimum_exit_inning": 1,
+        "maximum_fill_delay_seconds": 5.0,
+        "stop_loss_points": 0.15,
+        "exit_edge_threshold": null,
+        "require_opposite_taker": true
+      },
+      "folds": {
+        "april": {
+          "trades": 465,
+          "early_exits": 294,
+          "settlements": 171,
+          "fees": 38.66569999999999,
+          "capital": 840.9290000000001,
+          "pnl": 114.35390000000001,
+          "roi": 0.13598520208008047
+        },
+        "may": {
+          "trades": 456,
+          "early_exits": 255,
+          "settlements": 201,
+          "fees": 33.2783,
+          "capital": 820.8655,
+          "pnl": 72.27010000000001,
+          "roi": 0.08804134173016166
+        },
+        "early_june": {
+          "trades": 216,
+          "early_exits": 134,
+          "settlements": 82,
+          "fees": 17.194899999999997,
+          "capital": 401.8686,
+          "pnl": 20.512000000000008,
+          "roi": 0.05104155935547094
+        },
+        "late_june": {
+          "trades": 154,
+          "early_exits": 80,
+          "settlements": 74,
+          "fees": 11.635999999999997,
+          "capital": 276.23310000000004,
+          "pnl": 41.3372,
+          "roi": 0.1496460778958061
+        },
+        "early_july": {
+          "trades": 188,
+          "early_exits": 90,
+          "settlements": 98,
+          "fees": 13.042300000000003,
+          "capital": 340.6977,
+          "pnl": 49.0089,
+          "roi": 0.1438486376632422
+        }
+      },
+      "tuning_pnl": 297.48210000000006,
+      "tuning_pnl_delta": 78.77860000000004,
+      "profitable_folds": 5
+    },
+    {
+      "config": {
+        "minimum_hold_seconds": 60.0,
+        "minimum_exit_inning": 5,
+        "maximum_fill_delay_seconds": 5.0,
+        "stop_loss_points": 0.05,
+        "exit_edge_threshold": null,
+        "require_opposite_taker": true
+      },
+      "folds": {
+        "april": {
+          "trades": 465,
+          "early_exits": 317,
+          "settlements": 148,
+          "fees": 40.13329999999999,
+          "capital": 840.9290000000001,
+          "pnl": 116.95130000000002,
+          "roi": 0.13907392895238482
+        },
+        "may": {
+          "trades": 456,
+          "early_exits": 276,
+          "settlements": 180,
+          "fees": 35.1068,
+          "capital": 820.8655,
+          "pnl": 67.452,
+          "roi": 0.0821718052470228
+        },
+        "early_june": {
+          "trades": 216,
+          "early_exits": 153,
+          "settlements": 63,
+          "fees": 18.1636,
+          "capital": 401.8686,
+          "pnl": 2.416700000000006,
+          "roi": 0.0060136572003884
+        },
+        "late_june": {
+          "trades": 154,
+          "early_exits": 90,
+          "settlements": 64,
+          "fees": 12.175499999999998,
+          "capital": 276.23310000000004,
+          "pnl": 37.5681,
+          "roi": 0.13600144226017807
+        },
+        "early_july": {
+          "trades": 188,
+          "early_exits": 99,
+          "settlements": 89,
+          "fees": 13.375800000000002,
+          "capital": 340.6977,
+          "pnl": 50.89240000000001,
+          "roi": 0.14937699902288748
+        }
+      },
+      "tuning_pnl": 275.2805,
+      "tuning_pnl_delta": 56.577,
+      "profitable_folds": 5
+    },
+    {
+      "config": {
+        "minimum_hold_seconds": 60.0,
+        "minimum_exit_inning": 5,
+        "maximum_fill_delay_seconds": 5.0,
+        "stop_loss_points": 0.1,
+        "exit_edge_threshold": null,
+        "require_opposite_taker": true
+      },
+      "folds": {
+        "april": {
+          "trades": 465,
+          "early_exits": 301,
+          "settlements": 164,
+          "fees": 39.01789999999998,
+          "capital": 840.9290000000001,
+          "pnl": 116.31280000000002,
+          "roi": 0.13831464963153847
+        },
+        "may": {
+          "trades": 456,
+          "early_exits": 254,
+          "settlements": 202,
+          "fees": 33.5651,
+          "capital": 820.8655,
+          "pnl": 82.34460000000001,
+          "roi": 0.10031436331530563
+        },
+        "early_june": {
+          "trades": 216,
+          "early_exits": 138,
+          "settlements": 78,
+          "fees": 17.3365,
+          "capital": 401.8686,
+          "pnl": 21.593200000000003,
+          "roi": 0.053731991004024704
+        },
+        "late_june": {
+          "trades": 154,
+          "early_exits": 81,
+          "settlements": 73,
+          "fees": 11.603799999999998,
+          "capital": 276.23310000000004,
+          "pnl": 48.510400000000004,
+          "roi": 0.17561400136334132
+        },
+        "early_july": {
+          "trades": 188,
+          "early_exits": 90,
+          "settlements": 98,
+          "fees": 12.9862,
+          "capital": 340.6977,
+          "pnl": 54.62969999999999,
+          "roi": 0.16034654768728993
+        }
+      },
+      "tuning_pnl": 323.39070000000004,
+      "tuning_pnl_delta": 104.68720000000002,
+      "profitable_folds": 5
+    },
+    {
+      "config": {
+        "minimum_hold_seconds": 60.0,
+        "minimum_exit_inning": 5,
+        "maximum_fill_delay_seconds": 5.0,
+        "stop_loss_points": 0.15,
+        "exit_edge_threshold": null,
+        "require_opposite_taker": true
+      },
+      "folds": {
+        "april": {
+          "trades": 465,
+          "early_exits": 289,
+          "settlements": 176,
+          "fees": 37.831299999999985,
+          "capital": 840.9290000000001,
+          "pnl": 100.18950000000001,
+          "roi": 0.119141449515952
+        },
+        "may": {
+          "trades": 456,
+          "early_exits": 245,
+          "settlements": 211,
+          "fees": 32.6134,
+          "capital": 820.8655,
+          "pnl": 72.26630000000002,
+          "roi": 0.0880367124699479
+        },
+        "early_june": {
+          "trades": 216,
+          "early_exits": 129,
+          "settlements": 87,
+          "fees": 16.7361,
+          "capital": 401.8686,
+          "pnl": 21.517700000000005,
+          "roi": 0.05354411864972781
+        },
+        "late_june": {
+          "trades": 154,
+          "early_exits": 76,
+          "settlements": 78,
+          "fees": 11.302299999999999,
+          "capital": 276.23310000000004,
+          "pnl": 46.3164,
+          "roi": 0.16767143401713985
+        },
+        "early_july": {
+          "trades": 188,
+          "early_exits": 85,
+          "settlements": 103,
+          "fees": 12.727600000000002,
+          "capital": 340.6977,
+          "pnl": 53.76339999999999,
+          "roi": 0.15780382432872306
+        }
+      },
+      "tuning_pnl": 294.05330000000004,
+      "tuning_pnl_delta": 75.34980000000002,
+      "profitable_folds": 5
+    },
+    {
+      "config": {
+        "minimum_hold_seconds": 60.0,
+        "minimum_exit_inning": 7,
+        "maximum_fill_delay_seconds": 5.0,
+        "stop_loss_points": 0.05,
+        "exit_edge_threshold": null,
+        "require_opposite_taker": true
+      },
+      "folds": {
+        "april": {
+          "trades": 465,
+          "early_exits": 289,
+          "settlements": 176,
+          "fees": 38.61239999999999,
+          "capital": 840.9290000000001,
+          "pnl": 123.29010000000001,
+          "roi": 0.14661178292103139
+        },
+        "may": {
+          "trades": 456,
+          "early_exits": 245,
+          "settlements": 211,
+          "fees": 33.1392,
+          "capital": 820.8655,
+          "pnl": 71.9616,
+          "roi": 0.08766551889438648
+        },
+        "early_june": {
+          "trades": 216,
+          "early_exits": 139,
+          "settlements": 77,
+          "fees": 17.1424,
+          "capital": 401.8686,
+          "pnl": -0.39449999999999186,
+          "roi": -0.0009816641558957127
+        },
+        "late_june": {
+          "trades": 154,
+          "early_exits": 82,
+          "settlements": 72,
+          "fees": 11.469699999999998,
+          "capital": 276.23310000000004,
+          "pnl": 41.8155,
+          "roi": 0.15137758653832575
+        },
+        "early_july": {
+          "trades": 188,
+          "early_exits": 91,
+          "settlements": 97,
+          "fees": 12.852400000000003,
+          "capital": 340.6977,
+          "pnl": 51.92250000000001,
+          "roi": 0.15240050050235152
+        }
+      },
+      "tuning_pnl": 288.59520000000003,
+      "tuning_pnl_delta": 69.89170000000001,
+      "profitable_folds": 4
+    },
+    {
+      "config": {
+        "minimum_hold_seconds": 60.0,
+        "minimum_exit_inning": 7,
+        "maximum_fill_delay_seconds": 5.0,
+        "stop_loss_points": 0.1,
+        "exit_edge_threshold": null,
+        "require_opposite_taker": true
+      },
+      "folds": {
+        "april": {
+          "trades": 465,
+          "early_exits": 279,
+          "settlements": 186,
+          "fees": 37.68039999999999,
+          "capital": 840.9290000000001,
+          "pnl": 120.75250000000001,
+          "roi": 0.14359416787861995
+        },
+        "may": {
+          "trades": 456,
+          "early_exits": 233,
+          "settlements": 223,
+          "fees": 32.10940000000001,
+          "capital": 820.8655,
+          "pnl": 80.9975,
+          "roi": 0.09867329056952692
+        },
+        "early_june": {
+          "trades": 216,
+          "early_exits": 129,
+          "settlements": 87,
+          "fees": 16.5013,
+          "capital": 401.8686,
+          "pnl": 16.78250000000001,
+          "roi": 0.0417611627283147
+        },
+        "late_june": {
+          "trades": 154,
+          "early_exits": 77,
+          "settlements": 77,
+          "fees": 11.134699999999997,
+          "capital": 276.23310000000004,
+          "pnl": 44.6268,
+          "roi": 0.16155486073175154
+        },
+        "early_july": {
+          "trades": 188,
+          "early_exits": 84,
+          "settlements": 104,
+          "fees": 12.438100000000002,
+          "capital": 340.6977,
+          "pnl": 55.11639999999999,
+          "roi": 0.16177508682917435
+        }
+      },
+      "tuning_pnl": 318.27570000000003,
+      "tuning_pnl_delta": 99.57220000000001,
+      "profitable_folds": 5
+    },
+    {
+      "config": {
+        "minimum_hold_seconds": 60.0,
+        "minimum_exit_inning": 7,
+        "maximum_fill_delay_seconds": 5.0,
+        "stop_loss_points": 0.15,
+        "exit_edge_threshold": null,
+        "require_opposite_taker": true
+      },
+      "folds": {
+        "april": {
+          "trades": 465,
+          "early_exits": 268,
+          "settlements": 197,
+          "fees": 36.75829999999999,
+          "capital": 840.9290000000001,
+          "pnl": 107.53450000000001,
+          "roi": 0.12787583731801377
+        },
+        "may": {
+          "trades": 456,
+          "early_exits": 225,
+          "settlements": 231,
+          "fees": 31.377100000000006,
+          "capital": 820.8655,
+          "pnl": 75.101,
+          "roi": 0.09149001876677726
+        },
+        "early_june": {
+          "trades": 216,
+          "early_exits": 121,
+          "settlements": 95,
+          "fees": 16.0244,
+          "capital": 401.8686,
+          "pnl": 18.185600000000008,
+          "roi": 0.045252602467572754
+        },
+        "late_june": {
+          "trades": 154,
+          "early_exits": 74,
+          "settlements": 80,
+          "fees": 10.892799999999998,
+          "capital": 276.23310000000004,
+          "pnl": 39.8302,
+          "roi": 0.1441905405253751
+        },
+        "early_july": {
+          "trades": 188,
+          "early_exits": 80,
+          "settlements": 108,
+          "fees": 12.259,
+          "capital": 340.6977,
+          "pnl": 57.95079999999999,
+          "roi": 0.17009448552191572
+        }
+      },
+      "tuning_pnl": 298.6021,
+      "tuning_pnl_delta": 79.89859999999999,
+      "profitable_folds": 5
+    },
+    {
+      "config": {
+        "minimum_hold_seconds": 120.0,
+        "minimum_exit_inning": 1,
+        "maximum_fill_delay_seconds": 5.0,
+        "stop_loss_points": 0.05,
+        "exit_edge_threshold": null,
+        "require_opposite_taker": true
+      },
+      "folds": {
+        "april": {
+          "trades": 465,
+          "early_exits": 325,
+          "settlements": 140,
+          "fees": 41.143399999999986,
+          "capital": 840.9290000000001,
+          "pnl": 132.6748,
+          "roi": 0.15777170248617897
+        },
+        "may": {
+          "trades": 456,
+          "early_exits": 294,
+          "settlements": 162,
+          "fees": 36.1908,
+          "capital": 820.8655,
+          "pnl": 65.46250000000002,
+          "roi": 0.07974814387984393
+        },
+        "early_june": {
+          "trades": 216,
+          "early_exits": 161,
+          "settlements": 55,
+          "fees": 18.7928,
+          "capital": 401.8686,
+          "pnl": 7.963900000000002,
+          "roi": 0.019817174071325806
+        },
+        "late_june": {
+          "trades": 154,
+          "early_exits": 97,
+          "settlements": 57,
+          "fees": 12.724399999999996,
+          "capital": 276.23310000000004,
+          "pnl": 37.32040000000001,
+          "roi": 0.13510473581913246
+        },
+        "early_july": {
+          "trades": 188,
+          "early_exits": 113,
+          "settlements": 75,
+          "fees": 14.1312,
+          "capital": 340.6977,
+          "pnl": 38.020700000000005,
+          "roi": 0.1115965854773895
+        }
+      },
+      "tuning_pnl": 281.44230000000005,
+      "tuning_pnl_delta": 62.738800000000026,
+      "profitable_folds": 5
+    },
+    {
+      "config": {
+        "minimum_hold_seconds": 120.0,
+        "minimum_exit_inning": 1,
+        "maximum_fill_delay_seconds": 5.0,
+        "stop_loss_points": 0.1,
+        "exit_edge_threshold": null,
+        "require_opposite_taker": true
+      },
+      "folds": {
+        "april": {
+          "trades": 465,
+          "early_exits": 309,
+          "settlements": 156,
+          "fees": 40.005499999999984,
+          "capital": 840.9290000000001,
+          "pnl": 130.1767,
+          "roi": 0.15480105930464996
+        },
+        "may": {
+          "trades": 456,
+          "early_exits": 268,
+          "settlements": 188,
+          "fees": 34.5172,
+          "capital": 820.8655,
+          "pnl": 79.35520000000001,
+          "roi": 0.09667259739872124
+        },
+        "early_june": {
+          "trades": 216,
+          "early_exits": 144,
+          "settlements": 72,
+          "fees": 17.8476,
+          "capital": 401.8686,
+          "pnl": 24.678400000000003,
+          "roi": 0.06140912726199559
+        },
+        "late_june": {
+          "trades": 154,
+          "early_exits": 86,
+          "settlements": 68,
+          "fees": 12.049599999999996,
+          "capital": 276.23310000000004,
+          "pnl": 45.817400000000006,
+          "roi": 0.16586498866355986
+        },
+        "early_july": {
+          "trades": 188,
+          "early_exits": 99,
+          "settlements": 89,
+          "fees": 13.526900000000001,
+          "capital": 340.6977,
+          "pnl": 45.9651,
+          "roi": 0.1349146178562403
+        }
+      },
+      "tuning_pnl": 325.99280000000005,
+      "tuning_pnl_delta": 107.28930000000003,
+      "profitable_folds": 5
+    },
+    {
+      "config": {
+        "minimum_hold_seconds": 120.0,
+        "minimum_exit_inning": 1,
+        "maximum_fill_delay_seconds": 5.0,
+        "stop_loss_points": 0.15,
+        "exit_edge_threshold": null,
+        "require_opposite_taker": true
+      },
+      "folds": {
+        "april": {
+          "trades": 465,
+          "early_exits": 294,
+          "settlements": 171,
+          "fees": 38.66569999999999,
+          "capital": 840.9290000000001,
+          "pnl": 114.35390000000001,
+          "roi": 0.13598520208008047
+        },
+        "may": {
+          "trades": 456,
+          "early_exits": 255,
+          "settlements": 201,
+          "fees": 33.2791,
+          "capital": 820.8655,
+          "pnl": 72.29760000000002,
+          "roi": 0.08807484295539283
+        },
+        "early_june": {
+          "trades": 216,
+          "early_exits": 134,
+          "settlements": 82,
+          "fees": 17.186899999999998,
+          "capital": 401.8686,
+          "pnl": 21.401600000000006,
+          "roi": 0.05325521824795469
+        },
+        "late_june": {
+          "trades": 154,
+          "early_exits": 79,
+          "settlements": 75,
+          "fees": 11.585699999999997,
+          "capital": 276.23310000000004,
+          "pnl": 40.5715,
+          "roi": 0.1468741436127676
+        },
+        "early_july": {
+          "trades": 188,
+          "early_exits": 90,
+          "settlements": 98,
+          "fees": 13.039200000000003,
+          "capital": 340.6977,
+          "pnl": 48.9246,
+          "roi": 0.14360120423472186
+        }
+      },
+      "tuning_pnl": 297.54920000000004,
+      "tuning_pnl_delta": 78.84570000000002,
+      "profitable_folds": 5
+    },
+    {
+      "config": {
+        "minimum_hold_seconds": 120.0,
+        "minimum_exit_inning": 5,
+        "maximum_fill_delay_seconds": 5.0,
+        "stop_loss_points": 0.05,
+        "exit_edge_threshold": null,
+        "require_opposite_taker": true
+      },
+      "folds": {
+        "april": {
+          "trades": 465,
+          "early_exits": 316,
+          "settlements": 149,
+          "fees": 40.05209999999999,
+          "capital": 840.9290000000001,
+          "pnl": 116.48220000000003,
+          "roi": 0.13851609351086716
+        },
+        "may": {
+          "trades": 456,
+          "early_exits": 275,
+          "settlements": 181,
+          "fees": 34.9769,
+          "capital": 820.8655,
+          "pnl": 69.74130000000001,
+          "roi": 0.08496069088054012
+        },
+        "early_june": {
+          "trades": 216,
+          "early_exits": 153,
+          "settlements": 63,
+          "fees": 18.1562,
+          "capital": 401.8686,
+          "pnl": 3.115600000000005,
+          "roi": 0.007752782874800382
+        },
+        "late_june": {
+          "trades": 154,
+          "early_exits": 90,
+          "settlements": 64,
+          "fees": 12.202799999999996,
+          "capital": 276.23310000000004,
+          "pnl": 38.07640000000001,
+          "roi": 0.1378415548317707
+        },
+        "early_july": {
+          "trades": 188,
+          "early_exits": 99,
+          "settlements": 89,
+          "fees": 13.372700000000002,
+          "capital": 340.6977,
+          "pnl": 50.80810000000001,
+          "roi": 0.14912956559436713
+        }
+      },
+      "tuning_pnl": 278.2236000000001,
+      "tuning_pnl_delta": 59.52010000000007,
+      "profitable_folds": 5
+    },
+    {
+      "config": {
+        "minimum_hold_seconds": 120.0,
+        "minimum_exit_inning": 5,
+        "maximum_fill_delay_seconds": 5.0,
+        "stop_loss_points": 0.1,
+        "exit_edge_threshold": null,
+        "require_opposite_taker": true
+      },
+      "folds": {
+        "april": {
+          "trades": 465,
+          "early_exits": 301,
+          "settlements": 164,
+          "fees": 39.01849999999999,
+          "capital": 840.9290000000001,
+          "pnl": 116.31520000000002,
+          "roi": 0.13831750361802245
+        },
+        "may": {
+          "trades": 456,
+          "early_exits": 254,
+          "settlements": 202,
+          "fees": 33.5419,
+          "capital": 820.8655,
+          "pnl": 81.77340000000001,
+          "roi": 0.09961851241159485
+        },
+        "early_june": {
+          "trades": 216,
+          "early_exits": 138,
+          "settlements": 78,
+          "fees": 17.3285,
+          "capital": 401.8686,
+          "pnl": 22.4828,
+          "roi": 0.05594564989650846
+        },
+        "late_june": {
+          "trades": 154,
+          "early_exits": 80,
+          "settlements": 74,
+          "fees": 11.555299999999997,
+          "capital": 276.23310000000004,
+          "pnl": 47.792,
+          "roi": 0.17301329927514117
+        },
+        "early_july": {
+          "trades": 188,
+          "early_exits": 90,
+          "settlements": 98,
+          "fees": 12.9831,
+          "capital": 340.6977,
+          "pnl": 54.545399999999994,
+          "roi": 0.16009911425876955
+        }
+      },
+      "tuning_pnl": 322.90880000000004,
+      "tuning_pnl_delta": 104.20530000000002,
+      "profitable_folds": 5
+    },
+    {
+      "config": {
+        "minimum_hold_seconds": 120.0,
+        "minimum_exit_inning": 5,
+        "maximum_fill_delay_seconds": 5.0,
+        "stop_loss_points": 0.15,
+        "exit_edge_threshold": null,
+        "require_opposite_taker": true
+      },
+      "folds": {
+        "april": {
+          "trades": 465,
+          "early_exits": 289,
+          "settlements": 176,
+          "fees": 37.831299999999985,
+          "capital": 840.9290000000001,
+          "pnl": 100.18950000000001,
+          "roi": 0.119141449515952
+        },
+        "may": {
+          "trades": 456,
+          "early_exits": 245,
+          "settlements": 211,
+          "fees": 32.614200000000004,
+          "capital": 820.8655,
+          "pnl": 72.2938,
+          "roi": 0.08807021369517906
+        },
+        "early_june": {
+          "trades": 216,
+          "early_exits": 129,
+          "settlements": 87,
+          "fees": 16.728099999999998,
+          "capital": 401.8686,
+          "pnl": 22.407300000000006,
+          "roi": 0.055757777542211576
+        },
+        "late_june": {
+          "trades": 154,
+          "early_exits": 75,
+          "settlements": 79,
+          "fees": 11.251999999999999,
+          "capital": 276.23310000000004,
+          "pnl": 45.550700000000006,
+          "roi": 0.16489949973410137
+        },
+        "early_july": {
+          "trades": 188,
+          "early_exits": 85,
+          "settlements": 103,
+          "fees": 12.724500000000003,
+          "capital": 340.6977,
+          "pnl": 53.67909999999999,
+          "roi": 0.1575563909002027
+        }
+      },
+      "tuning_pnl": 294.1204,
+      "tuning_pnl_delta": 75.4169,
+      "profitable_folds": 5
+    },
+    {
+      "config": {
+        "minimum_hold_seconds": 120.0,
+        "minimum_exit_inning": 7,
+        "maximum_fill_delay_seconds": 5.0,
+        "stop_loss_points": 0.05,
+        "exit_edge_threshold": null,
+        "require_opposite_taker": true
+      },
+      "folds": {
+        "april": {
+          "trades": 465,
+          "early_exits": 289,
+          "settlements": 176,
+          "fees": 38.59229999999999,
+          "capital": 840.9290000000001,
+          "pnl": 122.72260000000003,
+          "roi": 0.14593693403366992
+        },
+        "may": {
+          "trades": 456,
+          "early_exits": 244,
+          "settlements": 212,
+          "fees": 33.00920000000001,
+          "capital": 820.8655,
+          "pnl": 74.34940000000002,
+          "roi": 0.09057439982555
+        },
+        "early_june": {
+          "trades": 216,
+          "early_exits": 139,
+          "settlements": 77,
+          "fees": 17.134999999999998,
+          "capital": 401.8686,
+          "pnl": 0.3044000000000069,
+          "roi": 0.0007574615185162684
+        },
+        "late_june": {
+          "trades": 154,
+          "early_exits": 82,
+          "settlements": 72,
+          "fees": 11.504699999999998,
+          "capital": 276.23310000000004,
+          "pnl": 42.536100000000005,
+          "roi": 0.15398625291465795
+        },
+        "early_july": {
+          "trades": 188,
+          "early_exits": 91,
+          "settlements": 97,
+          "fees": 12.849300000000003,
+          "capital": 340.6977,
+          "pnl": 51.83820000000001,
+          "roi": 0.15215306707383117
+        }
+      },
+      "tuning_pnl": 291.75070000000005,
+      "tuning_pnl_delta": 73.04720000000003,
+      "profitable_folds": 5
+    },
+    {
+      "config": {
+        "minimum_hold_seconds": 120.0,
+        "minimum_exit_inning": 7,
+        "maximum_fill_delay_seconds": 5.0,
+        "stop_loss_points": 0.1,
+        "exit_edge_threshold": null,
+        "require_opposite_taker": true
+      },
+      "folds": {
+        "april": {
+          "trades": 465,
+          "early_exits": 279,
+          "settlements": 186,
+          "fees": 37.68099999999999,
+          "capital": 840.9290000000001,
+          "pnl": 120.7549,
+          "roi": 0.14359702186510395
+        },
+        "may": {
+          "trades": 456,
+          "early_exits": 233,
+          "settlements": 223,
+          "fees": 32.086200000000005,
+          "capital": 820.8655,
+          "pnl": 80.4263,
+          "roi": 0.09797743966581614
+        },
+        "early_june": {
+          "trades": 216,
+          "early_exits": 129,
+          "settlements": 87,
+          "fees": 16.493299999999998,
+          "capital": 401.8686,
+          "pnl": 17.672100000000007,
+          "roi": 0.04397482162079846
+        },
+        "late_june": {
+          "trades": 154,
+          "early_exits": 76,
+          "settlements": 78,
+          "fees": 11.086199999999996,
+          "capital": 276.23310000000004,
+          "pnl": 43.9084,
+          "roi": 0.1589541586435514
+        },
+        "early_july": {
+          "trades": 188,
+          "early_exits": 84,
+          "settlements": 104,
+          "fees": 12.435000000000002,
+          "capital": 340.6977,
+          "pnl": 55.03209999999999,
+          "roi": 0.161527653400654
+        }
+      },
+      "tuning_pnl": 317.79380000000003,
+      "tuning_pnl_delta": 99.09030000000001,
+      "profitable_folds": 5
+    },
+    {
+      "config": {
+        "minimum_hold_seconds": 120.0,
+        "minimum_exit_inning": 7,
+        "maximum_fill_delay_seconds": 5.0,
+        "stop_loss_points": 0.15,
+        "exit_edge_threshold": null,
+        "require_opposite_taker": true
+      },
+      "folds": {
+        "april": {
+          "trades": 465,
+          "early_exits": 268,
+          "settlements": 197,
+          "fees": 36.75829999999999,
+          "capital": 840.9290000000001,
+          "pnl": 107.53450000000001,
+          "roi": 0.12787583731801377
+        },
+        "may": {
+          "trades": 456,
+          "early_exits": 225,
+          "settlements": 231,
+          "fees": 31.377900000000004,
+          "capital": 820.8655,
+          "pnl": 75.1285,
+          "roi": 0.09152351999200845
+        },
+        "early_june": {
+          "trades": 216,
+          "early_exits": 121,
+          "settlements": 95,
+          "fees": 16.016399999999997,
+          "capital": 401.8686,
+          "pnl": 19.07520000000001,
+          "roi": 0.047466261360056515
+        },
+        "late_june": {
+          "trades": 154,
+          "early_exits": 73,
+          "settlements": 81,
+          "fees": 10.842499999999998,
+          "capital": 276.23310000000004,
+          "pnl": 39.064499999999995,
+          "roi": 0.1414186062423366
+        },
+        "early_july": {
+          "trades": 188,
+          "early_exits": 80,
+          "settlements": 108,
+          "fees": 12.2559,
+          "capital": 340.6977,
+          "pnl": 57.86649999999999,
+          "roi": 0.16984705209339537
+        }
+      },
+      "tuning_pnl": 298.6692,
+      "tuning_pnl_delta": 79.96569999999997,
+      "profitable_folds": 5
+    }
+  ]
+}

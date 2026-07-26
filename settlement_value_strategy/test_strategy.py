@@ -11,9 +11,71 @@ from settlement_value_strategy.strategy import (
     market_adjusted_probability, model_signal, signal_economics, simulate_mispricing,
     reversal_economics, simulate_away_yes, simulate_paired_both,
 )
+from settlement_value_strategy.early_exit import EarlyExitConfig, apply_early_exits
 
 
 class MispricingTests(unittest.TestCase):
+    def test_early_exit_is_strictly_later_and_charges_exit_fee(self):
+        start = pd.Timestamp("2026-06-01T12:00:00Z")
+        records = pd.DataFrame([{
+            "game_pk": 1, "execution_contract": "home_yes",
+            "fill_time": start, "fill_price": .60, "contracts": 3.0,
+            "entry_fee": .05, "pnl": -1.85,
+        }])
+        decisions = pd.DataFrame({
+            "game_pk": [1], "signal_time": [start + pd.Timedelta(seconds=31)],
+            "next_update_time": [start + pd.Timedelta(seconds=36)],
+            "fair_probability": [.40],
+        })
+        tape = pd.DataFrame({
+            "game_pk": [1, 1, 1], "trade_id": [1, 2, 3],
+            "created_time": [
+                start + pd.Timedelta(seconds=31),
+                start + pd.Timedelta(seconds=32),
+                start + pd.Timedelta(seconds=33),
+            ],
+            "yes_price_dollars": [.50, .49, .48],
+            "count_fp": [100, 100, 100],
+            "taker_outcome_side": ["no", "yes", "no"],
+        })
+        exited = apply_early_exits(
+            records, decisions, tape, tape.iloc[:0],
+            EarlyExitConfig(minimum_hold_seconds=30, stop_loss_points=.05,
+                            exit_edge_threshold=None),
+        )
+        row = exited.iloc[0]
+        self.assertEqual(row.exit_time, start + pd.Timedelta(seconds=33))
+        self.assertEqual(row.exit_price, .48)
+        self.assertGreater(row.exit_fee, 0)
+        self.assertAlmostEqual(
+            row.pnl, 3 * (.48 - .60) - .05 - row.exit_fee
+        )
+
+    def test_early_exit_falls_back_to_settlement_without_liquidity(self):
+        start = pd.Timestamp("2026-06-01T12:00:00Z")
+        records = pd.DataFrame([{
+            "game_pk": 1, "execution_contract": "away_yes",
+            "fill_time": start, "fill_price": .60, "contracts": 3.0,
+            "entry_fee": .05, "pnl": 1.15,
+        }])
+        decisions = pd.DataFrame({
+            "game_pk": [1], "signal_time": [start + pd.Timedelta(seconds=31)],
+            "next_update_time": [start + pd.Timedelta(seconds=36)],
+            "fair_probability": [.80],
+        })
+        away = pd.DataFrame({
+            "game_pk": [1], "trade_id": [1],
+            "created_time": [start + pd.Timedelta(seconds=32)],
+            "yes_price_dollars": [.40], "count_fp": [2.0],
+            "taker_outcome_side": ["no"],
+        })
+        exited = apply_early_exits(
+            records, decisions, away.iloc[:0], away,
+            EarlyExitConfig(minimum_hold_seconds=30),
+        )
+        self.assertEqual(exited.iloc[0].pnl, 1.15)
+        self.assertTrue(pd.isna(exited.iloc[0].exit_time))
+
     def test_reversal_requires_new_edge_to_cover_unwind_loss(self):
         position = SimpleNamespace(
             contracts=5.0, entry_price=.60, entry_fee=.05,
