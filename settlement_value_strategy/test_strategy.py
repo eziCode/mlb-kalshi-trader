@@ -74,7 +74,9 @@ class MispricingTests(unittest.TestCase):
         })
         exited = apply_early_exits(
             records, decisions, away.iloc[:0], away,
-            EarlyExitConfig(minimum_hold_seconds=30),
+            EarlyExitConfig(
+                minimum_hold_seconds=30, stop_loss_points=.10,
+            ),
         )
         row = exited.iloc[0]
         self.assertEqual(row.exit_contracts, 2.0)

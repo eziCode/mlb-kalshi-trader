@@ -56,7 +56,7 @@ def main() -> None:
         confirmation_taker_side="any",
         early_exit_enabled=True,
         early_exit_minimum_hold_seconds=60.0,
-        early_exit_stop_loss_points=.10,
+        early_exit_stop_loss_points=.20,
         early_exit_minimum_inning=1,
     )
     MODEL.mkdir(exist_ok=True)

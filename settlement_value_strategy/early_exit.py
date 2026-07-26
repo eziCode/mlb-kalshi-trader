@@ -16,7 +16,7 @@ class EarlyExitConfig:
     minimum_hold_seconds: float = 30.0
     minimum_exit_inning: int = 1
     maximum_fill_delay_seconds: float = 5.0
-    stop_loss_points: float | None = 0.10
+    stop_loss_points: float | None = 0.20
     exit_edge_threshold: float | None = 0.0
     require_opposite_taker: bool = True
 

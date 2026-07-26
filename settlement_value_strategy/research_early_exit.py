@@ -77,17 +77,14 @@ def main() -> None:
             prepare_exit_tapes(game_home, game_away),
         )
 
-    candidates = [
-        EarlyExitConfig(
-            minimum_hold_seconds=hold,
-            minimum_exit_inning=inning,
-            stop_loss_points=stop,
-            exit_edge_threshold=None,
-        )
-        for hold in (30.0, 60.0, 120.0)
-        for inning in (1, 5, 7)
-        for stop in (.05, .10, .15)
-    ]
+    # Backtest the exact deployed early-exit policy so research and live
+    # execution cannot silently drift onto different stop thresholds.
+    candidates = [EarlyExitConfig(
+        minimum_hold_seconds=config.early_exit_minimum_hold_seconds,
+        minimum_exit_inning=config.early_exit_minimum_inning,
+        stop_loss_points=config.early_exit_stop_loss_points,
+        exit_edge_threshold=None,
+    )]
     tuning_names = [name for name in FOLDS if name != "final_holdout"]
     grid = []
     for candidate in candidates:

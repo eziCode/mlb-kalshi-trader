@@ -18,7 +18,7 @@
   "require_post_signal_trade": true,
   "early_exit_enabled": true,
   "early_exit_minimum_hold_seconds": 60.0,
-  "early_exit_stop_loss_points": 0.1,
+  "early_exit_stop_loss_points": 0.2,
   "early_exit_minimum_inning": 1,
   "model_kind": "latency_residual",
   "model_file": "latency_value.cbm",

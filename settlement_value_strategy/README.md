@@ -182,12 +182,10 @@ remainder. Exit fees are charged and any unsold contracts still settle. Results
 are written to `results/early_exit_research_summary.json` and
 `results/early_exit_research_trades.csv`.
 
-The current study selected a 10-point stop after 60 seconds on the tuning
-folds, but it reduced untouched final-holdout PnL from $11.65 to $11.26. No
-tested stop improved every chronological selection fold. The live policy uses
-this rule: after a 60-second minimum hold, a 10-point adverse move triggers an
-IOC sale for the currently visible bid size. A partial fill reduces the
-position and leaves the remainder eligible for later exits or settlement.
+The backtest evaluates the same stop policy used by live execution. After a
+60-second minimum hold, a 20-point adverse move triggers an IOC sale for the
+currently visible bid size. A partial fill reduces the position and leaves the
+remainder eligible for later exits or settlement.
 
 ## Paper trading
 

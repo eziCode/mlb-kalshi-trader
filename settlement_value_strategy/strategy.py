@@ -169,7 +169,7 @@ class MispricingConfig:
     require_post_signal_trade: bool = True
     early_exit_enabled: bool = False
     early_exit_minimum_hold_seconds: float = 60.0
-    early_exit_stop_loss_points: float = 0.10
+    early_exit_stop_loss_points: float = 0.20
     early_exit_minimum_inning: int = 1
 
 
