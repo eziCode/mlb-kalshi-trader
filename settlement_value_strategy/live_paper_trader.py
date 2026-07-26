@@ -1532,7 +1532,7 @@ async def run_worker() -> None:
                                     break
                                 conflict_ticker = str(entry["ticker"])
                                 exit_fill = await asyncio.to_thread(
-                                    live_executor.execute_exit,
+                                    live_executor.execute_partial_exit,
                                     trigger_key=(
                                         f"sv-reversal:{trigger_key}:"
                                         f"{conflict.trigger_pitch}"
@@ -1555,25 +1555,29 @@ async def run_worker() -> None:
                                     exit_fill.contracts * exit_fill.price
                                     - exit_fill.fee
                                 )
-                                if not portfolio.close_position(
+                                remaining = portfolio.reduce_position(
                                     int(GAME_PK), conflict.trigger_pitch,
-                                    net_proceeds,
-                                ):
-                                    raise RuntimeError(
-                                        "Filled reversal exit could not be "
-                                        "persisted locally"
-                                    )
-                                positions.remove(conflict)
+                                    exit_fill.contracts, net_proceeds,
+                                )
+                                if remaining <= 1e-9:
+                                    positions.remove(conflict)
+                                else:
+                                    conflict.contracts = remaining
                                 print(
                                     "TRADE SELL strategy=settlement_value "
                                     f"reason=PROFITABLE_REVERSAL "
                                     f"side={conflict.side.upper()} "
                                     f"contracts={exit_fill.contracts:.4f} "
+                                    f"remaining={remaining:.4f} "
                                     f"price={exit_fill.price:.4f} "
                                     f"fee={exit_fill.fee:.4f} "
                                     f"game_pk={GAME_PK} ticker={conflict_ticker}",
                                     flush=True,
                                 )
+                                if remaining > 1e-9:
+                                    action = "LIVE_SKIP_PARTIAL_REVERSAL_REMAINDER"
+                                    exit_failed = True
+                                    break
                             if exit_failed:
                                 handled_tokens.add(token)
                                 previous_game = game

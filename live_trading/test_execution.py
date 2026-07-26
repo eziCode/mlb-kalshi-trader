@@ -59,6 +59,22 @@ class FakeClient:
 
 
 class LiveExecutionTests(unittest.TestCase):
+    def test_game_cooldown_is_scoped_to_strategy(self):
+        with tempfile.TemporaryDirectory() as directory:
+            ledger = LiveRiskLedger(Path(directory) / "risk.db", 10.0)
+            self.assertIsNotNone(ledger.reserve(
+                "settlement-1", 1, "HOME", 2.0, 120,
+                strategy="settlement_value",
+            ))
+            self.assertIsNotNone(ledger.reserve(
+                "reversion-1", 1, "AWAY", 2.0, 60,
+                strategy="hit_reversion",
+            ))
+            self.assertIsNone(ledger.reserve(
+                "settlement-2", 1, "HOME", 2.0, 120,
+                strategy="settlement_value",
+            ))
+
     def test_partial_exit_uses_ioc_and_keeps_entry_open(self):
         with tempfile.TemporaryDirectory() as directory:
             executor = LiveExecutor.__new__(LiveExecutor)

@@ -172,6 +172,7 @@ class LiveRiskLedger:
             connection.execute("""CREATE TABLE IF NOT EXISTS live_orders (
                 client_order_id TEXT PRIMARY KEY,
                 trigger_key TEXT NOT NULL UNIQUE,
+                strategy TEXT NOT NULL DEFAULT 'unknown',
                 game_pk INTEGER NOT NULL,
                 ticker TEXT NOT NULL,
                 reserved_capital REAL NOT NULL,
@@ -211,6 +212,11 @@ class LiveRiskLedger:
                     "ALTER TABLE live_orders ADD COLUMN "
                     "settlement_probability REAL NOT NULL DEFAULT 0"
                 )
+            if "strategy" not in columns:
+                connection.execute(
+                    "ALTER TABLE live_orders ADD COLUMN "
+                    "strategy TEXT NOT NULL DEFAULT 'unknown'"
+                )
 
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self.path, timeout=30)
@@ -246,6 +252,7 @@ class LiveRiskLedger:
         minimum_seconds_between_entries: float,
         settlement_probability: float = 0.0,
         available_cash: float | None = None,
+        strategy: str = "settlement_value",
     ) -> str | None:
         digest = hashlib.sha256(f"{ticker}|{trigger_key}".encode()).hexdigest()[:24]
         client_id = f"sv-{digest}"
@@ -258,8 +265,9 @@ class LiveRiskLedger:
                 return None
             latest = connection.execute(
                 "SELECT created_at FROM live_orders WHERE game_pk=? AND "
+                "strategy=? AND "
                 "status IN ('pending','filled') ORDER BY created_at DESC LIMIT 1",
-                (game_pk,),
+                (game_pk, strategy),
             ).fetchone()
             if latest and (
                 now - datetime.fromisoformat(latest[0])
@@ -277,11 +285,11 @@ class LiveRiskLedger:
             stamp = now.isoformat()
             connection.execute(
                 """INSERT INTO live_orders (
-                    client_order_id,trigger_key,game_pk,ticker,reserved_capital,
+                    client_order_id,trigger_key,strategy,game_pk,ticker,reserved_capital,
                     committed_capital,contracts,price,fee,
                     settlement_probability,status,created_at,updated_at
-                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)""",
-                (client_id, trigger_key, game_pk, ticker, budget, 0.0, 0.0,
+                ) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)""",
+                (client_id, trigger_key, strategy, game_pk, ticker, budget, 0.0, 0.0,
                  0.0, 0.0, settlement_probability, "pending", stamp, stamp),
             )
         return client_id
@@ -469,6 +477,7 @@ class LiveExecutor:
             trigger_key, game_pk, ticker, effective_budget,
             minimum_seconds_between_entries, settlement_probability,
             available_cash=available_cash,
+            strategy=strategy,
         )
         if client_id is None:
             attempt.update(status="not_submitted", reason="risk_limit_cooldown_or_duplicate")
