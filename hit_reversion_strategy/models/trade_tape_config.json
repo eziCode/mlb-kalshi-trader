@@ -1,6 +1,6 @@
 {
   "enabled": true,
-  "minimum_edge": 0.075,
+  "minimum_edge": 0.05,
   "confirmation_seconds": 0.0,
   "maximum_pre_event_trade_age_seconds": 10.0,
   "maximum_event_to_entry_seconds": 20.0,
@@ -22,7 +22,7 @@
   "exit_target_mode": "frozen",
   "latch_reversion_exit": false,
   "minimum_reversion_move": 0.0,
-  "side_filter": "both",
+  "side_filter": "yes",
   "position_sizing": "fixed_payout",
   "require_compatible_taker": false,
   "require_post_signal_trade": false,

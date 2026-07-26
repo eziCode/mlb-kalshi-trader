@@ -1,7 +1,7 @@
 {
   "selected_config": {
     "enabled": true,
-    "minimum_edge": 0.075,
+    "minimum_edge": 0.05,
     "confirmation_seconds": 0.0,
     "maximum_pre_event_trade_age_seconds": 10.0,
     "maximum_event_to_entry_seconds": 20.0,
@@ -23,7 +23,7 @@
     "exit_target_mode": "frozen",
     "latch_reversion_exit": false,
     "minimum_reversion_move": 0.0,
-    "side_filter": "both",
+    "side_filter": "yes",
     "position_sizing": "fixed_payout",
     "require_compatible_taker": false,
     "require_post_signal_trade": false,
@@ -33,7 +33,7 @@
   },
   "deployment_config": {
     "enabled": true,
-    "minimum_edge": 0.075,
+    "minimum_edge": 0.05,
     "confirmation_seconds": 0.0,
     "maximum_pre_event_trade_age_seconds": 10.0,
     "maximum_event_to_entry_seconds": 20.0,
@@ -55,7 +55,7 @@
     "exit_target_mode": "frozen",
     "latch_reversion_exit": false,
     "minimum_reversion_move": 0.0,
-    "side_filter": "both",
+    "side_filter": "yes",
     "position_sizing": "fixed_payout",
     "require_compatible_taker": false,
     "require_post_signal_trade": false,
@@ -66,61 +66,54 @@
   "games": 297,
   "trade_tape_rows": 2456553,
   "state_updates": 86977,
-  "observed_hits": 4146,
-  "misaligned_event_updates": 103,
-  "eligible_hit_updates": 3893,
-  "rejected_fair_updates": 150,
-  "invalidated_candidates": 101,
-  "expired_candidates": 3284,
-  "fresh_hit_anchors": 3515,
-  "confirmed_signals": 130,
-  "trades": 130,
-  "yes_trades": 55,
-  "no_trades": 75,
-  "reversion_exits": 53,
+  "observed_hits": 4144,
+  "misaligned_event_updates": 234,
+  "eligible_hit_updates": 3776,
+  "rejected_fair_updates": 134,
+  "invalidated_candidates": 64,
+  "expired_candidates": 3339,
+  "fresh_hit_anchors": 3438,
+  "confirmed_signals": 33,
+  "trades": 33,
+  "yes_trades": 33,
+  "no_trades": 0,
+  "reversion_exits": 9,
   "momentum_exits": 0,
-  "timeout_exits": 75,
-  "settlements": 2,
-  "fees": 35.86,
-  "capital": 663.7300000000001,
-  "pnl": 58.54,
-  "roi": 0.08819851445617945,
-  "pnl_without_best_game": 53.33,
-  "pnl_without_top_four_games": 45.11,
+  "timeout_exits": 24,
+  "settlements": 0,
+  "fees": 7.832399999999995,
+  "capital": 174.1639,
+  "pnl": 8.267600000000009,
+  "roi": 0.047470227756728045,
+  "pnl_without_best_game": 6.31320000000001,
+  "pnl_without_top_four_games": 2.5264000000000086,
   "segment_results": {
-    "double:no": {
-      "trades": 22,
-      "pnl": 6.860000000000002,
-      "wins": 15
-    },
     "double:yes": {
-      "trades": 14,
-      "pnl": 9.95,
-      "wins": 13
-    },
-    "single:no": {
-      "trades": 52,
-      "pnl": 18.50000000000001,
-      "wins": 37
+      "trades": 11,
+      "pnl": 0.24550000000000516,
+      "wins": 5
     },
     "single:yes": {
-      "trades": 38,
-      "pnl": 21.44,
-      "wins": 30
-    },
-    "triple:no": {
-      "trades": 1,
-      "pnl": -0.49000000000000143,
-      "wins": 0
+      "trades": 19,
+      "pnl": 5.891000000000004,
+      "wins": 12
     },
     "triple:yes": {
       "trades": 3,
-      "pnl": 2.2799999999999985,
+      "pnl": 2.1311,
       "wins": 2
     }
   },
   "time_based_exit": true,
   "exit_target_mode": "frozen",
   "latch_reversion_exit": false,
-  "state_model": "MLB-only batting-perspective local win expectancy"
+  "state_model": "MLB-only batting-perspective local win expectancy",
+  "event_availability": {
+    "mode": "empirical_live_publication_latency",
+    "sample_date": "2026-07-25",
+    "sample_hits": 184,
+    "latency_seconds_median": 12.933865,
+    "latency_seconds_p75": 19.111486,
+    "latency_seconds_p95": 55.757119
+  }
 }

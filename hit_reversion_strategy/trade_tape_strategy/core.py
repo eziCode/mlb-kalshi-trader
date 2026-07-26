@@ -282,8 +282,15 @@ def simulate_trade_tape(
         raise ValueError(f"State updates are missing columns: {sorted(missing)}")
 
     result = TradeTapeResult()
+    availability_column = (
+        "event_available_time"
+        if "event_available_time" in updates.columns
+        else "pitch_end_time"
+    )
     updates_by_game = {
-        int(game_pk): game.sort_values("pitch_end_time")
+        int(game_pk): game.sort_values(
+            [availability_column, "pitch_end_time"]
+        )
         for game_pk, game in updates.groupby("game_pk", sort=False)
     }
     momentum_window_ns = int(config.momentum_window_seconds * 1_000_000_000)
@@ -315,6 +322,10 @@ def simulate_trade_tape(
         home_win = int(game_trades["home_win"].iloc[-1])
 
         update_rows = list(game_updates.itertuples(index=False))
+        update_available_ns = [
+            pd.Timestamp(getattr(update, availability_column)).value
+            for update in update_rows
+        ]
         update_index = 0
         current_fair = float(update_rows[0].fair_before)
         candidate: Candidate | None = None
@@ -326,15 +337,13 @@ def simulate_trade_tape(
             newest_visible_update_index = update_index - 1
             while (
                 newest_visible_update_index + 1 < len(update_rows)
-                and pd.Timestamp(
-                    update_rows[newest_visible_update_index + 1].pitch_end_time
-                ).value <= trade_ns
+                and update_available_ns[newest_visible_update_index + 1]
+                <= trade_ns
             ):
                 newest_visible_update_index += 1
             while (
                 update_index < len(update_rows)
-                and pd.Timestamp(update_rows[update_index].pitch_end_time).value
-                <= trade_ns
+                and update_available_ns[update_index] <= trade_ns
             ):
                 update = update_rows[update_index]
                 active_candidate = (

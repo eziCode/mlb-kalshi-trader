@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import asdict, replace
+import hashlib
 import json
 from pathlib import Path
 import sys
 
+import numpy as np
 import pandas as pd
 
 
@@ -28,6 +30,64 @@ CONFIG_PATH = MODEL_DIR / "trade_tape_config.json"
 STUDY_DIR = PROJECT_ROOT / "artifacts"
 OUTER_HOLDOUT_START = pd.Timestamp("2026-06-28").date()
 
+# Empirical completed-hit publication latency measured from 184 archived MLB
+# live-feed observations on 2026-07-25. Historical rows do not contain an
+# observation timestamp, so stable event identities are mapped through this
+# CDF. This is deterministic and keeps pitch_end_time as the signal-age clock.
+PUBLICATION_DELAY_QUANTILES = {
+    0.00: 2.523033,
+    0.05: 4.150827,
+    0.10: 5.662205,
+    0.20: 7.876134,
+    0.30: 9.631647,
+    0.40: 10.908609,
+    0.50: 12.933865,
+    0.60: 14.024072,
+    0.70: 15.513805,
+    0.75: 19.111486,
+    0.80: 23.557750,
+    0.90: 41.331502,
+    0.95: 55.757119,
+    0.975: 80.516275,
+    0.99: 126.110700,
+    1.00: 266.310212,
+}
+
+
+def publication_delay_seconds(row: pd.Series) -> float:
+    identity = (
+        f"{int(row.game_pk)}:{int(row.at_bat_number)}:"
+        f"{int(row.pitch_number)}"
+    ).encode()
+    uniform = int.from_bytes(
+        hashlib.sha256(identity).digest()[:8], "big"
+    ) / float(2**64 - 1)
+    probabilities = list(PUBLICATION_DELAY_QUANTILES)
+    delays = list(PUBLICATION_DELAY_QUANTILES.values())
+    return float(np.interp(uniform, probabilities, delays))
+
+
+def apply_publication_latency(updates: pd.DataFrame) -> pd.DataFrame:
+    delayed = updates.copy()
+    # Parquet stores pitch timestamps at microsecond resolution, while the
+    # empirical interpolation can produce nanoseconds. Promote the destination
+    # before assigning delayed values so pandas does not truncate them.
+    delayed["event_available_time"] = delayed["pitch_end_time"].astype(
+        "datetime64[ns, UTC]"
+    )
+    hit_mask = (
+        delayed["is_hit"]
+        & delayed["completed_event"].isin(["single", "double", "triple"])
+    )
+    delays = delayed.loc[hit_mask].apply(
+        publication_delay_seconds, axis=1
+    )
+    delayed.loc[hit_mask, "event_available_time"] = (
+        delayed.loc[hit_mask, "pitch_end_time"]
+        + pd.to_timedelta(delays, unit="s")
+    )
+    return delayed
+
 
 def main() -> None:
     config = TradeTapeConfig(**json.loads(CONFIG_PATH.read_text()))
@@ -37,7 +97,9 @@ def main() -> None:
     updates["game_date"] = pd.to_datetime(updates["game_date"]).dt.date
     test_trades = trades[trades["game_date"] >= OUTER_HOLDOUT_START].copy()
     test_games = set(test_trades["game_pk"].unique())
-    test_updates = updates[updates["game_pk"].isin(test_games)].copy()
+    test_updates = apply_publication_latency(
+        updates[updates["game_pk"].isin(test_games)].copy()
+    )
 
     result = simulate_trade_tape(test_trades, test_updates, config)
     records = pd.DataFrame(asdict(record) for record in result.records)
@@ -93,6 +155,14 @@ def main() -> None:
         "exit_target_mode": config.exit_target_mode,
         "latch_reversion_exit": config.latch_reversion_exit,
         "state_model": "MLB-only batting-perspective local win expectancy",
+        "event_availability": {
+            "mode": "empirical_live_publication_latency",
+            "sample_date": "2026-07-25",
+            "sample_hits": 184,
+            "latency_seconds_median": 12.933865,
+            "latency_seconds_p75": 19.111486,
+            "latency_seconds_p95": 55.757119,
+        },
     }
     STUDY_DIR.mkdir(parents=True, exist_ok=True)
     (STUDY_DIR / "holdout_summary.json").write_text(
@@ -114,6 +184,7 @@ def main() -> None:
     print(f"Games:                 {len(test_games):,}")
     print(f"Observed trades:       {len(test_trades):,}")
     print(f"Observed hits:         {result.observed_hits:,}")
+    print("Event availability:    empirical live publication latency")
     print(f"Misaligned hit state:  {result.misaligned_event_updates:,}")
     print(f"Eligible fair moves:   {result.eligible_hit_updates:,}")
     print(f"Rejected fair moves:   {result.rejected_fair_updates:,}")

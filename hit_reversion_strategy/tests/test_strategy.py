@@ -637,6 +637,31 @@ class TradeTapeStrategyTests(unittest.TestCase):
         self.assertEqual(result.trades, 0)
         self.assertEqual(result.expired_candidates, 1)
 
+    def test_event_publication_delay_uses_pitch_time_for_expiry(self):
+        trades, updates = self._frames(include_reversion=False)
+        updates["event_available_time"] = updates["pitch_end_time"]
+        updates.loc[updates["is_hit"], "event_available_time"] = (
+            updates.loc[updates["is_hit"], "pitch_end_time"]
+            + pd.Timedelta(seconds=21)
+        )
+        trades.loc[len(trades)] = trades.iloc[-1]
+        trades.loc[len(trades) - 1, "trade_id"] = "late-observation"
+        trades.loc[len(trades) - 1, "created_time"] = pd.Timestamp(
+            "2026-07-01T12:00:22.5Z"
+        )
+
+        result = simulate_trade_tape(
+            trades,
+            updates,
+            TradeTapeConfig(
+                minimum_edge=0.05,
+                maximum_event_to_entry_seconds=20.0,
+            ),
+        )
+
+        self.assertEqual(result.trades, 0)
+        self.assertEqual(result.expired_candidates, 1)
+
     def test_reversion_requires_a_later_compatible_trade(self):
         trades, updates = self._frames(include_reversion=True)
         result = simulate_trade_tape(
