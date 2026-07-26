@@ -29,6 +29,18 @@ from settlement_value_strategy.live_paper_trader import (
 from settlement_value_strategy.strategy import MispricingConfig
 
 
+class DeployedPolicyParityTests(unittest.TestCase):
+    def test_frozen_policy_matches_selected_research_constraints(self):
+        config = deployed_config()
+        self.assertEqual(config.bet_size, 2.0)
+        self.assertEqual(config.minimum_probability_edge, .02)
+        self.assertEqual(config.minimum_entry_inning, 2)
+        self.assertEqual(config.minimum_seconds_between_entries, 120.0)
+        self.assertEqual(config.maximum_positions_per_game, 2)
+        self.assertEqual(config.confirmation_taker_side, "compatible")
+        self.assertFalse(config.early_exit_enabled)
+
+
 class PregameAnchorRetryTests(unittest.IsolatedAsyncioTestCase):
     async def test_live_game_without_pitch_time_is_retried(self):
         with (
@@ -390,9 +402,9 @@ class PipelineTests(unittest.TestCase):
             trades, signal, .80, [], "yes", config,
         )
         self.assertIsNotNone(fill)
-        self.assertEqual(fill["price"], .41)
+        self.assertEqual(fill["price"], .42)
         self.assertEqual(
-            pd.Timestamp(fill["time"]), signal + pd.Timedelta(seconds=1)
+            pd.Timestamp(fill["time"]), signal + pd.Timedelta(seconds=2)
         )
 
     def test_live_confirmation_uses_actual_order_budget_and_keeps_fee_check(self):
@@ -402,7 +414,7 @@ class PipelineTests(unittest.TestCase):
             "created_time": [signal + pd.Timedelta(seconds=1)],
             "yes_price_dollars": [.40],
             "count_fp": [5.0],
-            "taker_outcome_side": ["no"],
+            "taker_outcome_side": ["yes"],
         })
         config = MispricingPredictor().config
         fill = replay_fill_from_observed_trades(

@@ -9,12 +9,18 @@ import pandas as pd
 from settlement_value_strategy.strategy import (
     MISPRICING_FEATURES, MispricingConfig, mispricing_feature_frame,
     market_adjusted_probability, model_signal, signal_economics, simulate_mispricing,
-    reversal_economics, simulate_away_yes, simulate_paired_both,
+    entry_state_allowed, reversal_economics, simulate_away_yes,
+    simulate_paired_both,
 )
 from settlement_value_strategy.early_exit import EarlyExitConfig, apply_early_exits
 
 
 class MispricingTests(unittest.TestCase):
+    def test_minimum_entry_inning_is_shared_policy(self):
+        config = MispricingConfig(minimum_entry_inning=2)
+        self.assertFalse(entry_state_allowed({"inning_after": 1}, config))
+        self.assertTrue(entry_state_allowed({"inning_after": 2}, config))
+
     def test_early_exit_is_strictly_later_and_charges_exit_fee(self):
         start = pd.Timestamp("2026-06-01T12:00:00Z")
         records = pd.DataFrame([{

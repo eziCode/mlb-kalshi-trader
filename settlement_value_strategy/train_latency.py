@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict
+import hashlib
 import json
 from pathlib import Path
 
@@ -45,26 +46,30 @@ def main() -> None:
         maximum_fill_delay_seconds=5.0,
         minimum_expected_pnl=0.0,
         minimum_probability_edge=.02,
-        bet_size=10.0,
+        bet_size=2.0,
         side_filter="both",
-        minimum_seconds_between_entries=200.0,
+        minimum_seconds_between_entries=120.0,
         execution_contract="paired_both",
         maximum_positions_per_game=2,
         conditional_stacking=True,
         excluded_price_min=.45,
         excluded_price_max=.55,
-        confirmation_taker_side="any",
-        early_exit_enabled=True,
+        confirmation_taker_side="compatible",
+        minimum_entry_inning=2,
+        early_exit_enabled=False,
         early_exit_minimum_hold_seconds=60.0,
         early_exit_stop_loss_points=.20,
         early_exit_minimum_inning=1,
     )
     MODEL.mkdir(exist_ok=True)
-    model.save_model(MODEL / "latency_value.cbm")
+    model_path = MODEL / "latency_value.cbm"
+    temporary_model = MODEL / "latency_value.tmp.cbm"
+    model.save_model(temporary_model)
     payload = {
         **asdict(config),
         "model_kind": "latency_residual",
         "model_file": "latency_value.cbm",
+        "model_sha256": hashlib.sha256(temporary_model.read_bytes()).hexdigest(),
         "residual_shrinkage": 1.0,
         "maximum_logit_move": .5,
         "training_target": "causal 3-10 second home-market logit move",
@@ -73,7 +78,10 @@ def main() -> None:
         "tuning_passed": True,
         "validation_passed": True,
     }
-    (MODEL / "live_config.json").write_text(json.dumps(payload, indent=2))
+    temporary_config = MODEL / "live_config.tmp.json"
+    temporary_config.write_text(json.dumps(payload, indent=2))
+    temporary_model.replace(model_path)
+    temporary_config.replace(MODEL / "live_config.json")
     print(json.dumps(payload, indent=2))
 
 
