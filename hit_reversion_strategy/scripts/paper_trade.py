@@ -10,6 +10,7 @@ from datetime import date, datetime, timedelta, timezone
 import json
 import os
 from pathlib import Path
+import tempfile
 import re
 import sqlite3
 import subprocess
@@ -70,6 +71,72 @@ KALSHI_EVENT_TIMEZONE = ZoneInfo("America/New_York")
 MAX_EVENT_TIME_DELTA = timedelta(minutes=90)
 LIVE_MODE = os.getenv("LIVE_TRADING_ENABLED") == REAL_MONEY_ACK
 LIVE_ORDER_BUDGET = 2.0
+
+DECISION_LOG_COLUMNS = [
+    "decision_time", "market_received_at", "state_received_at",
+    "bid", "ask", "inning", "outs", "score_diff", "fair_prob",
+    "completed_event_id", "completed_event", "event_is_complete",
+    "event_source", "event_terminal_reason", "event_pitch_end",
+    "event_detection_latency_seconds", "latest_pitch_at_bat",
+    "latest_pitch_number", "target", "excess_move", "edge",
+    "continuation_value", "exit_advantage", "action", "portfolio_cash",
+    "portfolio_equity", "portfolio_pnl", "portfolio_open_positions",
+]
+
+
+def ensure_decision_log_schema(log_path: Path) -> None:
+    """Create the decision log or safely repair the one known old header.
+
+    A prior image created a 27-column header and later images appended the
+    new 28-column rows containing ``event_terminal_reason``. Refuse unknown
+    mismatches, but repair that exact header without discarding any rows.
+    """
+    log_path.parent.mkdir(parents=True, exist_ok=True)
+    if not log_path.exists() or log_path.stat().st_size == 0:
+        with log_path.open("w", newline="") as handle:
+            csv.writer(handle).writerow(DECISION_LOG_COLUMNS)
+        return
+
+    with log_path.open(newline="") as handle:
+        reader = csv.reader(handle)
+        header = next(reader, [])
+    if header == DECISION_LOG_COLUMNS:
+        return
+
+    old_columns = [
+        column for column in DECISION_LOG_COLUMNS
+        if column != "event_terminal_reason"
+    ]
+    if header != old_columns:
+        raise RuntimeError(
+            f"Unexpected hit-reversion decision-log schema in {log_path}: "
+            f"expected {len(DECISION_LOG_COLUMNS)} columns, found {len(header)}"
+        )
+
+    temporary_name = None
+    try:
+        with tempfile.NamedTemporaryFile(
+            mode="w", newline="", dir=log_path.parent,
+            prefix=f".{log_path.name}.", suffix=".tmp", delete=False,
+        ) as output:
+            temporary_name = output.name
+            writer = csv.writer(output)
+            writer.writerow(DECISION_LOG_COLUMNS)
+            with log_path.open(newline="") as source:
+                reader = csv.reader(source)
+                next(reader, None)
+                for line_number, row in enumerate(reader, start=2):
+                    if len(row) != len(DECISION_LOG_COLUMNS):
+                        raise RuntimeError(
+                            f"Cannot repair {log_path}: row {line_number} has "
+                            f"{len(row)} columns, expected "
+                            f"{len(DECISION_LOG_COLUMNS)}"
+                        )
+                    writer.writerow(row)
+        Path(temporary_name).replace(log_path)
+    finally:
+        if temporary_name is not None:
+            Path(temporary_name).unlink(missing_ok=True)
 
 MLB_TEAM_CODES = {
     108: "LAA", 109: "ARI", 110: "BAL", 111: "BOS", 112: "CHC",
@@ -1474,20 +1541,7 @@ async def main() -> None:
     log_dir = LOG_DIR
     log_dir.mkdir(parents=True, exist_ok=True)
     log_path = log_dir / f"hit_reversion_decisions_v2_{MARKET_TICKER}.csv"
-    new_log = not log_path.exists() or log_path.stat().st_size == 0
-    if new_log:
-        with log_path.open("a", newline="") as handle:
-            csv.writer(handle).writerow([
-                "decision_time", "market_received_at", "state_received_at",
-                "bid", "ask", "inning", "outs", "score_diff", "fair_prob",
-                "completed_event_id", "completed_event", "event_is_complete",
-                "event_source", "event_terminal_reason", "event_pitch_end",
-                "event_detection_latency_seconds",
-                "latest_pitch_at_bat", "latest_pitch_number", "target", "excess_move",
-                "edge", "continuation_value", "exit_advantage", "action",
-                "portfolio_cash", "portfolio_equity", "portfolio_pnl",
-                "portfolio_open_positions",
-            ])
+    ensure_decision_log_schema(log_path)
 
     positions = portfolio.load_positions(int(GAME_PK))
     if positions:

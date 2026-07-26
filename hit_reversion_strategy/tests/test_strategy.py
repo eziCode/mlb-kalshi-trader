@@ -15,7 +15,8 @@ from scripts.paper_trade import (
     match_games_to_home_markets, pre_pitch_trade_anchor,
     LIVE_ORDER_BUDGET, Position, replay_candidate_entry, replay_position_exit,
     run_daily_coordinator, SharedPaperPortfolio, state_model_frame,
-    main, should_surface_worker_line,
+    main, should_surface_worker_line, ensure_decision_log_schema,
+    DECISION_LOG_COLUMNS,
 )
 from trade_tape_strategy.core import (
     TradeTapeConfig,
@@ -26,6 +27,27 @@ from trade_tape_strategy.core import (
 
 
 class TradeTapeStrategyTests(unittest.TestCase):
+    def test_decision_log_repairs_known_old_header_without_losing_rows(self):
+        old_columns = [
+            column for column in DECISION_LOG_COLUMNS
+            if column != "event_terminal_reason"
+        ]
+        row = [str(index) for index in range(len(DECISION_LOG_COLUMNS))]
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "decisions.csv"
+            with path.open("w", newline="") as handle:
+                import csv
+                writer = csv.writer(handle)
+                writer.writerow(old_columns)
+                writer.writerow(row)
+
+            ensure_decision_log_schema(path)
+
+            with path.open(newline="") as handle:
+                import csv
+                rows = list(csv.reader(handle))
+            self.assertEqual(rows, [DECISION_LOG_COLUMNS, row])
+
     @staticmethod
     def _early_hit_payload(linescore_home: int = 1) -> dict:
         play = {
