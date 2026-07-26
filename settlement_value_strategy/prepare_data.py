@@ -27,6 +27,7 @@ STATE_COLUMNS = {
     "inning_topbot_after", "outs_when_up_after", "score_diff_after",
     "balls_after", "strikes_after", "runner_on_first_after",
     "runner_on_second_after", "runner_on_third_after",
+    "atomic_play_input",
 }
 
 
@@ -94,6 +95,13 @@ def main() -> None:
         away_trades.created_time, utc=True
     )
     states["pitch_end_time"] = pd.to_datetime(states.pitch_end_time, utc=True)
+    invalid_atomic = ~states["atomic_play_input"].fillna(False).astype(bool)
+    if invalid_atomic.any():
+        print(
+            f"excluding {int(invalid_atomic.sum()):,} state updates that fail "
+            "the live atomic-play eligibility rule"
+        )
+        states = states.loc[~invalid_atomic].copy()
     decisions = build_mispricing_dataset(trades, states, MispricingConfig())
     compact = compact_execution_tape(decisions, trades)
     compact_away = compact_execution_tape(decisions, away_trades)

@@ -20,6 +20,10 @@ from catboost import CatBoostClassifier
 import numpy as np
 import pandas as pd
 
+from settlement_value_strategy.play_eligibility import (
+    incomplete_ball_in_play_reason,
+)
+
 
 ROOT = Path(__file__).resolve().parent
 RAW = ROOT / "raw"
@@ -68,6 +72,11 @@ def pitch_times(feed_dir: Path) -> pd.DataFrame:
                     "pitch_number": int(pitch["pitchNumber"]),
                     "pitch_start_time": pd.to_datetime(pitch.get("startTime"), utc=True),
                     "pitch_end_time": pd.to_datetime(pitch["endTime"], utc=True),
+                    "atomic_play_input": (
+                        incomplete_ball_in_play_reason(
+                            play, int(pitch["pitchNumber"])
+                        ) is None
+                    ),
                 })
     if not rows:
         raise RuntimeError(f"No pitch timestamps found in {feed_dir}")
@@ -188,7 +197,8 @@ def main() -> None:
         states[f"{name}_after"] = grouped[name].shift(-1)
     output_states = states.dropna(subset=["fair_after"])[[
         "game_pk", "game_date", "market_ticker", "home_win", "at_bat_number",
-        "pitch_number", "pitch_start_time", "pitch_end_time", "fair_before",
+        "pitch_number", "pitch_start_time", "pitch_end_time",
+        "atomic_play_input", "fair_before",
         "fair_after", "inning_after", "inning_topbot_after", "outs_when_up_after",
         "score_diff_after", "balls_after", "strikes_after", "runner_on_first_after",
         "runner_on_second_after", "runner_on_third_after",

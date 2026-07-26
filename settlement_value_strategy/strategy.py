@@ -259,6 +259,7 @@ def build_mispricing_dataset(
             market_move = _logit(market) - _logit(anchor_market)
             row = {
                 "dataset_version": 1,
+                "atomic_play_input": bool(update.atomic_play_input),
                 "game_pk": int(game_pk), "game_date": update.game_date,
                 "home_win": int(update.home_win),
                 "trigger_at_bat": int(update.at_bat_number),

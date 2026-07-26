@@ -68,6 +68,13 @@ def metrics(result, total_games: int) -> dict:
 
 def main() -> None:
     frame = pd.read_parquet(DATA / "decision_rows.parquet")
+    if "atomic_play_input" not in frame:
+        raise RuntimeError(
+            "Backtest decisions lack atomic_play_input; rebuild with "
+            "prepare_data.py so the backtest uses the live play policy"
+        )
+    if not frame.atomic_play_input.fillna(False).astype(bool).all():
+        raise RuntimeError("Backtest decisions contain non-atomic MLB play inputs")
     home = pd.read_parquet(DATA / "execution_trades.parquet")
     away = pd.read_parquet(DATA / "away_execution_trades.parquet")
     labeled = add_future_market_target(frame, home)

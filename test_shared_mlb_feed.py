@@ -36,6 +36,46 @@ class SharedMlbFeedTests(unittest.TestCase):
         self.assertEqual(response["failures"], 2)
         self.assertEqual(response["last_error"], "timeout")
         self.assertIsNone(response["last_error_kind"])
+        self.assertFalse(response["websocket_connected"])
+
+    def test_websocket_message_immediately_wakes_poll_worker(self):
+        state = feed.FeedState()
+        state.games[123] = feed.GameFeed()
+        wakeup = Mock()
+
+        class OneMessageSocket:
+            def __aiter__(self):
+                self.sent = False
+                return self
+
+            async def __anext__(self):
+                if self.sent:
+                    raise StopAsyncIteration
+                self.sent = True
+                return "changed"
+
+        class Connection:
+            async def __aenter__(self):
+                return OneMessageSocket()
+
+            async def __aexit__(self, *args):
+                return None
+
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            os.environ, {"PAPER_LOG_DIR": directory}
+        ), patch.object(feed.websockets, "connect", return_value=Connection()):
+            import asyncio
+            asyncio.run(state._websocket_game_loop(123, wakeup))
+            path = Path(directory) / "mlb_feed_transport_2026-07-25.jsonl"
+            records = [json.loads(line) for line in path.read_text().splitlines()]
+        self.assertGreaterEqual(wakeup.set.call_count, 2)
+        self.assertIsNotNone(state.games[123].websocket_last_message_at)
+        self.assertEqual(records[0]["kind"], "mlb_websocket_connected")
+        self.assertEqual(records[1]["kind"], "mlb_websocket_message")
+        self.assertEqual(
+            state.games[123].last_websocket_notification["kind"],
+            "websocket_message",
+        )
 
     def test_live_failure_retries_are_capped_at_five_seconds(self):
         self.assertEqual(feed.FeedState._failure_interval("Live", 1), .5)
@@ -108,6 +148,7 @@ class SharedMlbFeedTests(unittest.TestCase):
         output.assert_not_called()
         self.assertEqual(records[0]["stage"]["event_type"], "single")
         self.assertTrue(records[0]["stage"]["runners_populated"])
+        self.assertTrue(records[0]["stage"]["atomic_play_eligible"])
         self.assertTrue(records[1]["at_bat_progressed"])
         self.assertEqual(records[1]["previous_at_bat"], 4)
 
@@ -141,6 +182,35 @@ class SharedMlbFeedTests(unittest.TestCase):
         self.assertEqual(record["linescore"]["currentInning"], 3)
         self.assertEqual(record["upstream"]["request_elapsed_seconds"], .125)
         self.assertEqual(record["upstream"]["age"], "0")
+
+    def test_transition_records_atomic_ball_in_play_rejection_reason(self):
+        state = feed.FeedState()
+        game = feed.GameFeed()
+        play = {
+            "atBatIndex": 4,
+            "about": {"isComplete": False},
+            "result": {}, "runners": [],
+            "playEvents": [{
+                "isPitch": True, "pitchNumber": 2,
+                "endTime": "2026-07-25T01:00:00Z",
+                "details": {"isInPlay": True},
+            }],
+        }
+        payload = {"liveData": {"plays": {"allPlays": [play]}}}
+        with tempfile.TemporaryDirectory() as directory, patch.dict(
+            os.environ, {"PAPER_LOG_DIR": directory}
+        ):
+            state._log_play_transitions(
+                123, game, payload, "2026-07-25T01:00:01+00:00"
+            )
+            path = Path(directory) / "mlb_feed_transitions_2026-07-25.jsonl"
+            record = json.loads(path.read_text().strip())
+        self.assertTrue(record["stage"]["is_in_play"])
+        self.assertFalse(record["stage"]["atomic_play_eligible"])
+        self.assertEqual(
+            record["stage"]["atomic_rejection_reason"],
+            "play is not complete",
+        )
 
 
 if __name__ == "__main__":

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -15,9 +16,17 @@ from urllib.parse import urlparse
 
 import requests
 from requests.adapters import HTTPAdapter
+import websockets
+
+from settlement_value_strategy.play_eligibility import (
+    incomplete_ball_in_play_reason,
+)
 
 
 MLB_API = "https://statsapi.mlb.com/api"
+MLB_GAMEDAY_WS = os.getenv(
+    "MLB_GAMEDAY_WS", "wss://ws.statsapi.mlb.com/api/v1/game/push/subscribe/gameday"
+).rstrip("/")
 FEED_URL = os.getenv("MLB_FEED_URL", "http://127.0.0.1:8766").rstrip("/")
 
 
@@ -32,6 +41,11 @@ class GameFeed:
     last_status_code: int | None = None
     last_play_stage: tuple | None = None
     last_at_bat_index: int | None = None
+    websocket_connected: bool = False
+    websocket_last_message_at: str | None = None
+    websocket_failures: int = 0
+    pending_websocket_notification: dict | None = None
+    last_websocket_notification: dict | None = None
 
 
 class FeedState:
@@ -39,6 +53,8 @@ class FeedState:
         self.lock = threading.RLock()
         self.games: dict[int, GameFeed] = {}
         self.workers: dict[int, threading.Thread] = {}
+        self.websocket_workers: dict[int, threading.Thread] = {}
+        self.websocket_wakeups: dict[int, threading.Event] = {}
         self.stopping = threading.Event()
 
     def request(self, game_pk: int) -> GameFeed:
@@ -47,12 +63,21 @@ class FeedState:
             game = self.games.setdefault(game_pk, GameFeed())
             worker = self.workers.get(game_pk)
             if worker is None or not worker.is_alive():
+                wakeup = self.websocket_wakeups.setdefault(
+                    game_pk, threading.Event()
+                )
                 worker = threading.Thread(
                     target=self._poll_game, args=(game_pk,), daemon=True,
                     name=f"mlb-feed-{game_pk}",
                 )
                 self.workers[game_pk] = worker
                 worker.start()
+                websocket_worker = threading.Thread(
+                    target=self._websocket_game, args=(game_pk, wakeup),
+                    daemon=True, name=f"mlb-gameday-ws-{game_pk}",
+                )
+                self.websocket_workers[game_pk] = websocket_worker
+                websocket_worker.start()
             return game
 
     def response(self, game_pk: int) -> dict:
@@ -65,6 +90,10 @@ class FeedState:
                 "failures": game.failures, "last_error": game.last_error,
                 "last_error_kind": game.last_error_kind,
                 "last_status_code": game.last_status_code,
+                "websocket_connected": game.websocket_connected,
+                "websocket_last_message_at": game.websocket_last_message_at,
+                "websocket_failures": game.websocket_failures,
+                "websocket_last_notification": game.last_websocket_notification,
             }
 
     @staticmethod
@@ -132,17 +161,31 @@ class FeedState:
         return session
 
     @staticmethod
-    def _append_transition_record(record: dict, observed_at: str) -> None:
+    def _append_record(
+        record: dict, observed_at: str, filename_prefix: str,
+    ) -> None:
         log_dir = Path(os.getenv("PAPER_LOG_DIR", "live_logs"))
         try:
             log_dir.mkdir(parents=True, exist_ok=True)
             date = observed_at[:10] if len(observed_at) >= 10 else "unknown"
-            path = log_dir / f"mlb_feed_transitions_{date}.jsonl"
+            path = log_dir / f"{filename_prefix}_{date}.jsonl"
             with path.open("a", encoding="utf-8") as output:
                 output.write(json.dumps(record, separators=(",", ":")))
                 output.write("\n")
         except OSError as error:
-            print(f"MLB_TRANSITION_LOG_ERROR error={error}", flush=True)
+            print(f"MLB_STRUCTURED_LOG_ERROR error={error}", flush=True)
+
+    @staticmethod
+    def _append_transition_record(record: dict, observed_at: str) -> None:
+        FeedState._append_record(
+            record, observed_at, "mlb_feed_transitions"
+        )
+
+    @staticmethod
+    def _append_transport_record(record: dict, observed_at: str) -> None:
+        FeedState._append_record(
+            record, observed_at, "mlb_feed_transport"
+        )
 
     @staticmethod
     def _log_play_transitions(
@@ -171,10 +214,34 @@ class FeedState:
             for event in play.get("playEvents") or []
             if event.get("isPitch") and event.get("endTime")
         ]
+        pitches = [
+            event for event in play.get("playEvents") or []
+            if event.get("isPitch")
+        ]
+        latest_pitch = max(
+            pitches,
+            key=lambda event: int(
+                event.get("pitchNumber") or event.get("index") or 0
+            ),
+            default=None,
+        )
+        latest_pitch_number = (
+            int(latest_pitch.get("pitchNumber") or latest_pitch.get("index") or 0)
+            if latest_pitch else None
+        )
+        is_in_play = bool(
+            latest_pitch
+            and (latest_pitch.get("details") or {}).get("isInPlay")
+        )
+        atomic_rejection = (
+            incomplete_ball_in_play_reason(play, latest_pitch_number)
+            if latest_pitch_number is not None else None
+        )
         stage = (
             at_bat, event_type, bool(isinstance(runners, list) and runners),
             bool(play.get("about", {}).get("isComplete")),
             max(pitch_ends) if pitch_ends else None,
+            latest_pitch_number, is_in_play, atomic_rejection,
         )
         if stage != game.last_play_stage:
             previous_play = next((
@@ -193,6 +260,10 @@ class FeedState:
                     "runners_populated": stage[2],
                     "is_complete": stage[3],
                     "latest_pitch_end": stage[4],
+                    "latest_pitch_number": latest_pitch_number,
+                    "is_in_play": is_in_play,
+                    "atomic_play_eligible": atomic_rejection is None,
+                    "atomic_rejection_reason": atomic_rejection,
                 },
                 "upstream": upstream or {},
                 "play": play,
@@ -204,12 +275,22 @@ class FeedState:
 
     def _poll_game(self, game_pk: int) -> None:
         session = self._new_session()
+        wakeup = self.websocket_wakeups[game_pk]
         try:
             while not self.stopping.is_set():
                 started = time.monotonic()
+                request_started_at = datetime.now(timezone.utc).isoformat()
+                with self.lock:
+                    game = self.games[game_pk]
+                    notification = game.pending_websocket_notification
+                    game.pending_websocket_notification = None
+                trigger = "websocket" if notification else "scheduled_poll"
                 try:
                     response = session.get(
                         f"{MLB_API}/v1.1/game/{game_pk}/feed/live",
+                        # A WebSocket notification should retrieve a fresh
+                        # representation rather than a CDN's cached full feed.
+                        params={"_": time.time_ns()},
                         timeout=(3.05, 10),
                     )
                     response.raise_for_status()
@@ -219,6 +300,9 @@ class FeedState:
                     ).get("abstractGameState") or "Unknown")
                     observed_at = datetime.now(timezone.utc).isoformat()
                     upstream = {
+                        "trigger": trigger,
+                        "request_started_at": request_started_at,
+                        "websocket_notification": notification,
                         "request_elapsed_seconds": response.elapsed.total_seconds(),
                         "date": response.headers.get("Date"),
                         "age": response.headers.get("Age"),
@@ -238,6 +322,17 @@ class FeedState:
                         game.last_error = None
                         game.last_error_kind = None
                         game.last_status_code = None
+                    if notification is not None:
+                        self._append_transport_record({
+                            "kind": "mlb_feed_refresh",
+                            "game_pk": game_pk,
+                            "trigger": trigger,
+                            "request_started_at": request_started_at,
+                            "observed_at": observed_at,
+                            "websocket_notification": notification,
+                            "http": upstream,
+                            "game_status": status,
+                        }, observed_at)
                     delay = self._interval(status)
                 except Exception as error:
                     kind, status_code, retry_after = self._classify_failure(error)
@@ -259,9 +354,97 @@ class FeedState:
                         f"retrying in {delay:.1f}s", flush=True,
                     )
                 remaining = max(0.05, delay - (time.monotonic() - started))
-                self.stopping.wait(remaining)
+                wakeup.wait(remaining)
+                wakeup.clear()
         finally:
             session.close()
+
+    async def _websocket_game_loop(
+        self, game_pk: int, wakeup: threading.Event,
+    ) -> None:
+        url = f"{MLB_GAMEDAY_WS}/{game_pk}"
+        async with websockets.connect(
+            url, open_timeout=10, ping_interval=20, ping_timeout=20,
+            close_timeout=5,
+        ) as websocket:
+            connected_at = datetime.now(timezone.utc).isoformat()
+            connection_notification = {
+                "kind": "websocket_connected", "received_at": connected_at,
+            }
+            with self.lock:
+                game = self.games[game_pk]
+                game.websocket_connected = True
+                game.websocket_failures = 0
+                game.pending_websocket_notification = connection_notification
+                game.last_websocket_notification = connection_notification
+            self._append_transport_record({
+                "kind": "mlb_websocket_connected", "game_pk": game_pk,
+                "observed_at": connected_at, "url": url,
+            }, connected_at)
+            # Fetch immediately after the socket handshake, then after every
+            # Gameday push message. The one-second poll remains the fallback.
+            wakeup.set()
+            async for message in websocket:
+                observed_at = datetime.now(timezone.utc).isoformat()
+                try:
+                    decoded = json.loads(message)
+                except (TypeError, json.JSONDecodeError):
+                    decoded = {"raw_message": str(message)}
+                notification = {
+                    "kind": "websocket_message",
+                    "received_at": observed_at,
+                    "mlb_timestamp": decoded.get("timeStamp"),
+                    "update_id": decoded.get("updateId"),
+                    "logical_events": decoded.get("logicalEvents"),
+                    "game_events": decoded.get("gameEvents"),
+                    "change_event": decoded.get("changeEvent"),
+                    "is_delay": decoded.get("isDelay"),
+                    "wait": decoded.get("wait"),
+                }
+                with self.lock:
+                    game = self.games[game_pk]
+                    game.websocket_last_message_at = observed_at
+                    game.pending_websocket_notification = notification
+                    game.last_websocket_notification = notification
+                self._append_transport_record({
+                    "kind": "mlb_websocket_message", "game_pk": game_pk,
+                    "observed_at": observed_at, "notification": notification,
+                    "message": decoded,
+                }, observed_at)
+                wakeup.set()
+
+    def _websocket_game(
+        self, game_pk: int, wakeup: threading.Event,
+    ) -> None:
+        failures = 0
+        while not self.stopping.is_set():
+            try:
+                asyncio.run(self._websocket_game_loop(game_pk, wakeup))
+                failures = 0
+            except Exception as error:
+                failures += 1
+                with self.lock:
+                    game = self.games[game_pk]
+                    game.websocket_connected = False
+                    game.websocket_failures = failures
+                delay = min(30.0, 2.0 ** min(failures - 1, 5))
+                observed_at = datetime.now(timezone.utc).isoformat()
+                self._append_transport_record({
+                    "kind": "mlb_websocket_error", "game_pk": game_pk,
+                    "observed_at": observed_at, "failure_count": failures,
+                    "error_type": type(error).__name__, "error": str(error),
+                    "retry_seconds": delay,
+                }, observed_at)
+                print(
+                    f"MLB Gameday WebSocket {game_pk} failed ({failures}): "
+                    f"{error}; polling remains active; retrying in {delay:.1f}s",
+                    flush=True,
+                )
+                self.stopping.wait(delay)
+            finally:
+                with self.lock:
+                    if game_pk in self.games:
+                        self.games[game_pk].websocket_connected = False
 
 
 STATE = FeedState()

@@ -14,6 +14,9 @@ from catboost import CatBoostClassifier
 from settlement_value_strategy.prepare_data import compact_execution_tape
 from settlement_value_strategy.backtest_live_policy import deployed_config
 from settlement_value_strategy.predict import MispricingPredictor
+from settlement_value_strategy.play_eligibility import (
+    incomplete_ball_in_play_reason,
+)
 from settlement_value_strategy.build_normalized_raw import pitch_times, state_model_frame
 from settlement_value_strategy.live_paper_trader import (
     SharedPaperPortfolio, PaperPosition, build_live_decision_row,
@@ -54,6 +57,18 @@ class DeployedPolicyTests(unittest.TestCase):
 
 
 class PipelineTests(unittest.TestCase):
+    def test_shared_atomic_rule_rejects_incomplete_ball_in_play(self):
+        play = {
+            "about": {"isComplete": False}, "result": {}, "runners": [],
+            "playEvents": [{
+                "isPitch": True, "pitchNumber": 3,
+                "details": {"isInPlay": True},
+            }],
+        }
+        self.assertEqual(
+            incomplete_ball_in_play_reason(play, 3), "play is not complete"
+        )
+
     @staticmethod
     def _scoring_play_payload(linescore_away: int) -> dict:
         return {
@@ -108,6 +123,39 @@ class PipelineTests(unittest.TestCase):
             snapshot = live_paper_trader.fetch_game_snapshot()
         self.assertEqual(snapshot.pitch_token[:2], (71, 3))
         self.assertEqual(snapshot.state["score_diff"], -1)
+
+    def test_live_snapshot_rejects_incomplete_ball_in_play(self):
+        payload = self._scoring_play_payload(linescore_away=1)
+        play = payload["liveData"]["plays"]["allPlays"][0]
+        play["about"]["isComplete"] = False
+        play["result"] = {}
+        play["runners"] = []
+        play["playEvents"][0]["details"] = {"isInPlay": True}
+        with (
+            patch.object(live_paper_trader, "GAME_PK", 823352),
+            patch(
+                "settlement_value_strategy.live_paper_trader.fetch_mlb_payload",
+                return_value=(payload, pd.Timestamp("2026-07-25T01:07:34Z").to_pydatetime()),
+            ),
+        ):
+            with self.assertRaisesRegex(RuntimeError, "Incomplete ball in play"):
+                live_paper_trader.fetch_game_snapshot()
+
+    def test_live_snapshot_accepts_atomic_completed_ball_in_play(self):
+        payload = self._scoring_play_payload(linescore_away=2)
+        play = payload["liveData"]["plays"]["allPlays"][0]
+        play["runners"] = [{"movement": {"end": "1B", "isOut": False}}]
+        play["result"]["eventType"] = "single"
+        play["playEvents"][0]["details"] = {"isInPlay": True}
+        with (
+            patch.object(live_paper_trader, "GAME_PK", 823352),
+            patch(
+                "settlement_value_strategy.live_paper_trader.fetch_mlb_payload",
+                return_value=(payload, pd.Timestamp("2026-07-25T01:07:44Z").to_pydatetime()),
+            ),
+        ):
+            snapshot = live_paper_trader.fetch_game_snapshot()
+        self.assertEqual(snapshot.pitch_token[:2], (71, 3))
 
     def test_postponed_doubleheader_matches_original_ticker_date(self):
         response = Mock()
@@ -455,6 +503,7 @@ class PipelineTests(unittest.TestCase):
             result = pitch_times(Path(directory))
         self.assertEqual(result.iloc[0].at_bat_number, 3)
         self.assertEqual(result.iloc[0].pitch_number, 1)
+        self.assertTrue(result.iloc[0].atomic_play_input)
 
     def test_state_model_uses_batting_perspective(self):
         frame = pd.DataFrame({

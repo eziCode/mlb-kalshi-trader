@@ -20,6 +20,9 @@ if str(REPOSITORY_ROOT / "hit_reversion_strategy") not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT / "hit_reversion_strategy"))
 
 from trade_tape_strategy.strategy import state_feature_frame  # noqa: E402
+from settlement_value_strategy.play_eligibility import (  # noqa: E402
+    incomplete_ball_in_play_reason,
+)
 
 
 TEAM_ALIASES = {
@@ -123,6 +126,9 @@ def feed_rows(cache_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
                     "completed_event": event_type if number == terminal else None,
                     "completed_event_batting_home": (
                         batting_home if number == terminal else None
+                    ),
+                    "atomic_play_input": (
+                        incomplete_ball_in_play_reason(play, number) is None
                     ),
                 })
         if index % 250 == 0:
@@ -356,7 +362,8 @@ def build_shared(
     state_columns = [
         "game_pk", "game_date", "market_ticker", "home_win", "at_bat_number",
         "pitch_number", "pitch_start_time", "pitch_end_time", "completed_event",
-        "completed_event_batting_home", "is_hit", "fair_before", "fair_after",
+        "completed_event_batting_home", "is_hit", "atomic_play_input",
+        "fair_before", "fair_after",
         *[f"{column}_after" for column in post],
     ]
     updates = work[state_columns].sort_values(

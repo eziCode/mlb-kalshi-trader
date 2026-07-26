@@ -40,6 +40,9 @@ if str(REPOSITORY_ROOT) not in sys.path:
 
 from settlement_value_strategy.build_normalized_raw import state_model_frame
 from settlement_value_strategy.predict import MispricingPredictor
+from settlement_value_strategy.play_eligibility import (
+    incomplete_ball_in_play_reason,
+)
 from live_trading.execution import (
     LiveExecutor, REAL_MONEY_ACK,
 )
@@ -650,6 +653,20 @@ def _completed_play_score_for_pitch(
     return None
 
 
+def _incomplete_ball_in_play(
+    payload: dict, pitch_token: tuple[int, int, str] | None,
+) -> str | None:
+    """Explain why the newest ball in play isn't an atomic trade input yet."""
+    if pitch_token is None:
+        return None
+    latest_at_bat, latest_pitch, _ = pitch_token
+    for play in payload.get("liveData", {}).get("plays", {}).get("allPlays", []):
+        if int(play.get("atBatIndex", -1)) != latest_at_bat:
+            continue
+        return incomplete_ball_in_play_reason(play, latest_pitch)
+    return "latest pitch's play is missing"
+
+
 def fetch_mlb_payload(
     game_pk: int, timeout: float = 5.0,
 ) -> tuple[dict, datetime]:
@@ -689,6 +706,12 @@ def fetch_game_snapshot() -> GameSnapshot:
     home = int(teams.get("home", {}).get("runs") or 0)
     away = int(teams.get("away", {}).get("runs") or 0)
     pitch_token = _latest_pitch(payload)
+    incomplete_ball_in_play = _incomplete_ball_in_play(payload, pitch_token)
+    if status == "Live" and incomplete_ball_in_play is not None:
+        raise RuntimeError(
+            "Incomplete ball in play: " + incomplete_ball_in_play
+            + "; waiting for the play's own result, runners, and score"
+        )
     completed_play_score = _completed_play_score_for_pitch(payload, pitch_token)
     if (
         status == "Live"
