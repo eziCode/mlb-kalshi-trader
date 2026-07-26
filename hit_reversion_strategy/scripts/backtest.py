@@ -21,12 +21,15 @@ from trade_tape_strategy.core import (  # noqa: E402
     TradeTapeConfig,
     simulate_trade_tape,
 )
+from trade_tape_strategy.reversion_value import ReversionValueModel  # noqa: E402
 
 
 DATA_DIR = REPOSITORY_ROOT / "data/shared"
 STATE_UPDATES_PATH = REPOSITORY_ROOT / "data/shared/state_updates.parquet"
 MODEL_DIR = PROJECT_ROOT / "models"
 CONFIG_PATH = MODEL_DIR / "trade_tape_config.json"
+REVERSION_MODEL_PATH = MODEL_DIR / "reversion_value.cbm"
+REVERSION_METADATA_PATH = MODEL_DIR / "reversion_value.metadata.json"
 STUDY_DIR = PROJECT_ROOT / "artifacts"
 OUTER_HOLDOUT_START = pd.Timestamp("2026-06-28").date()
 
@@ -133,7 +136,13 @@ def main() -> None:
         updates[updates["game_pk"].isin(test_games)].copy()
     )
 
-    result = simulate_trade_tape(test_trades, test_updates, config)
+    entry_scorer = (
+        ReversionValueModel(REVERSION_MODEL_PATH, REVERSION_METADATA_PATH)
+        if config.direct_value_model_enabled else None
+    )
+    result = simulate_trade_tape(
+        test_trades, test_updates, config, entry_scorer=entry_scorer
+    )
     records = pd.DataFrame(asdict(record) for record in result.records)
     game_pnl = records.groupby("game_pk").pnl.sum()
     segment_results = {
@@ -169,6 +178,7 @@ def main() -> None:
         "expired_candidates": result.expired_candidates,
         "fresh_hit_anchors": result.fresh_hit_anchors,
         "confirmed_signals": result.confirmed_signals,
+        "model_rejected_signals": result.model_rejected_signals,
         "trades": result.trades,
         "yes_trades": result.yes_trades,
         "no_trades": result.no_trades,
@@ -179,6 +189,7 @@ def main() -> None:
         "fees": result.fees,
         "capital": result.capital,
         "pnl": result.pnl,
+        "net_ev_per_scheduled_game": result.pnl / len(test_games),
         "roi": result.roi,
         "pnl_without_best_game": pnl_without_best_game,
         "pnl_without_top_four_games": pnl_without_top_four_games,
@@ -226,6 +237,7 @@ def main() -> None:
     print(f"Expired signals:       {result.expired_candidates:,}")
     print(f"Fresh hit anchors:     {result.fresh_hit_anchors:,}")
     print(f"Confirmed signals:     {result.confirmed_signals:,}")
+    print(f"Model-rejected signals:{result.model_rejected_signals:>9,}")
     print(f"Filled trades:         {result.trades:,}")
     print(f"YES / NO:              {result.yes_trades:,} / {result.no_trades:,}")
     print(f"Reversion exits:       {result.reversion_exits:,}")
@@ -234,6 +246,10 @@ def main() -> None:
     print(f"Fees:                  ${result.fees:,.2f}")
     print(f"Capital:               ${result.capital:,.2f}")
     print(f"Net PnL:               ${result.pnl:,.2f}")
+    print(
+        "Net EV / game:         "
+        f"${result.pnl / len(test_games):,.4f}"
+    )
     print(f"ROI:                   {result.roi:.2%}")
 
 

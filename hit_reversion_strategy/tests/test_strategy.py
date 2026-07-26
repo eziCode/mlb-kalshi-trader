@@ -24,7 +24,9 @@ from trade_tape_strategy.core import (
     segmented_trade_signal,
     simulate_trade_tape,
     trade_signal,
+    position_contracts,
 )
+from trade_tape_strategy.strategy import taker_fee
 
 
 class TradeTapeStrategyTests(unittest.TestCase):
@@ -587,6 +589,43 @@ class TradeTapeStrategyTests(unittest.TestCase):
             ),
         )
         self.assertEqual(result.trades, 1)
+
+    def test_direct_value_model_can_reject_an_incremental_entry(self):
+        class RejectAll:
+            @staticmethod
+            def accepts(features):
+                self.assertIn("entry_net_edge", features)
+                return False, -0.01
+
+        trades, updates = self._frames(include_reversion=False)
+        result = simulate_trade_tape(
+            trades, updates,
+            TradeTapeConfig(minimum_edge=0.01),
+            entry_scorer=RejectAll(),
+        )
+        self.assertEqual(result.trades, 0)
+        self.assertEqual(result.model_rejected_signals, 1)
+
+    def test_fixed_budget_sizing_matches_two_dollar_live_cap(self):
+        config = TradeTapeConfig(
+            position_sizing="fixed_budget", order_budget=2.0
+        )
+        contracts = position_contracts(0.43, config)
+        capital = contracts * 0.43 + taker_fee(contracts, 0.43)
+        self.assertLessEqual(capital, 2.0)
+        next_contract = contracts + 0.01
+        self.assertGreater(
+            next_contract * 0.43 + taker_fee(next_contract, 0.43), 2.0
+        )
+
+    def test_maximum_entry_inning_rejects_extra_inning_event(self):
+        trades, updates = self._frames(include_reversion=False)
+        updates["inning_after"] = 10
+        result = simulate_trade_tape(
+            trades, updates,
+            TradeTapeConfig(maximum_entry_inning=9),
+        )
+        self.assertEqual(result.trades, 0)
 
     def test_next_completed_plate_appearance_invalidates_candidate(self):
         trades, updates = self._frames(include_reversion=False)

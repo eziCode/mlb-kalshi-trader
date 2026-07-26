@@ -42,6 +42,9 @@ from trade_tape_strategy.strategy import (  # noqa: E402
     estimated_round_trip_fee_per_contract,
     taker_fee,
 )
+from trade_tape_strategy.reversion_value import (  # noqa: E402
+    ReversionValueModel, reversion_feature_row,
+)
 from shared_kalshi_feed import get_market as get_shared_market  # noqa: E402
 from shared_mlb_feed import get_game as get_shared_game  # noqa: E402
 from live_trading.execution import (  # noqa: E402
@@ -61,6 +64,8 @@ LOG_DIR = Path(os.getenv(
 MODEL_DIR = PROJECT_ROOT / "models"
 HYBRID_CONFIG_PATH = MODEL_DIR / "trade_tape_config.json"
 STATE_MODEL_PATH = PROJECT_ROOT / "models/local_win_expectancy.cbm"
+REVERSION_MODEL_PATH = PROJECT_ROOT / "models/reversion_value.cbm"
+REVERSION_METADATA_PATH = PROJECT_ROOT / "models/reversion_value.metadata.json"
 MLB_PRIOR_PATH = (
     PROJECT_ROOT / "models/mlb_pregame_prior.json"
 )
@@ -81,6 +86,7 @@ DECISION_LOG_COLUMNS = [
     "latest_pitch_number", "target", "excess_move", "edge",
     "continuation_value", "exit_advantage", "action", "portfolio_cash",
     "portfolio_equity", "portfolio_pnl", "portfolio_open_positions",
+    "predicted_pnl_per_contract", "model_prediction_threshold",
 ]
 
 
@@ -105,9 +111,19 @@ def ensure_decision_log_schema(log_path: Path) -> None:
 
     old_columns = [
         column for column in DECISION_LOG_COLUMNS
+        if column not in {
+            "event_terminal_reason", "predicted_pnl_per_contract",
+            "model_prediction_threshold",
+        }
+    ]
+    previous_columns = DECISION_LOG_COLUMNS[:-2]
+    without_terminal_reason = [
+        column for column in DECISION_LOG_COLUMNS
         if column != "event_terminal_reason"
     ]
-    if header != old_columns:
+    if header not in (
+        old_columns, previous_columns, without_terminal_reason,
+    ):
         raise RuntimeError(
             f"Unexpected hit-reversion decision-log schema in {log_path}: "
             f"expected {len(DECISION_LOG_COLUMNS)} columns, found {len(header)}"
@@ -126,13 +142,22 @@ def ensure_decision_log_schema(log_path: Path) -> None:
                 reader = csv.reader(source)
                 next(reader, None)
                 for line_number, row in enumerate(reader, start=2):
-                    if len(row) != len(DECISION_LOG_COLUMNS):
+                    if (
+                        header == without_terminal_reason
+                        and len(row) == len(DECISION_LOG_COLUMNS)
+                    ):
+                        writer.writerow(row)
+                        continue
+                    if len(row) != len(header):
                         raise RuntimeError(
                             f"Cannot repair {log_path}: row {line_number} has "
-                            f"{len(row)} columns, expected "
-                            f"{len(DECISION_LOG_COLUMNS)}"
+                            f"{len(row)} columns, expected {len(header)}"
                         )
-                    writer.writerow(row)
+                    values = dict(zip(header, row))
+                    writer.writerow([
+                        values.get(column, "")
+                        for column in DECISION_LOG_COLUMNS
+                    ])
         Path(temporary_name).replace(log_path)
     finally:
         if temporary_name is not None:
@@ -215,6 +240,38 @@ class EventCandidate:
     post_fair: float
     material_state: tuple
     pitch_token: tuple | None
+    batting_home: bool = True
+    event_state: dict | None = None
+    model_prediction: float = float("nan")
+
+
+def candidate_value_features(
+    candidate: EventCandidate, entry_price: float, decision_time: datetime,
+) -> dict[str, object]:
+    state = candidate.event_state or {}
+    target_price = (
+        candidate.target if candidate.side == "yes"
+        else 1.0 - candidate.target
+    )
+    pre_market_price = (
+        candidate.pre_market if candidate.side == "yes"
+        else 1.0 - candidate.pre_market
+    )
+    return reversion_feature_row(
+        event_type=candidate.event_type, side=candidate.side,
+        inning=state["inning"], inning_topbot=state["inning_topbot"],
+        outs=state["outs_when_up"], score_diff=state["score_diff"],
+        runner_on_first=state["runner_on_first"],
+        runner_on_second=state["runner_on_second"],
+        runner_on_third=state["runner_on_third"],
+        fair_before=candidate.pre_fair, fair_after=candidate.post_fair,
+        batting_home=candidate.batting_home, entry_price=entry_price,
+        target_price=target_price, pre_market_price=pre_market_price,
+        event_detection_latency_seconds=(
+            candidate.observed_at - candidate.event_time
+        ).total_seconds(),
+        entry_lag_seconds=(decision_time - candidate.event_time).total_seconds(),
+    )
 
 
 @dataclass(frozen=True)
@@ -1520,6 +1577,10 @@ async def main() -> None:
     state_model = CatBoostClassifier()
     state_model.load_model(STATE_MODEL_PATH)
     hybrid_config = TradeTapeConfig(**json.loads(HYBRID_CONFIG_PATH.read_text()))
+    value_model = (
+        ReversionValueModel(REVERSION_MODEL_PATH, REVERSION_METADATA_PATH)
+        if hybrid_config.direct_value_model_enabled else None
+    )
     allow_unvalidated = os.getenv("ALLOW_UNVALIDATED_HYBRID") == "1"
     if not hybrid_config.enabled and not allow_unvalidated:
         raise RuntimeError(
@@ -1669,6 +1730,7 @@ async def main() -> None:
         target = float("nan")
         continuation_value = float("nan")
         exit_advantage = float("nan")
+        predicted_pnl_per_contract = float("nan")
 
         initializing_live_baseline = previous_market is None or previous_fair is None
         new_event = (
@@ -1794,6 +1856,12 @@ async def main() -> None:
                 new_event
                 and event_inputs_aligned(game)
                 and game.completed_event in hybrid_config.allowed_event_types
+                and game.event_state is not None
+                and (
+                    hybrid_config.maximum_entry_inning is None
+                    or int(game.event_state["inning"])
+                    <= hybrid_config.maximum_entry_inning
+                )
                 and previous_market is not None
                 and previous_fair is not None
                 and pitch_token_time(game.latest_completed_pitch_token) is not None
@@ -1862,7 +1930,7 @@ async def main() -> None:
                         _, edge, side = max(side_candidates)
                     else:
                         side, edge = None, 0.0
-                    candidate = (
+                    proposed_candidate = (
                         EventCandidate(
                             side=side,
                             target=target,
@@ -1877,10 +1945,38 @@ async def main() -> None:
                             post_fair=event_fair_prob,
                             material_state=material_state(game.event_state),
                             pitch_token=event_pitch_token,
+                            batting_home=bool(
+                                game.completed_event_batting_home
+                            ),
+                            event_state=dict(game.event_state),
                         )
                         if side is not None
                         else None
                     )
+                    if proposed_candidate is not None and value_model is not None:
+                        features = candidate_value_features(
+                            proposed_candidate,
+                            (
+                                float(market.ask) if side == "yes"
+                                else float(away_market.ask)
+                            ),
+                            now,
+                        )
+                        accepted, prediction = value_model.accepts(features)
+                        predicted_pnl_per_contract = prediction
+                        proposed_candidate.model_prediction = prediction
+                        if not accepted:
+                            action = f"MODEL_REJECT_{side.upper()}_{event_type.upper()}"
+                            print(
+                                "MODEL REJECT strategy=hit_reversion "
+                                f"game_pk={GAME_PK} event={event_type} side={side} "
+                                f"prediction={prediction:.6f} "
+                                f"threshold={value_model.threshold:.6f} "
+                                f"net_edge={features['entry_net_edge']:.6f}",
+                                flush=True,
+                            )
+                            proposed_candidate = None
+                    candidate = proposed_candidate
                     if candidate is not None:
                         action = (
                             f"WATCH_{side.upper()}_"
@@ -1927,6 +2023,17 @@ async def main() -> None:
                         executable = await asyncio.to_thread(
                             fetch_market_snapshot, actual_ticker
                         )
+                        if value_model is not None:
+                            features = candidate_value_features(
+                                candidate, float(executable.ask),
+                                datetime.now(timezone.utc),
+                            )
+                            accepted, prediction = value_model.accepts(features)
+                            predicted_pnl_per_contract = prediction
+                            if not accepted:
+                                action = "LIVE_SKIP_DIRECT_VALUE_MODEL"
+                                candidate = None
+                                continue
                         contract_target = (
                             target if candidate.side == "yes" else 1.0 - target
                         )
@@ -2038,6 +2145,8 @@ async def main() -> None:
                 excess_move, edge, continuation_value, exit_advantage,
                 action, metrics.cash, metrics.equity, metrics.pnl,
                 metrics.open_positions,
+                predicted_pnl_per_contract,
+                value_model.threshold if value_model is not None else None,
             ])
         print(
             f"{now.time()} {market.bid:.2f}/{market.ask:.2f} "
