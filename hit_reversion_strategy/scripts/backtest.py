@@ -189,6 +189,7 @@ def main() -> None:
         "fees": result.fees,
         "capital": result.capital,
         "pnl": result.pnl,
+        "net_ev_per_scheduled_game": result.pnl / len(test_games),
         "roi": result.roi,
         "pnl_without_best_game": pnl_without_best_game,
         "pnl_without_top_four_games": pnl_without_top_four_games,
@@ -245,6 +246,10 @@ def main() -> None:
     print(f"Fees:                  ${result.fees:,.2f}")
     print(f"Capital:               ${result.capital:,.2f}")
     print(f"Net PnL:               ${result.pnl:,.2f}")
+    print(
+        "Net EV / game:         "
+        f"${result.pnl / len(test_games):,.4f}"
+    )
     print(f"ROI:                   {result.roi:.2%}")
 
 

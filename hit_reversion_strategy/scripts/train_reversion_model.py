@@ -225,7 +225,11 @@ def main() -> None:
             candidates.append(item)
     if not candidates:
         raise RuntimeError("No direct-model threshold passed validation gates")
-    selected = max(candidates, key=lambda row: (row["trades_per_game"], row["pnl"]))
+    # The production objective is dollars per scheduled game, not activity.
+    # With a fixed $2 live budget and a fixed validation slate, maximizing net
+    # PnL is exactly maximizing EV/game.  Use ROI and concentration only as
+    # safety gates, not as the ranking objective.
+    selected = max(candidates, key=lambda row: (row["pnl"], row["roi"]))
 
     holdout_rows["prediction"] = model.predict(pool(holdout_rows, label=False))
     holdout_selected = holdout_rows[
@@ -248,6 +252,7 @@ def main() -> None:
         "opportunity_edge": OPPORTUNITY_EDGE,
         "proven_edge": PROVEN_EDGE,
         "minimum_deployment_roi": MINIMUM_DEPLOYMENT_ROI,
+        "selection_objective": "maximum_net_pnl_per_scheduled_game",
         "validation_start": str(validation_start),
         "fit_rows": len(fit),
         "validation_rows": len(validation),

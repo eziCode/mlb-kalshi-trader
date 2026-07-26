@@ -1856,6 +1856,12 @@ async def main() -> None:
                 new_event
                 and event_inputs_aligned(game)
                 and game.completed_event in hybrid_config.allowed_event_types
+                and game.event_state is not None
+                and (
+                    hybrid_config.maximum_entry_inning is None
+                    or int(game.event_state["inning"])
+                    <= hybrid_config.maximum_entry_inning
+                )
                 and previous_market is not None
                 and previous_fair is not None
                 and pitch_token_time(game.latest_completed_pitch_token) is not None

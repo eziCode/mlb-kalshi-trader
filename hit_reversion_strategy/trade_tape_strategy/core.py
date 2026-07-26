@@ -35,6 +35,7 @@ class TradeTapeConfig:
     minimum_reversion_move: float = 0.0
     side_filter: str = "both"
     position_sizing: str = "fixed_payout"
+    order_budget: float = 2.0
     require_compatible_taker: bool = True
     require_post_signal_trade: bool = True
     minimum_edges_by_segment: dict[str, float] = field(default_factory=dict)
@@ -47,6 +48,7 @@ class TradeTapeConfig:
     fair_log_odds_shrinkage: float = 1.0
     maximum_event_log_odds_move: float = 100.0
     direct_value_model_enabled: bool = False
+    maximum_entry_inning: int | None = None
 
 
 @dataclass
@@ -220,6 +222,15 @@ def position_contracts(price: float, config: TradeTapeConfig) -> float:
         return CONFIG.bet_size
     if config.position_sizing == "fixed_stake":
         return CONFIG.bet_size / price
+    if config.position_sizing == "fixed_budget":
+        contracts = np.floor((float(config.order_budget) / price) * 100) / 100
+        while (
+            contracts > 0
+            and contracts * price + taker_fee(contracts, price)
+            > float(config.order_budget) + 1e-9
+        ):
+            contracts = round(contracts - 0.01, 2)
+        return max(float(contracts), 0.0)
     raise ValueError(f"Unknown position sizing: {config.position_sizing}")
 
 
@@ -437,7 +448,14 @@ def simulate_trade_tape(
                     )
                     if not event_inputs_aligned:
                         result.misaligned_event_updates += 1
-                    elif pd.notna(update.completed_event):
+                    elif (
+                        pd.notna(update.completed_event)
+                        and (
+                            config.maximum_entry_inning is None
+                            or int(getattr(update, "inning_after", 1))
+                            <= config.maximum_entry_inning
+                        )
+                    ):
                         batting_home = bool(update.completed_event_batting_home)
                         signed_fair_move = (
                             float(update.fair_after) - float(update.fair_before)
