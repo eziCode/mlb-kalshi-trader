@@ -23,13 +23,15 @@
     "exit_target_mode": "frozen",
     "latch_reversion_exit": false,
     "minimum_reversion_move": 0.0,
-    "side_filter": "yes",
+    "side_filter": "both",
     "position_sizing": "fixed_payout",
     "require_compatible_taker": false,
     "require_post_signal_trade": false,
     "minimum_edges_by_segment": {},
     "confirmation_seconds_by_segment": {},
-    "minimum_reversion_moves_by_segment": {}
+    "minimum_reversion_moves_by_segment": {},
+    "fair_log_odds_shrinkage": 1.0,
+    "maximum_event_log_odds_move": 1.0
   },
   "deployment_config": {
     "enabled": true,
@@ -55,13 +57,15 @@
     "exit_target_mode": "frozen",
     "latch_reversion_exit": false,
     "minimum_reversion_move": 0.0,
-    "side_filter": "yes",
+    "side_filter": "both",
     "position_sizing": "fixed_payout",
     "require_compatible_taker": false,
     "require_post_signal_trade": false,
     "minimum_edges_by_segment": {},
     "confirmation_seconds_by_segment": {},
-    "minimum_reversion_moves_by_segment": {}
+    "minimum_reversion_moves_by_segment": {},
+    "fair_log_odds_shrinkage": 1.0,
+    "maximum_event_log_odds_move": 1.0
   },
   "games": 297,
   "trade_tape_rows": 2456553,
@@ -71,37 +75,47 @@
   "eligible_hit_updates": 3776,
   "rejected_fair_updates": 134,
   "invalidated_candidates": 64,
-  "expired_candidates": 3339,
+  "expired_candidates": 3315,
   "fresh_hit_anchors": 3438,
-  "confirmed_signals": 33,
-  "trades": 33,
-  "yes_trades": 33,
-  "no_trades": 0,
-  "reversion_exits": 9,
+  "confirmed_signals": 57,
+  "trades": 57,
+  "yes_trades": 28,
+  "no_trades": 29,
+  "reversion_exits": 16,
   "momentum_exits": 0,
-  "timeout_exits": 24,
-  "settlements": 0,
-  "fees": 7.832399999999995,
-  "capital": 174.1639,
-  "pnl": 8.267600000000009,
-  "roi": 0.047470227756728045,
-  "pnl_without_best_game": 6.31320000000001,
-  "pnl_without_top_four_games": 2.5264000000000086,
+  "timeout_exits": 39,
+  "settlements": 2,
+  "fees": 13.167,
+  "capital": 234.45679999999996,
+  "pnl": 4.533000000000005,
+  "roi": 0.019334052158009516,
+  "pnl_without_best_game": 2.3017000000000056,
+  "pnl_without_top_four_games": -2.324699999999992,
   "segment_results": {
-    "double:yes": {
+    "double:no": {
       "trades": 11,
-      "pnl": 0.24550000000000516,
-      "wins": 5
+      "pnl": -0.34320000000000217,
+      "wins": 6
+    },
+    "double:yes": {
+      "trades": 9,
+      "pnl": 0.027500000000005187,
+      "wins": 3
+    },
+    "single:no": {
+      "trades": 18,
+      "pnl": -1.0374999999999996,
+      "wins": 9
     },
     "single:yes": {
-      "trades": 19,
-      "pnl": 5.891000000000004,
-      "wins": 12
+      "trades": 18,
+      "pnl": 5.651400000000001,
+      "wins": 10
     },
     "triple:yes": {
-      "trades": 3,
-      "pnl": 2.1311,
-      "wins": 2
+      "trades": 1,
+      "pnl": 0.23480000000000079,
+      "wins": 1
     }
   },
   "time_based_exit": true,
@@ -115,5 +129,6 @@
     "latency_seconds_median": 12.933865,
     "latency_seconds_p75": 19.111486,
     "latency_seconds_p95": 55.757119
-  }
+  },
+  "no_execution_contract": "paired_away_yes"
 }

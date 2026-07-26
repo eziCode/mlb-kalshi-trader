@@ -89,14 +89,45 @@ def apply_publication_latency(updates: pd.DataFrame) -> pd.DataFrame:
     return delayed
 
 
+def apply_live_paired_execution_prices(
+    home_trades: pd.DataFrame, away_trades: pd.DataFrame,
+) -> pd.DataFrame:
+    """Use the causal away-YES trade that the live NO route can execute.
+
+    The old replay used NO on the home ticker even though production buys YES
+    on the paired away ticker. Keep only an away price observed in the prior
+    ten seconds, matching the live quote-freshness requirement.
+    """
+    left = home_trades.sort_values(["created_time", "game_pk"]).copy()
+    right = away_trades[[
+        "game_pk", "created_time", "yes_price_dollars",
+    ]].rename(columns={
+        "created_time": "away_created_time",
+        "yes_price_dollars": "away_yes_price",
+    }).sort_values(["away_created_time", "game_pk"])
+    paired = pd.merge_asof(
+        left, right, by="game_pk", left_on="created_time",
+        right_on="away_created_time", direction="backward",
+        tolerance=pd.Timedelta(seconds=10),
+    )
+    paired["no_price_dollars"] = paired["away_yes_price"]
+    return paired.sort_values(["game_pk", "created_time", "trade_id"])
+
+
 def main() -> None:
     config = TradeTapeConfig(**json.loads(CONFIG_PATH.read_text()))
     trades = pd.read_parquet(DATA_DIR / "home_market_trades.parquet")
+    away_trades = pd.read_parquet(DATA_DIR / "away_market_trades.parquet")
     updates = pd.read_parquet(STATE_UPDATES_PATH)
     trades["game_date"] = pd.to_datetime(trades["game_date"]).dt.date
+    away_trades["game_date"] = pd.to_datetime(away_trades["game_date"]).dt.date
     updates["game_date"] = pd.to_datetime(updates["game_date"]).dt.date
     test_trades = trades[trades["game_date"] >= OUTER_HOLDOUT_START].copy()
     test_games = set(test_trades["game_pk"].unique())
+    test_trades = apply_live_paired_execution_prices(
+        test_trades,
+        away_trades[away_trades["game_pk"].isin(test_games)].copy(),
+    )
     test_updates = apply_publication_latency(
         updates[updates["game_pk"].isin(test_games)].copy()
     )
@@ -163,6 +194,7 @@ def main() -> None:
             "latency_seconds_p75": 19.111486,
             "latency_seconds_p95": 55.757119,
         },
+        "no_execution_contract": "paired_away_yes",
     }
     STUDY_DIR.mkdir(parents=True, exist_ok=True)
     (STUDY_DIR / "holdout_summary.json").write_text(
@@ -185,6 +217,7 @@ def main() -> None:
     print(f"Observed trades:       {len(test_trades):,}")
     print(f"Observed hits:         {result.observed_hits:,}")
     print("Event availability:    empirical live publication latency")
+    print("NO execution:          paired away-team YES trade")
     print(f"Misaligned hit state:  {result.misaligned_event_updates:,}")
     print(f"Eligible fair moves:   {result.eligible_hit_updates:,}")
     print(f"Rejected fair moves:   {result.rejected_fair_updates:,}")

@@ -35,7 +35,7 @@ if str(REPOSITORY_ROOT) not in sys.path:
 from trade_tape_strategy.hybrid import anchored_event_target  # noqa: E402
 from trade_tape_strategy.core import (  # noqa: E402
     TradeTapeConfig, position_contracts, segmented_trade_signal,
-    segment_value,
+    segment_value, event_target,
 )
 from trade_tape_strategy.strategy import (  # noqa: E402
     CONFIG,
@@ -1229,6 +1229,11 @@ def replay_position_exit(
             position.anchor_target, position.anchor_fair, current_fair
         ))
     )
+    paired_away_yes = bool(
+        position.side == "no"
+        and position.market_ticker
+        and position.market_ticker == str(AWAY_MARKET_TICKER)
+    )
     last_seen = scanned_after or position.entry_time
     exit_taker_side = "no" if position.side == "yes" else "yes"
     for trade in trades.sort_values(["created_time", "trade_id"]).itertuples(
@@ -1242,7 +1247,10 @@ def replay_position_exit(
         reverted = (
             position.side == "yes" and yes_price >= target
         ) or (
-            position.side == "no" and yes_price <= target
+            paired_away_yes and yes_price >= 1.0 - target
+        ) or (
+            position.side == "no" and not paired_away_yes
+            and yes_price <= target
         )
         timed_out = bool(
             config.maximum_hold_seconds > 0
@@ -1264,7 +1272,11 @@ def replay_position_exit(
             )
             and (reverted or timed_out or config.latch_reversion_exit)
         ):
-            price = yes_price if position.side == "yes" else 1.0 - yes_price
+            price = (
+                yes_price
+                if position.side == "yes" or paired_away_yes
+                else 1.0 - yes_price
+            )
             if float(trade.count_fp) >= position.contracts:
                 fee = taker_fee(position.contracts, price)
                 return {
@@ -1604,9 +1616,11 @@ async def main() -> None:
             await asyncio.sleep(POLL_SECONDS)
             continue
         try:
-            market, recent_trades = await asyncio.gather(
+            market, recent_trades, away_market, away_recent_trades = await asyncio.gather(
                 asyncio.to_thread(fetch_market_snapshot),
                 asyncio.to_thread(fetch_recent_trades),
+                asyncio.to_thread(fetch_market_snapshot, AWAY_MARKET_TICKER),
+                asyncio.to_thread(fetch_recent_trades, AWAY_MARKET_TICKER),
             )
         except Exception as error:
             print(f"Market snapshot rejected: {error}")
@@ -1684,7 +1698,11 @@ async def main() -> None:
                 position.anchor_target, position.anchor_fair, fair_prob
             ))
             exit_fill, pending_exit, scanned_through = replay_position_exit(
-                recent_trades, position, float(fair_prob),
+                (
+                    away_recent_trades
+                    if position.side == "no" else recent_trades
+                ),
+                position, float(fair_prob),
                 exit_scanned_through.get(position.event_id),
                 exit_pending_trade.get(position.event_id),
                 hybrid_config,
@@ -1805,8 +1823,9 @@ async def main() -> None:
                     signed_fair_move >= hybrid_config.minimum_fair_move
                     and pre_event_market is not None
                 ):
-                    target = float(anchored_event_target(
-                        pre_event_market, previous_fair, event_fair_prob
+                    target = float(event_target(
+                        pre_event_market, previous_fair, event_fair_prob,
+                        hybrid_config,
                     ))
                     event_type = str(game.completed_event)
                     side_candidates = []
@@ -1824,12 +1843,12 @@ async def main() -> None:
                         )
                         executable_price = (
                             float(market.ask) if evaluated_side == "yes"
-                            else 1.0 - float(market.bid)
+                            else float(away_market.ask)
                         )
                         evaluated_edge = (
                             target - float(market.ask)
                             if evaluated_side == "yes"
-                            else float(market.bid) - target
+                            else (1.0 - target) - float(away_market.ask)
                         ) - estimated_round_trip_fee_per_contract(
                             executable_price
                         )
@@ -1880,7 +1899,7 @@ async def main() -> None:
                 else:
                     immediate_price = (
                         float(market.ask) if candidate.side == "yes"
-                        else 1.0 - float(market.bid)
+                        else float(away_market.ask)
                     )
                     fill = {
                         "time": now, "side": candidate.side,

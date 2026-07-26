@@ -43,6 +43,8 @@ class TradeTapeConfig:
     minimum_reversion_moves_by_segment: dict[str, float] = field(
         default_factory=dict
     )
+    fair_log_odds_shrinkage: float = 1.0
+    maximum_event_log_odds_move: float = 100.0
 
 
 @dataclass
@@ -171,14 +173,16 @@ def segment_value(
 
 def segmented_trade_signal(
     target: float, yes_price: float, event_type: str, config: TradeTapeConfig,
+    no_price: float | None = None,
 ) -> tuple[str | None, float]:
     """Apply independently calibrated thresholds to each hit/side segment."""
-    no_price = 1.0 - yes_price
+    no_price = 1.0 - yes_price if no_price is None else float(no_price)
     edges = {
         "yes": target - yes_price
         - estimated_round_trip_fee_per_contract(yes_price),
-        "no": yes_price - target
-        - estimated_round_trip_fee_per_contract(no_price),
+        "no": (1.0 - target) - no_price
+        - estimated_round_trip_fee_per_contract(no_price)
+        if np.isfinite(no_price) else float("-inf"),
     }
     eligible = []
     for side, edge in edges.items():
@@ -216,6 +220,24 @@ def _dynamic_target(candidate_or_position, current_fair: float) -> float:
         candidate_or_position.anchor_fair,
         current_fair,
     ))
+
+
+def event_target(
+    pre_market: float, pre_fair: float, post_fair: float,
+    config: TradeTapeConfig,
+) -> float:
+    """Apply a symmetric, bounded model state move to the market anchor."""
+    def logit(value: float) -> float:
+        clipped = float(np.clip(value, 1e-4, 1 - 1e-4))
+        return float(np.log(clipped / (1.0 - clipped)))
+
+    move = (logit(post_fair) - logit(pre_fair)) * float(
+        config.fair_log_odds_shrinkage
+    )
+    limit = float(config.maximum_event_log_odds_move)
+    move = float(np.clip(move, -limit, limit))
+    market_logit = logit(pre_market)
+    return float(1.0 / (1.0 + np.exp(-(market_logit + move))))
 
 
 def _position_exit_target(
@@ -396,10 +418,11 @@ def simulate_trade_tape(
                                 <= maximum_anchor_age_ns
                             ):
                                 result.fresh_hit_anchors += 1
-                                target = float(anchored_event_target(
+                                target = float(event_target(
                                     yes_prices[anchor_index],
                                     float(update.fair_before),
                                     float(update.fair_after),
+                                    config,
                                 ))
                                 candidate = Candidate(
                                     anchor_target=target,
@@ -439,6 +462,15 @@ def simulate_trade_tape(
             for position in positions:
                 target = _position_exit_target(position, current_fair, config)
                 held_price = yes_price if position.side == "yes" else no_price
+                if not np.isfinite(held_price):
+                    if (
+                        position.pending_exit_ns is None
+                        and maximum_hold_ns > 0
+                        and trade_ns - position.entry_ns >= maximum_hold_ns
+                    ):
+                        position.pending_exit_ns = trade_ns
+                        position.pending_exit_reason = "timeout"
+                    continue
                 reverted = (
                     position.side == "yes" and yes_price >= target
                 ) or (
@@ -557,7 +589,7 @@ def simulate_trade_tape(
                 target = _dynamic_target(pending_entry.candidate, current_fair)
                 side, _ = segmented_trade_signal(
                     target, yes_price, pending_entry.candidate.event_type,
-                    config,
+                    config, no_price,
                 )
                 if side != pending_entry.side:
                     candidate = pending_entry.candidate
@@ -626,7 +658,7 @@ def simulate_trade_tape(
             if candidate is not None and pending_entry is None:
                 target = _dynamic_target(candidate, current_fair)
                 side, _ = segmented_trade_signal(
-                    target, yes_price, candidate.event_type, config
+                    target, yes_price, candidate.event_type, config, no_price
                 )
                 if side is None:
                     candidate.watch_side = None

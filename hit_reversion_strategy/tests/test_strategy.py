@@ -20,6 +20,7 @@ from scripts.paper_trade import (
 )
 from trade_tape_strategy.core import (
     TradeTapeConfig,
+    event_target,
     segmented_trade_signal,
     simulate_trade_tape,
     trade_signal,
@@ -27,6 +28,16 @@ from trade_tape_strategy.core import (
 
 
 class TradeTapeStrategyTests(unittest.TestCase):
+    def test_event_target_bounds_extreme_moves_symmetrically(self):
+        config = TradeTapeConfig(
+            fair_log_odds_shrinkage=1.0,
+            maximum_event_log_odds_move=0.5,
+        )
+        upward = event_target(0.5, 0.5, 0.99, config)
+        downward = event_target(0.5, 0.5, 0.01, config)
+        self.assertAlmostEqual(upward, 1.0 - downward)
+        self.assertAlmostEqual(upward, 0.6224593312)
+
     def test_decision_log_repairs_known_old_header_without_losing_rows(self):
         old_columns = [
             column for column in DECISION_LOG_COLUMNS
@@ -522,6 +533,25 @@ class TradeTapeStrategyTests(unittest.TestCase):
         side, net_edge = trade_signal(0.56, 0.50, 0.05)
         self.assertIsNone(side)
         self.assertAlmostEqual(net_edge, 0.025)
+
+    def test_segmented_signal_uses_paired_away_execution_price(self):
+        config = TradeTapeConfig(minimum_edge=0.05, side_filter="both")
+        side, edge = segmented_trade_signal(
+            target=0.30, yes_price=0.50, event_type="single",
+            config=config, no_price=0.76,
+        )
+        self.assertIsNone(side)
+        self.assertLess(edge, 0.05)
+
+    def test_missing_paired_price_does_not_create_nan_exit(self):
+        trades, updates = self._frames(include_reversion=True)
+        trades["no_price_dollars"] = float("nan")
+        result = simulate_trade_tape(
+            trades, updates,
+            TradeTapeConfig(minimum_edge=0.05, side_filter="no"),
+        )
+        self.assertEqual(result.trades, 0)
+        self.assertEqual(result.pnl, 0)
 
     def test_position_has_no_time_based_exit(self):
         trades, updates = self._frames(include_reversion=False)

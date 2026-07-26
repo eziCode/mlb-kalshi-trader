@@ -22,11 +22,13 @@
   "exit_target_mode": "frozen",
   "latch_reversion_exit": false,
   "minimum_reversion_move": 0.0,
-  "side_filter": "yes",
+  "side_filter": "both",
   "position_sizing": "fixed_payout",
   "require_compatible_taker": false,
   "require_post_signal_trade": false,
   "minimum_edges_by_segment": {},
   "confirmation_seconds_by_segment": {},
-  "minimum_reversion_moves_by_segment": {}
+  "minimum_reversion_moves_by_segment": {},
+  "fair_log_odds_shrinkage": 1.0,
+  "maximum_event_log_odds_move": 1.0
 }
