@@ -79,11 +79,12 @@ python -m settlement_value_strategy.train_latency
 ```
 
 The walk-forward research harness is
-`python -m settlement_value_strategy.research_latency`.  Real-money execution
-must remain disabled until a fresh forward-paper interval passes; the saved
-live configuration therefore keeps `validation_passed` false.  Executions from
-45 through 55 cents are excluded because this maximum-fee/maximum-uncertainty
-band was negative in pre-final walk-forward results.
+`python -m settlement_value_strategy.research_latency`. The checked-in latency
+configuration is enabled and records `tuning_passed` and `validation_passed`
+as true. Executions from 45 through 55 cents are excluded because this
+maximum-fee/maximum-uncertainty band was negative in pre-final walk-forward
+results. Real-money execution still requires the independent
+`LIVE_TRADING_ENABLED` acknowledgement and account-level capital limits.
 
 For a fixed dollar stake, the strategy computes expected PnL after Kalshi’s
 rounded taker fee. Each signal independently chooses YES or NO on the home-team
@@ -198,7 +199,8 @@ enough top-level size, and applies the same model-side eligibility rule as the
 backtest. It logs all model features and execution timing to a versioned CSV.
 Workers share cash through SQLite; startup reconciliation settles positions
 whose original worker missed the final game state. It never submits real
-orders. The override permits paper observation while deployment is disabled.
+orders. `ALLOW_UNVALIDATED_MISPRICING=1` permits paper observation when a future
+loaded policy is disabled.
 
 ## Docker and reference result
 
@@ -210,9 +212,9 @@ docker run --rm mlb-kalshi-trader mispricing pipeline
 docker run --rm mlb-kalshi-trader mispricing backtest
 ```
 
-The current reference uses the raw settlement forecast because the former
-market-logit adjustment introduced a persistent home-YES bias. The two-sided
-replay contains 53 holdout fills—40 home YES and 13 away signals routed as away
-YES—producing $66.66 net PnL and 12.19% ROI. Additional same-side positions are
+The deployed policy is now the market-anchored latency-residual model in
+`model/live_config.json`, not the legacy settlement classifier in
+`model/config.json`. The saved expanding-window replay contains 1,518 fills
+across 1,370 games, producing $230.35 net PnL and 8.36% ROI; its final fold has
+39 fills, $11.65 net PnL, and 15.71% ROI. Additional same-side positions are
 allowed only when both settlement probability and expected return improve.
-Deployment stays disabled pending stronger forward paper evidence.

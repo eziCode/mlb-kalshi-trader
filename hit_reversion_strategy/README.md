@@ -1,20 +1,20 @@
-# Hit-reaction reversion strategy
+# Event-reaction reversion strategy
 
-This strategy trades delayed Kalshi reactions after completed MLB hits. It
-estimates the state-adjusted market target immediately after the hit, enters
-when the exact trade tape remains sufficiently far from that target, and exits
-when the market reverts to the updated target. Positions still open at game end
-settle normally.
+This strategy trades delayed Kalshi reactions after configured completed MLB
+events. It estimates a state-adjusted market target immediately after the
+event, enters when the exact trade tape remains sufficiently far from that
+target, and exits when the market reaches its configured target or hold limit.
+Positions still open at game end settle normally.
 
 The folder was formerly named `portable_trade_tape_strategy`. “Hit reversion”
 describes the economic thesis; the trade tape is the execution mechanism.
 
 ## Strategy thesis
 
-Hits can produce abrupt changes in base occupancy, outs, score, and home-team
-win probability. Kalshi may react incompletely or with a short delay. The
+Completed events can produce abrupt changes in base occupancy, outs, score,
+and home-team win probability. Kalshi may react incompletely or with a short delay. The
 strategy compares the observed market against the change implied by a local
-win-expectancy model while retaining the pre-hit Kalshi price as its prior.
+win-expectancy model while retaining the pre-event Kalshi price as its prior.
 
 For pre-hit market probability `M0`, local fair probability before the hit
 `F0`, and fair probability after it `F1`:
@@ -29,9 +29,11 @@ candidate or position is active.
 ## Event and signal lifecycle
 
 1. Observe a newly completed plate appearance from the authoritative MLB feed.
-2. Continue for singles, doubles, and triples. Home runs are excluded because
-   they are not part of the hit-reversion thesis.
-3. Require a meaningful directional fair-value move for the batting team.
+2. Continue only for an event type listed in the loaded configuration. The
+   checked-in policy includes singles, doubles, triples, walks, intentional
+   walks, hit-by-pitches, field errors, fielder's choices, and catcher
+   interference; home runs are excluded.
+3. Compute the directional fair-value move for the batting team.
 4. Anchor to a fresh Kalshi execution observed before the event.
 5. Compare the anchored target with exact subsequent Kalshi executions.
 6. Start watching the side whose residual exceeds the configured edge.
@@ -59,44 +61,46 @@ incremental fair move; it is not itself the trading policy.
 
 ## Entry and execution assumptions
 
-The backtest uses executed trades, not reconstructed quotes. An entry requires
-a strictly later observed execution on the compatible taker outcome side and
-enough reported size. Therefore the simulator is causal but remains a fill
-proxy rather than a historical order-book reconstruction.
+The backtest uses executed trades, not reconstructed quotes. Its fill contract
+is configurable: stricter policies can require a later execution on the
+compatible taker side with enough reported size, while the checked-in policy
+allows the latest observable trade and does not require compatible taker
+direction. The simulator remains a fill proxy rather than a historical
+order-book reconstruction.
 
-The selected segmented research policy currently uses:
+The checked-in deployment policy currently uses:
 
-- singles, doubles, and triples;
-- both YES- and NO-side residuals;
-- separate minimum-edge, confirmation, and reversion thresholds for every
-  hit-type/side pair;
-- a later move back toward the target after confirmation;
-- fixed maximum-payout sizing of ten contracts per entry;
-- unlimited positions per game, with at least 180 seconds between entries;
-- five-second maximum pre-event anchor age;
-- ten-second event-to-entry deadline;
+- the configured event types listed above;
+- both YES- and NO-side residuals, with paired away-YES execution for NO;
+- a direct reversion-value model in addition to the target residual;
+- a one-point minimum edge with no confirmation delay;
+- fixed-budget sizing of $2 per entry;
+- unlimited positions per game, with at least 60 seconds between entries;
+- ten-second maximum pre-event anchor age;
+- twenty-second event-to-entry deadline;
 - next-pitch invalidation;
 - completed-event alignment: the event's terminal pitch must still be the
   newest MLB state visible at the decision point;
 - atomic hit state derived from the play's own runner movements, score, and
   outs; at-bat progression is logged for validation but never authorizes a
   late entry;
-- minimum local fair move of 0.5 points.
+- no additional minimum local fair move;
+- no entries after the ninth inning.
 
 Fees use Kalshi’s rounded taker-fee formula.
 
 ## Exit behavior
 
 For a YES position, target reversion occurs when the observed YES price reaches
-or exceeds the dynamic target. For NO, it occurs when YES falls to or below the
-target. The exit also requires a strictly later compatible execution with
-sufficient size.
+or exceeds the configured frozen target. For NO, it occurs when YES falls to
+or below that target. The current policy can use the latest observable trade
+without requiring a compatible taker direction.
 
-There is no unconditional time-based exit. Optional momentum logic can delay a
-reversion exit while the held-side price continues moving favorably, then exit
-on velocity reversal, trailing giveback, or the momentum hold limit. Momentum
-is disabled in the selected configuration. Any remaining position settles at
-the final game outcome.
+The checked-in policy has a 240-second maximum hold. Optional momentum logic
+can delay a reversion exit while the held-side price continues moving
+favorably, then exit on velocity reversal, trailing giveback, or the momentum
+hold limit. Momentum is disabled in the selected configuration. Any remaining
+position settles at the final game outcome.
 
 ## Data, tuning, and evaluation
 
@@ -169,9 +173,9 @@ docker run --rm mlb-kalshi-trader trade-tape tune
 docker run --rm mlb-kalshi-trader trade-tape backtest
 ```
 
-The frozen holdout begins June 28, 2026: 136 fills across 220 games (0.62 per
-game), $23.05 net PnL, and 2.90% ROI. Removing the best game leaves $18.12;
-removing the best four leaves $5.09. The selected pre-holdout policy produced
-719 fills across 918 games (0.78 per game), $81.38 net PnL, and 2.00% ROI.
-Two of three chronological tuning folds were profitable and the losing fold
-was -0.56% ROI. Deployment remains enabled by the frozen holdout gate.
+The latest saved holdout artifact contains 57 fills across 297 games, $4.53 net
+PnL, and 1.93% ROI. Removing the best game leaves $2.30; removing the best four
+turns the result negative at -$2.32. The saved artifact predates the newest
+checked-in event set and 240-second hold limit, so rerun the backtest before
+treating those figures as performance for the current policy. Deployment is
+enabled in the checked-in configuration.

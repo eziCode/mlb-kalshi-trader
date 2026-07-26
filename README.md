@@ -3,10 +3,11 @@
 This repository contains two MLB Kalshi paper-trading strategies:
 
 - **Settlement value** (`mispricing` selector): predicts the home team's final
-  settlement probability after any completed pitch and holds one qualifying
-  position per game to settlement.
-- **Hit reversion** (`trade-tape` selector): trades delayed market reactions
-  after hits and normally exits at its state-adjusted target.
+  settlement probability after any completed pitch and holds qualifying
+  positions to settlement.
+- **Event reversion** (`trade-tape` selector, retained for compatibility):
+  trades delayed market reactions after selected completed events and exits at
+  a configured target or hold limit.
 
 Neither paper trader submits real orders.
 
@@ -194,17 +195,20 @@ docker exec \
   mlb-paper /bin/sh /app/docker-entrypoint.sh trade-tape portfolio-status
 ```
 
-### Guarded real-money settlement execution
+### Guarded real-money execution
 
-Real execution is a separate settlement-value-only container. It consumes the
-paper container's private shared feed and never starts hit-reversion execution.
-The executor uses fill-or-kill orders, checks the real available balance before
-every order, and limits principal plus fees to the configured per-order amount.
+Real execution can run settlement value by itself or both strategies together.
+The single-strategy command below consumes the paper container's private shared
+feed and starts settlement-value execution only. Entry orders are
+immediate-or-cancel and may fill partially; exits are fill-or-kill. The executor
+checks the real available balance before every entry and limits principal plus
+fees to the configured per-order amount.
 Set `LIVE_MAX_TOTAL_CAPITAL=ALL_LIQUID_CASH` to make all currently available
 Kalshi cash eligible while atomically reserving concurrent pending orders. A
 numeric value retains a fixed total allocation cap.
-Both acknowledgements are intentionally required because the packaged model
-remains unvalidated and disabled.
+`LIVE_TRADING_ENABLED` is always required. `ALLOW_UNVALIDATED_LIVE` is required
+only when the loaded settlement policy is disabled; the checked-in latency
+policy is currently enabled and marked validated in `model/live_config.json`.
 
 ```bash
 docker network create mlb-trading
@@ -233,3 +237,17 @@ docker run -d \
 
 The paper-feed container binds its internal feed services on the private
 container interface. No host ports need to be published.
+
+To start both real-money workers behind private, process-local shared feeds,
+use `live-both`. This also starts hit reversion, so configure a shared
+`LIVE_RISK_DB` and capital limits appropriate for both strategies:
+
+```bash
+docker run --rm --env-file .env \
+  -e KALSHI_PRIVATE_KEY_PATH=/run/secrets/kalshi-private.key \
+  -e LIVE_TRADING_ENABLED=YES_I_UNDERSTAND_THIS_PLACES_REAL_ORDERS \
+  -e LIVE_RISK_DB=/app/live-state/risk.sqlite3 \
+  -v "$PWD/secrets/kalshi-private.key:/run/secrets/kalshi-private.key:ro" \
+  -v settlement-live-state:/app/live-state \
+  mlb-kalshi-trader:live live-both --date YYYY-MM-DD
+```
