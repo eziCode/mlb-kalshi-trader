@@ -11,7 +11,7 @@ import pandas as pd
 from scripts.paper_trade import (
     completed_play_pitch_token, event_inputs_aligned,
     event_within_entry_window, EventCandidate,
-    fetch_game_snapshot, GameSnapshot, latest_resolved_play,
+    fetch_game_snapshot, fetch_recent_trades, GameSnapshot, latest_resolved_play,
     match_games_to_home_markets, pre_pitch_trade_anchor,
     LIVE_ORDER_BUDGET, Position, replay_candidate_entry, replay_position_exit,
     run_daily_coordinator, SharedPaperPortfolio, state_model_frame,
@@ -30,6 +30,27 @@ from trade_tape_strategy.strategy import taker_fee
 
 
 class TradeTapeStrategyTests(unittest.TestCase):
+    def test_recent_trades_supports_paired_away_market(self):
+        rows = [{
+            "trade_id": "away-1",
+            "created_time": "2026-07-26T17:00:00Z",
+            "yes_price_dollars": "0.42",
+            "count_fp": "3",
+            "taker_outcome_side": "yes",
+        }]
+        with (
+            patch.dict("os.environ", {"KALSHI_FEED_URL": "http://feed"}),
+            patch(
+                "scripts.paper_trade.get_shared_market",
+                return_value={"trades": rows},
+            ) as shared_market,
+        ):
+            trades = fetch_recent_trades("AWAY-TICKER")
+
+        shared_market.assert_called_once_with("AWAY-TICKER")
+        self.assertEqual(trades.trade_id.tolist(), ["away-1"])
+        self.assertEqual(trades.yes_price_dollars.tolist(), [0.42])
+
     def test_event_target_bounds_extreme_moves_symmetrically(self):
         config = TradeTapeConfig(
             fair_log_odds_shrinkage=1.0,

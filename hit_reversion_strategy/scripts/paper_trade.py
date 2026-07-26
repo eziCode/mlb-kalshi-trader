@@ -1139,13 +1139,14 @@ def pitch_token_start_time(token: tuple | None) -> datetime | None:
     return pd.to_datetime(value, utc=True).to_pydatetime()
 
 
-def fetch_recent_trades() -> pd.DataFrame:
+def fetch_recent_trades(ticker: str | None = None) -> pd.DataFrame:
+    ticker = str(ticker or MARKET_TICKER)
     if os.getenv("KALSHI_FEED_URL"):
-        rows = get_shared_market(str(MARKET_TICKER)).get("trades") or []
+        rows = get_shared_market(ticker).get("trades") or []
     else:
         response = requests.get(
             f"{KALSHI_API}/markets/trades",
-            params={"ticker": MARKET_TICKER, "limit": 1000}, timeout=5,
+            params={"ticker": ticker, "limit": 1000}, timeout=5,
         )
         response.raise_for_status()
         rows = response.json().get("trades") or []
