@@ -1,0 +1,55 @@
+{
+  "model_features": [
+    "event_type",
+    "side",
+    "inning",
+    "inning_topbot",
+    "outs",
+    "score_diff",
+    "runner_on_first",
+    "runner_on_second",
+    "runner_on_third",
+    "fair_before",
+    "fair_after",
+    "batting_fair_move",
+    "side_fair_move",
+    "entry_price",
+    "target_price",
+    "entry_net_edge",
+    "market_move_since_pitch",
+    "event_detection_latency_seconds",
+    "entry_lag_seconds"
+  ],
+  "categorical_features": [
+    "event_type",
+    "side"
+  ],
+  "opportunity_edge": 0.01,
+  "proven_edge": 0.04,
+  "minimum_deployment_roi": 0.015,
+  "validation_start": "2026-04-24",
+  "fit_rows": 1536,
+  "validation_rows": 1385,
+  "holdout_rows": 463,
+  "prediction_threshold": 0.006020952540906459,
+  "validation": {
+    "games": 451,
+    "trades": 760,
+    "pnl": 52.34680000000002,
+    "capital": 3480.6000000000004,
+    "roi": 0.015039590875136476,
+    "pnl_without_best_game": 48.40660000000002,
+    "threshold": 0.006020952540906459,
+    "trades_per_game": 0.8899297423887588
+  },
+  "holdout": {
+    "games": 153,
+    "trades": 232,
+    "pnl": 19.71350000000001,
+    "capital": 1049.6999999999998,
+    "roi": 0.01878012765552064,
+    "pnl_without_best_game": 16.64630000000001,
+    "trades_per_game": 0.7811447811447811
+  },
+  "deployable": true
+}

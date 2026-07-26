@@ -588,6 +588,22 @@ class TradeTapeStrategyTests(unittest.TestCase):
         )
         self.assertEqual(result.trades, 1)
 
+    def test_direct_value_model_can_reject_an_incremental_entry(self):
+        class RejectAll:
+            @staticmethod
+            def accepts(features):
+                self.assertIn("entry_net_edge", features)
+                return False, -0.01
+
+        trades, updates = self._frames(include_reversion=False)
+        result = simulate_trade_tape(
+            trades, updates,
+            TradeTapeConfig(minimum_edge=0.01),
+            entry_scorer=RejectAll(),
+        )
+        self.assertEqual(result.trades, 0)
+        self.assertEqual(result.model_rejected_signals, 1)
+
     def test_next_completed_plate_appearance_invalidates_candidate(self):
         trades, updates = self._frames(include_reversion=False)
         next_pa = updates.iloc[0].copy()

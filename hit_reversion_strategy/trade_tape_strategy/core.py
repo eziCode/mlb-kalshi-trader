@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 
 from .hybrid import anchored_event_target
+from .reversion_value import reversion_feature_row
 from .strategy import CONFIG, estimated_round_trip_fee_per_contract, taker_fee
 
 
@@ -45,6 +46,7 @@ class TradeTapeConfig:
     )
     fair_log_odds_shrinkage: float = 1.0
     maximum_event_log_odds_move: float = 100.0
+    direct_value_model_enabled: bool = False
 
 
 @dataclass
@@ -56,6 +58,12 @@ class Candidate:
     trigger_at_bat: int
     trigger_pitch: int
     material_state: tuple
+    pre_market: float = 0.5
+    fair_before: float = 0.5
+    batting_home: bool = True
+    inning: float = 1.0
+    inning_topbot: float = 0.0
+    event_observed_ns: int = 0
     watch_side: str | None = None
     watch_started_ns: int | None = None
 
@@ -118,6 +126,7 @@ class TradeTapeResult:
     invalidated_candidates: int = 0
     expired_candidates: int = 0
     confirmed_signals: int = 0
+    model_rejected_signals: int = 0
     trades: int = 0
     yes_trades: int = 0
     no_trades: int = 0
@@ -264,6 +273,38 @@ def _material_state(update) -> tuple:
     )
 
 
+def _direct_model_accepts(
+    candidate: Candidate, side: str, entry_price: float, entry_ns: int,
+    scorer,
+) -> bool:
+    if scorer is None:
+        return True
+    target_price = (
+        candidate.anchor_target if side == "yes"
+        else 1.0 - candidate.anchor_target
+    )
+    pre_market_price = (
+        candidate.pre_market if side == "yes" else 1.0 - candidate.pre_market
+    )
+    features = reversion_feature_row(
+        event_type=candidate.event_type, side=side,
+        inning=candidate.inning, inning_topbot=candidate.inning_topbot,
+        outs=candidate.material_state[1], score_diff=candidate.material_state[0],
+        runner_on_first=candidate.material_state[2],
+        runner_on_second=candidate.material_state[3],
+        runner_on_third=candidate.material_state[4],
+        fair_before=candidate.fair_before, fair_after=candidate.anchor_fair,
+        batting_home=candidate.batting_home, entry_price=entry_price,
+        target_price=target_price, pre_market_price=pre_market_price,
+        event_detection_latency_seconds=(
+            candidate.event_observed_ns - candidate.event_time_ns
+        ) / 1e9,
+        entry_lag_seconds=(entry_ns - candidate.event_time_ns) / 1e9,
+    )
+    accepted, _ = scorer.accepts(features)
+    return bool(accepted)
+
+
 def _price_velocity(
     history: list[tuple[int, float]],
     now_ns: int,
@@ -286,6 +327,7 @@ def simulate_trade_tape(
     trades: pd.DataFrame,
     updates: pd.DataFrame,
     config: TradeTapeConfig,
+    entry_scorer=None,
 ) -> TradeTapeResult:
     required_trades = {
         "game_pk", "created_time", "yes_price_dollars", "no_price_dollars",
@@ -434,6 +476,18 @@ def simulate_trade_tape(
                                     trigger_at_bat=int(update.at_bat_number),
                                     trigger_pitch=int(update.pitch_number),
                                     material_state=_material_state(update),
+                                    pre_market=float(yes_prices[anchor_index]),
+                                    fair_before=float(update.fair_before),
+                                    batting_home=batting_home,
+                                    inning=float(getattr(
+                                        update, "inning_after", 1.0
+                                    )),
+                                    inning_topbot=float(
+                                        getattr(update, "inning_topbot_after", 0.0)
+                                    ),
+                                    event_observed_ns=update_available_ns[
+                                        update_index
+                                    ],
                                 )
                                 pending_entry = None
                 update_index += 1
@@ -623,6 +677,14 @@ def simulate_trade_tape(
                     if reversion_move < minimum_reversion_move:
                         continue
                     entry_price = yes_price if side == "yes" else no_price
+                    if not _direct_model_accepts(
+                        pending_entry.candidate, side, entry_price,
+                        trade_ns, entry_scorer,
+                    ):
+                        result.model_rejected_signals += 1
+                        pending_entry = None
+                        candidate = None
+                        continue
                     contracts = position_contracts(entry_price, config)
                     if remaining_size >= contracts:
                         entry_fee = taker_fee(contracts, entry_price)
@@ -671,6 +733,13 @@ def simulate_trade_tape(
                         )
                     ):
                         entry_price = yes_price if side == "yes" else no_price
+                        if not _direct_model_accepts(
+                            candidate, side, entry_price, trade_ns,
+                            entry_scorer,
+                        ):
+                            result.model_rejected_signals += 1
+                            candidate = None
+                            continue
                         contracts = position_contracts(entry_price, config)
                         if remaining_size >= contracts:
                             entry_fee = taker_fee(contracts, entry_price)
