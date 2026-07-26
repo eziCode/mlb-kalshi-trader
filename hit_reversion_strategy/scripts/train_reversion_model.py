@@ -9,6 +9,8 @@ threshold selection.
 from __future__ import annotations
 
 from dataclasses import asdict, replace
+import gc
+import hashlib
 import json
 from pathlib import Path
 import sys
@@ -24,7 +26,10 @@ if str(PROJECT) not in sys.path:
     sys.path.insert(0, str(PROJECT))
 
 from scripts.backtest import (  # noqa: E402
+    AWAY_TRADE_COLUMNS,
     OUTER_HOLDOUT_START,
+    STATE_COLUMNS,
+    TRADE_COLUMNS,
     apply_live_paired_execution_prices,
     apply_publication_latency,
 )
@@ -41,9 +46,9 @@ DATA = REPOSITORY / "data/shared"
 CONFIG_PATH = PROJECT / "models/trade_tape_config.json"
 MODEL_PATH = PROJECT / "models/reversion_value.cbm"
 METADATA_PATH = PROJECT / "models/reversion_value.metadata.json"
+LATENCY_PROFILE_PATH = PROJECT / "models/event_observation_latency.json"
 OPPORTUNITY_EDGE = 0.01
 MINIMUM_DEPLOYMENT_ROI = 0.015
-PROVEN_EDGE = 0.04
 
 CATEGORICAL_FEATURES = ("event_type", "side")
 NUMERIC_FEATURES = (
@@ -181,9 +186,15 @@ def metrics(frame: pd.DataFrame) -> dict:
 
 def main() -> None:
     config = TradeTapeConfig(**json.loads(CONFIG_PATH.read_text()))
-    trades = pd.read_parquet(DATA / "home_market_trades.parquet")
-    away = pd.read_parquet(DATA / "away_market_trades.parquet")
-    updates = pd.read_parquet(DATA / "state_updates.parquet")
+    trades = pd.read_parquet(
+        DATA / "home_market_trades.parquet", columns=TRADE_COLUMNS
+    )
+    away = pd.read_parquet(
+        DATA / "away_market_trades.parquet", columns=AWAY_TRADE_COLUMNS
+    )
+    updates = pd.read_parquet(
+        DATA / "state_updates.parquet", columns=STATE_COLUMNS
+    )
     for frame in (trades, away, updates):
         frame["game_date"] = pd.to_datetime(frame.game_date).dt.date
 
@@ -191,6 +202,8 @@ def main() -> None:
     holdout = trades[trades.game_date >= OUTER_HOLDOUT_START].copy()
     pre_rows = build_opportunities(pre, away, updates, config)
     holdout_rows = build_opportunities(holdout, away, updates, config)
+    del trades, away, updates, pre, holdout
+    gc.collect()
     dates = sorted(pre_rows.game_date.unique())
     validation_start = dates[int(len(dates) * 0.75)]
     fit = pre_rows[pre_rows.game_date < validation_start].copy()
@@ -211,8 +224,7 @@ def main() -> None:
     validation_games = int(pre[pre.game_date >= validation_start].game_pk.nunique())
     for threshold in thresholds:
         selected = validation[
-            (validation.entry_net_edge >= PROVEN_EDGE)
-            | (validation.prediction >= threshold)
+            validation.prediction >= threshold
         ]
         item = metrics(selected)
         item["threshold"] = float(threshold)
@@ -233,8 +245,7 @@ def main() -> None:
 
     holdout_rows["prediction"] = model.predict(pool(holdout_rows, label=False))
     holdout_selected = holdout_rows[
-        (holdout_rows.entry_net_edge >= PROVEN_EDGE)
-        | (holdout_rows.prediction >= selected["threshold"])
+        holdout_rows.prediction >= selected["threshold"]
     ]
     holdout_metrics = metrics(holdout_selected)
     holdout_games = int(holdout.game_pk.nunique())
@@ -250,7 +261,13 @@ def main() -> None:
         "model_features": list(MODEL_FEATURES),
         "categorical_features": list(CATEGORICAL_FEATURES),
         "opportunity_edge": OPPORTUNITY_EDGE,
-        "proven_edge": PROVEN_EDGE,
+        "entry_gate": "direct_value_model_required_for_every_entry",
+        "policy_config_sha256": hashlib.sha256(
+            CONFIG_PATH.read_bytes()
+        ).hexdigest(),
+        "latency_profile_sha256": hashlib.sha256(
+            LATENCY_PROFILE_PATH.read_bytes()
+        ).hexdigest(),
         "minimum_deployment_roi": MINIMUM_DEPLOYMENT_ROI,
         "selection_objective": "maximum_net_pnl_per_scheduled_game",
         "validation_start": str(validation_start),
@@ -263,8 +280,17 @@ def main() -> None:
         "deployable": deployable,
     }
     MODEL_PATH.parent.mkdir(parents=True, exist_ok=True)
-    model.save_model(MODEL_PATH)
-    METADATA_PATH.write_text(json.dumps(metadata, indent=2))
+    temporary_model = MODEL_PATH.with_name("reversion_value.tmp.cbm")
+    temporary_metadata = METADATA_PATH.with_name(
+        "reversion_value.metadata.tmp.json"
+    )
+    model.save_model(temporary_model)
+    metadata["model_sha256"] = hashlib.sha256(
+        temporary_model.read_bytes()
+    ).hexdigest()
+    temporary_metadata.write_text(json.dumps(metadata, indent=2))
+    temporary_model.replace(MODEL_PATH)
+    temporary_metadata.replace(METADATA_PATH)
     print(json.dumps(metadata, indent=2))
 
 

@@ -25,7 +25,7 @@
     "catcher_interf"
   ],
   "maximum_hold_seconds": 240.0,
-  "exit_target_mode": "frozen",
+  "exit_target_mode": "dynamic",
   "latch_reversion_exit": false,
   "minimum_reversion_move": 0.0,
   "side_filter": "both",

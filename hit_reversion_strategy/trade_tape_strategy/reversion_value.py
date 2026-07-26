@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 from pathlib import Path
 
@@ -58,21 +59,40 @@ def reversion_feature_row(
 
 
 class ReversionValueModel:
-    def __init__(self, model_path: Path, metadata_path: Path):
+    def __init__(
+        self, model_path: Path, metadata_path: Path,
+        config_path: Path | None = None,
+        latency_profile_path: Path | None = None,
+    ):
         self.model = CatBoostRegressor()
         self.model.load_model(str(model_path))
         self.metadata = json.loads(metadata_path.read_text())
+        model_hash = hashlib.sha256(Path(model_path).read_bytes()).hexdigest()
+        if model_hash != self.metadata.get("model_sha256"):
+            raise RuntimeError("Reversion-value model/metadata hash mismatch")
         if tuple(self.metadata["model_features"]) != MODEL_FEATURES:
             raise RuntimeError("Reversion-value model feature contract mismatch")
+        if self.metadata.get("entry_gate") != (
+            "direct_value_model_required_for_every_entry"
+        ):
+            raise RuntimeError("Reversion-value entry gate is stale or unsafe")
+        for path, metadata_key in (
+            (config_path, "policy_config_sha256"),
+            (latency_profile_path, "latency_profile_sha256"),
+        ):
+            if path is None:
+                continue
+            actual = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+            if actual != self.metadata.get(metadata_key):
+                raise RuntimeError(
+                    f"Reversion-value policy mismatch: {metadata_key}"
+                )
         self.threshold = float(self.metadata["prediction_threshold"])
-        self.proven_edge = float(self.metadata["proven_edge"])
 
     def predict(self, features: dict[str, object]) -> float:
         frame = pd.DataFrame([features], columns=MODEL_FEATURES)
         return float(self.model.predict(frame)[0])
 
     def accepts(self, features: dict[str, object]) -> tuple[bool, float]:
-        if float(features["entry_net_edge"]) >= self.proven_edge:
-            return True, float("nan")
         prediction = self.predict(features)
         return prediction >= self.threshold, prediction

@@ -82,6 +82,7 @@ class PendingEntry:
 class TapePosition:
     side: str
     contracts: float
+    original_contracts: float
     entry_price: float
     entry_fee: float
     entry_ns: int
@@ -96,6 +97,10 @@ class TapePosition:
     held_price_history: list[tuple[int, float]] = field(default_factory=list)
     momentum_hold_started_ns: int | None = None
     momentum_high_water: float | None = None
+    realized_pnl: float = 0.0
+    exit_fees: float = 0.0
+    exit_value: float = 0.0
+    sold_contracts: float = 0.0
 
 
 @dataclass
@@ -574,22 +579,43 @@ def simulate_trade_tape(
                             not config.require_compatible_taker
                             or compatible_taker(exit_taker_side, taker_side)
                         )
-                        and remaining_size >= position.contracts
                         and (
                             reverted
                             or config.latch_reversion_exit
                             or position.pending_exit_reason != "reversion"
                         )
                     ):
-                        exit_price = held_price
-                        exit_fee = taker_fee(position.contracts, exit_price)
-                        pnl = (
-                            position.contracts * exit_price - exit_fee
-                            - position.contracts * position.entry_price
-                            - position.entry_fee
+                        sold_contracts = min(
+                            float(position.contracts), float(remaining_size)
                         )
-                        result.pnl += pnl
+                        sold_contracts = (
+                            np.floor(sold_contracts * 100.0) / 100.0
+                        )
+                        if sold_contracts <= 0:
+                            continue
+                        exit_price = held_price
+                        exit_fee = taker_fee(sold_contracts, exit_price)
+                        allocated_entry_fee = (
+                            position.entry_fee * sold_contracts
+                            / position.original_contracts
+                        )
+                        partial_pnl = (
+                            sold_contracts * exit_price - exit_fee
+                            - sold_contracts * position.entry_price
+                            - allocated_entry_fee
+                        )
+                        position.realized_pnl += partial_pnl
+                        position.exit_fees += exit_fee
+                        position.exit_value += sold_contracts * exit_price
+                        position.sold_contracts += sold_contracts
+                        position.contracts = max(
+                            0.0, position.contracts - sold_contracts
+                        )
+                        result.pnl += partial_pnl
                         result.fees += exit_fee
+                        remaining_size -= sold_contracts
+                        if position.contracts > 1e-9:
+                            continue
                         result.reversion_exits += int(
                             position.pending_exit_reason == "reversion"
                         )
@@ -606,7 +632,10 @@ def simulate_trade_tape(
                             exit_time=_ns_to_timestamp(trade_ns),
                             exit_reason=(position.pending_exit_reason or "reversion"),
                             entry_price=position.entry_price,
-                            exit_price=exit_price, contracts=position.contracts,
+                            exit_price=(
+                                position.exit_value / position.sold_contracts
+                            ),
+                            contracts=position.original_contracts,
                             anchor_target=position.anchor_target,
                             anchor_fair=position.anchor_fair,
                             trigger_at_bat=position.trigger_at_bat,
@@ -614,9 +643,9 @@ def simulate_trade_tape(
                             trigger_event_time=_ns_to_timestamp(
                                 position.trigger_event_time_ns
                             ),
-                            pnl=pnl, fees=position.entry_fee + exit_fee,
+                            pnl=position.realized_pnl,
+                            fees=position.entry_fee + position.exit_fees,
                         ))
-                        remaining_size -= position.contracts
                         closed_positions.append(position)
                         continue
                 if position.pending_exit_ns is None:
@@ -709,6 +738,7 @@ def simulate_trade_tape(
                         position = TapePosition(
                             side=side,
                             contracts=contracts,
+                            original_contracts=contracts,
                             entry_price=entry_price,
                             entry_fee=entry_fee,
                             entry_ns=trade_ns,
@@ -763,6 +793,7 @@ def simulate_trade_tape(
                             entry_fee = taker_fee(contracts, entry_price)
                             positions.append(TapePosition(
                                 side=side, contracts=contracts,
+                                original_contracts=contracts,
                                 entry_price=entry_price, entry_fee=entry_fee,
                                 entry_ns=trade_ns,
                                 anchor_target=candidate.anchor_target,
@@ -808,12 +839,14 @@ def simulate_trade_tape(
             ) or (
                 position.side == "no" and home_win == 0
             )
-            pnl = (
+            settlement_pnl = (
                 (position.contracts if won else 0.0)
                 - position.contracts * position.entry_price
-                - position.entry_fee
+                - position.entry_fee * position.contracts
+                / position.original_contracts
             )
-            result.pnl += pnl
+            result.pnl += settlement_pnl
+            pnl = position.realized_pnl + settlement_pnl
             result.settlements += 1
             result.records.append(TapeTradeRecord(
                 game_pk=game_pk,
@@ -824,7 +857,7 @@ def simulate_trade_tape(
                 exit_reason="settlement",
                 entry_price=position.entry_price,
                 exit_price=None,
-                contracts=position.contracts,
+                contracts=position.original_contracts,
                 anchor_target=position.anchor_target,
                 anchor_fair=position.anchor_fair,
                 trigger_at_bat=position.trigger_at_bat,
@@ -833,6 +866,6 @@ def simulate_trade_tape(
                     position.trigger_event_time_ns
                 ),
                 pnl=pnl,
-                fees=position.entry_fee,
+                fees=position.entry_fee + position.exit_fees,
             ))
     return result

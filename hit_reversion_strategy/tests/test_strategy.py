@@ -27,9 +27,20 @@ from trade_tape_strategy.core import (
     position_contracts,
 )
 from trade_tape_strategy.strategy import taker_fee
+from trade_tape_strategy.reversion_value import ReversionValueModel
 
 
 class TradeTapeStrategyTests(unittest.TestCase):
+    def test_direct_value_model_cannot_be_bypassed_by_large_raw_edge(self):
+        model = ReversionValueModel.__new__(ReversionValueModel)
+        model.threshold = 0.01
+        model.predict = lambda features: -0.02
+
+        accepted, prediction = model.accepts({"entry_net_edge": 0.50})
+
+        self.assertFalse(accepted)
+        self.assertEqual(prediction, -0.02)
+
     def test_recent_trades_supports_paired_away_market(self):
         rows = [{
             "trade_id": "away-1",
@@ -806,6 +817,25 @@ class TradeTapeStrategyTests(unittest.TestCase):
         self.assertEqual(result.reversion_exits, 1)
         self.assertEqual(result.settlements, 0)
         self.assertEqual(result.records[0].exit_reason, "reversion")
+
+    def test_backtest_accumulates_partial_exit_liquidity_like_live(self):
+        trades, updates = self._frames(include_reversion=True)
+        final = trades.iloc[-1].copy()
+        final["trade_id"] = "partial-2"
+        final["created_time"] = pd.Timestamp("2026-07-01T12:05:03Z")
+        trades.loc[trades.index[-1], "count_fp"] = 4.0
+        final["count_fp"] = 6.0
+        trades = pd.concat([trades, pd.DataFrame([final])], ignore_index=True)
+
+        result = simulate_trade_tape(
+            trades, updates, TradeTapeConfig(minimum_edge=0.05)
+        )
+
+        self.assertEqual(result.trades, 1)
+        self.assertEqual(result.reversion_exits, 1)
+        self.assertEqual(result.settlements, 0)
+        self.assertEqual(result.records[0].contracts, 10.0)
+        self.assertAlmostEqual(result.records[0].exit_price, 0.51)
 
     def test_taker_direction_filter_can_be_disabled(self):
         trades, updates = self._frames(include_reversion=True)

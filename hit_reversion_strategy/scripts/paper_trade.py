@@ -67,6 +67,7 @@ HYBRID_CONFIG_PATH = MODEL_DIR / "trade_tape_config.json"
 STATE_MODEL_PATH = PROJECT_ROOT / "models/local_win_expectancy.cbm"
 REVERSION_MODEL_PATH = PROJECT_ROOT / "models/reversion_value.cbm"
 REVERSION_METADATA_PATH = PROJECT_ROOT / "models/reversion_value.metadata.json"
+LATENCY_PROFILE_PATH = PROJECT_ROOT / "models/event_observation_latency.json"
 MLB_PRIOR_PATH = (
     PROJECT_ROOT / "models/mlb_pregame_prior.json"
 )
@@ -1618,7 +1619,10 @@ async def main() -> None:
     state_model.load_model(STATE_MODEL_PATH)
     hybrid_config = TradeTapeConfig(**json.loads(HYBRID_CONFIG_PATH.read_text()))
     value_model = (
-        ReversionValueModel(REVERSION_MODEL_PATH, REVERSION_METADATA_PATH)
+        ReversionValueModel(
+            REVERSION_MODEL_PATH, REVERSION_METADATA_PATH,
+            HYBRID_CONFIG_PATH, LATENCY_PROFILE_PATH,
+        )
         if hybrid_config.direct_value_model_enabled else None
     )
     allow_unvalidated = os.getenv("ALLOW_UNVALIDATED_HYBRID") == "1"

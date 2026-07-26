@@ -32,32 +32,41 @@ REVERSION_MODEL_PATH = MODEL_DIR / "reversion_value.cbm"
 REVERSION_METADATA_PATH = MODEL_DIR / "reversion_value.metadata.json"
 STUDY_DIR = PROJECT_ROOT / "artifacts"
 OUTER_HOLDOUT_START = pd.Timestamp("2026-06-28").date()
+TRADE_COLUMNS = [
+    "game_pk", "game_date", "home_win", "trade_id", "created_time",
+    "yes_price_dollars", "no_price_dollars", "count_fp",
+    "taker_outcome_side",
+]
+AWAY_TRADE_COLUMNS = [
+    "game_pk", "game_date", "created_time", "yes_price_dollars",
+]
+STATE_COLUMNS = [
+    "game_pk", "game_date", "at_bat_number", "pitch_number",
+    "pitch_start_time", "pitch_end_time", "completed_event",
+    "completed_event_batting_home", "is_hit", "fair_before", "fair_after",
+    "inning_after", "inning_topbot_after", "outs_when_up_after",
+    "score_diff_after", "runner_on_first_after", "runner_on_second_after",
+    "runner_on_third_after",
+]
 
-# Empirical completed-hit publication latency measured from 184 archived MLB
-# live-feed observations on 2026-07-25. Historical rows do not contain an
-# observation timestamp, so stable event identities are mapped through this
-# CDF. This is deterministic and keeps pitch_end_time as the signal-age clock.
-PUBLICATION_DELAY_QUANTILES = {
-    0.00: 2.523033,
-    0.05: 4.150827,
-    0.10: 5.662205,
-    0.20: 7.876134,
-    0.30: 9.631647,
-    0.40: 10.908609,
-    0.50: 12.933865,
-    0.60: 14.024072,
-    0.70: 15.513805,
-    0.75: 19.111486,
-    0.80: 23.557750,
-    0.90: 41.331502,
-    0.95: 55.757119,
-    0.975: 80.516275,
-    0.99: 126.110700,
-    1.00: 266.310212,
-}
+LATENCY_PROFILE_PATH = MODEL_DIR / "event_observation_latency.json"
 
 
-def publication_delay_seconds(row: pd.Series) -> float:
+def load_latency_profile() -> dict:
+    profile = json.loads(LATENCY_PROFILE_PATH.read_text())
+    quantiles = {
+        float(probability): float(delay)
+        for probability, delay in profile["quantiles_seconds"].items()
+    }
+    if not quantiles or min(quantiles) != 0.0 or max(quantiles) != 1.0:
+        raise RuntimeError("Latency profile must cover quantiles 0 through 1")
+    profile["quantiles_seconds"] = quantiles
+    return profile
+
+
+def publication_delay_seconds(
+    row: pd.Series, profile: dict | None = None,
+) -> float:
     identity = (
         f"{int(row.game_pk)}:{int(row.at_bat_number)}:"
         f"{int(row.pitch_number)}"
@@ -65,13 +74,15 @@ def publication_delay_seconds(row: pd.Series) -> float:
     uniform = int.from_bytes(
         hashlib.sha256(identity).digest()[:8], "big"
     ) / float(2**64 - 1)
-    probabilities = list(PUBLICATION_DELAY_QUANTILES)
-    delays = list(PUBLICATION_DELAY_QUANTILES.values())
+    quantiles = (profile or load_latency_profile())["quantiles_seconds"]
+    probabilities = sorted(quantiles)
+    delays = [quantiles[probability] for probability in probabilities]
     return float(np.interp(uniform, probabilities, delays))
 
 
 def apply_publication_latency(updates: pd.DataFrame) -> pd.DataFrame:
     delayed = updates.copy()
+    profile = load_latency_profile()
     # Parquet stores pitch timestamps at microsecond resolution, while the
     # empirical interpolation can produce nanoseconds. Promote the destination
     # before assigning delayed values so pandas does not truncate them.
@@ -84,7 +95,7 @@ def apply_publication_latency(updates: pd.DataFrame) -> pd.DataFrame:
     # walks/outs until event-specific observation samples accumulate.
     hit_mask = delayed["completed_event"].notna()
     delays = delayed.loc[hit_mask].apply(
-        publication_delay_seconds, axis=1
+        publication_delay_seconds, axis=1, profile=profile
     )
     delayed.loc[hit_mask, "event_available_time"] = (
         delayed.loc[hit_mask, "pitch_end_time"]
@@ -120,9 +131,13 @@ def apply_live_paired_execution_prices(
 
 def main() -> None:
     config = TradeTapeConfig(**json.loads(CONFIG_PATH.read_text()))
-    trades = pd.read_parquet(DATA_DIR / "home_market_trades.parquet")
-    away_trades = pd.read_parquet(DATA_DIR / "away_market_trades.parquet")
-    updates = pd.read_parquet(STATE_UPDATES_PATH)
+    trades = pd.read_parquet(
+        DATA_DIR / "home_market_trades.parquet", columns=TRADE_COLUMNS
+    )
+    away_trades = pd.read_parquet(
+        DATA_DIR / "away_market_trades.parquet", columns=AWAY_TRADE_COLUMNS
+    )
+    updates = pd.read_parquet(STATE_UPDATES_PATH, columns=STATE_COLUMNS)
     trades["game_date"] = pd.to_datetime(trades["game_date"]).dt.date
     away_trades["game_date"] = pd.to_datetime(away_trades["game_date"]).dt.date
     updates["game_date"] = pd.to_datetime(updates["game_date"]).dt.date
@@ -137,7 +152,10 @@ def main() -> None:
     )
 
     entry_scorer = (
-        ReversionValueModel(REVERSION_MODEL_PATH, REVERSION_METADATA_PATH)
+        ReversionValueModel(
+            REVERSION_MODEL_PATH, REVERSION_METADATA_PATH,
+            CONFIG_PATH, LATENCY_PROFILE_PATH,
+        )
         if config.direct_value_model_enabled else None
     )
     result = simulate_trade_tape(
@@ -199,12 +217,8 @@ def main() -> None:
         "latch_reversion_exit": config.latch_reversion_exit,
         "state_model": "MLB-only batting-perspective local win expectancy",
         "event_availability": {
-            "mode": "empirical_live_publication_latency",
-            "sample_date": "2026-07-25",
-            "sample_hits": 184,
-            "latency_seconds_median": 12.933865,
-            "latency_seconds_p75": 19.111486,
-            "latency_seconds_p95": 55.757119,
+            key: value for key, value in load_latency_profile().items()
+            if key != "quantiles_seconds"
         },
         "no_execution_contract": "paired_away_yes",
     }

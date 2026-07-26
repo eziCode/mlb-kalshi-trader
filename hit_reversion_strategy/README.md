@@ -38,7 +38,9 @@ candidate or position is active.
 3. Compute the directional fair-value move for the batting team.
 4. Anchor to a fresh Kalshi execution observed before the event.
 5. Compare the anchored target with exact subsequent Kalshi executions.
-6. Start watching the side whose residual exceeds the configured edge.
+6. Start watching the side whose residual exceeds the configured edge and
+   require the direct realized-value model to accept every entry. Large raw
+   residuals never bypass the learned value gate.
 7. Require that side to persist through the confirmation interval.
 8. Expire the candidate after the entry deadline or invalidate it on the next
    pitch/material state transition.
@@ -98,7 +100,10 @@ or exceeds the configured frozen target. For NO, it occurs when YES falls to
 or below that target. The current policy can use the latest observable trade
 without requiring a compatible taker direction.
 
-The checked-in policy has a 240-second maximum hold. Optional momentum logic
+The checked-in policy has a 240-second maximum hold. Its exit target updates
+with subsequent causal baseball states, preserving the original market anchor
+while allowing a changed game state to move the price at which the reversion
+thesis is considered complete. Optional momentum logic
 can delay a reversion exit while the held-side price continues moving
 favorably, then exit on velocity reversal, trailing giveback, or the momentum
 hold limit. Momentum is disabled in the selected configuration. Any remaining
@@ -175,9 +180,15 @@ docker run --rm mlb-kalshi-trader trade-tape tune
 docker run --rm mlb-kalshi-trader trade-tape backtest
 ```
 
-The latest saved holdout artifact contains 57 fills across 297 games, $4.53 net
-PnL, and 1.93% ROI. Removing the best game leaves $2.30; removing the best four
-turns the result negative at -$2.32. The saved artifact predates the newest
-checked-in event set and 240-second hold limit, so rerun the backtest before
-treating those figures as performance for the current policy. Deployment is
-enabled in the checked-in configuration.
+The current exact-policy holdout contains 564 fills across 297 games, $81.44
+net PnL, and 7.23% ROI at the live $2 budget. Removing the best game leaves
+$71.25 and removing the best four leaves $57.03. The replay uses the checked-in
+shared-WebSocket observation-latency profile, paired away-team YES execution,
+dynamic targets, partial exits, the 60-second entry cooldown, and the same
+direct-value gate loaded by live trading.
+
+The value-model metadata hashes the model binary, deployment configuration,
+and latency profile. Both replay and live startup fail closed if those files do
+not match, preventing a model trained under one policy from silently running
+under another. Historical executions remain a fill proxy rather than a full
+order-book reconstruction.
