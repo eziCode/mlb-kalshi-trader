@@ -38,12 +38,14 @@ TRADE_COLUMNS = [
     "taker_outcome_side",
 ]
 AWAY_TRADE_COLUMNS = [
-    "game_pk", "game_date", "created_time", "yes_price_dollars",
+    "game_pk", "game_date", "home_win", "trade_id", "created_time",
+    "yes_price_dollars", "count_fp", "taker_outcome_side",
 ]
 STATE_COLUMNS = [
     "game_pk", "game_date", "at_bat_number", "pitch_number",
     "pitch_start_time", "pitch_end_time", "completed_event",
     "completed_event_batting_home", "is_hit", "fair_before", "fair_after",
+    "atomic_play_input",
     "inning_after", "inning_topbot_after", "outs_when_up_after",
     "score_diff_after", "runner_on_first_after", "runner_on_second_after",
     "runner_on_third_after",
@@ -81,6 +83,22 @@ def publication_delay_seconds(
 
 
 def apply_publication_latency(updates: pd.DataFrame) -> pd.DataFrame:
+    invalid_clocks = (
+        pd.to_datetime(updates["pitch_end_time"], utc=True)
+        <= pd.to_datetime(updates["pitch_start_time"], utc=True)
+    )
+    if invalid_clocks.any():
+        raise ValueError(
+            f"State updates contain {int(invalid_clocks.sum())} non-causal "
+            "pitch timestamps (pitch_end_time <= pitch_start_time)"
+        )
+    event_rows = updates["completed_event"].notna()
+    non_atomic = event_rows & ~updates["atomic_play_input"].fillna(False).astype(bool)
+    if non_atomic.any():
+        raise ValueError(
+            f"State updates contain {int(non_atomic.sum())} completed events "
+            "without atomic play inputs"
+        )
     delayed = updates.copy()
     profile = load_latency_profile()
     # Parquet stores pitch timestamps at microsecond resolution, while the
@@ -107,25 +125,47 @@ def apply_publication_latency(updates: pd.DataFrame) -> pd.DataFrame:
 def apply_live_paired_execution_prices(
     home_trades: pd.DataFrame, away_trades: pd.DataFrame,
 ) -> pd.DataFrame:
-    """Use the causal away-YES trade that the live NO route can execute.
+    """Build a causal two-market tape with market-specific fill liquidity."""
+    home = home_trades.sort_values(["created_time", "game_pk"]).copy()
+    away = away_trades.sort_values(["created_time", "game_pk"]).copy()
+    tolerance = pd.Timedelta(seconds=10)
 
-    The old replay used NO on the home ticker even though production buys YES
-    on the paired away ticker. Keep only an away price observed in the prior
-    ten seconds, matching the live quote-freshness requirement.
-    """
-    left = home_trades.sort_values(["created_time", "game_pk"]).copy()
-    right = away_trades[[
-        "game_pk", "created_time", "yes_price_dollars",
-    ]].rename(columns={
-        "created_time": "away_created_time",
-        "yes_price_dollars": "away_yes_price",
-    }).sort_values(["away_created_time", "game_pk"])
-    paired = pd.merge_asof(
-        left, right, by="game_pk", left_on="created_time",
-        right_on="away_created_time", direction="backward",
-        tolerance=pd.Timedelta(seconds=10),
+    away_quotes = away[["game_pk", "created_time", "yes_price_dollars"]].rename(
+        columns={"created_time": "away_quote_time", "yes_price_dollars": "away_yes_price"}
+    ).sort_values(["away_quote_time", "game_pk"])
+    home_rows = pd.merge_asof(
+        home, away_quotes, by="game_pk", left_on="created_time",
+        right_on="away_quote_time", direction="backward", tolerance=tolerance,
     )
-    paired["no_price_dollars"] = paired["away_yes_price"]
+    home_rows["no_price_dollars"] = home_rows["away_yes_price"]
+    home_rows["yes_count_fp"] = home_rows["count_fp"]
+    home_rows["no_count_fp"] = 0.0
+    home_rows["yes_taker_outcome_side"] = home_rows["taker_outcome_side"]
+    home_rows["no_taker_outcome_side"] = ""
+    home_rows["home_market_observation"] = True
+    home_rows["trade_id"] = "home:" + home_rows["trade_id"].astype(str)
+
+    home_quotes = home[["game_pk", "created_time", "yes_price_dollars"]].rename(
+        columns={"created_time": "home_quote_time", "yes_price_dollars": "home_yes_price"}
+    ).sort_values(["home_quote_time", "game_pk"])
+    away_rows = pd.merge_asof(
+        away, home_quotes, by="game_pk", left_on="created_time",
+        right_on="home_quote_time", direction="backward", tolerance=tolerance,
+    )
+    away_rows = away_rows[away_rows["home_yes_price"].notna()].copy()
+    away_rows["no_price_dollars"] = away_rows["yes_price_dollars"]
+    away_rows["yes_price_dollars"] = away_rows["home_yes_price"]
+    away_rows["yes_count_fp"] = 0.0
+    away_rows["no_count_fp"] = away_rows["count_fp"]
+    away_rows["yes_taker_outcome_side"] = ""
+    # Away YES is the home-economic NO contract; normalize aggressor direction.
+    away_rows["no_taker_outcome_side"] = away_rows["taker_outcome_side"].map(
+        {"yes": "no", "no": "yes"}
+    ).fillna("")
+    away_rows["home_market_observation"] = False
+    away_rows["trade_id"] = "away:" + away_rows["trade_id"].astype(str)
+
+    paired = pd.concat([home_rows, away_rows], ignore_index=True, sort=False)
     return paired.sort_values(["game_pk", "created_time", "trade_id"])
 
 
@@ -183,6 +223,10 @@ def main() -> None:
     )
     deployment_config = replace(config, enabled=deployment_enabled)
     summary = {
+        "evaluation_status": (
+            "reused_research_holdout_not_an_unbiased_forward_estimate"
+        ),
+        "holdout_start": str(OUTER_HOLDOUT_START),
         "selected_config": asdict(config),
         "deployment_config": asdict(deployment_config),
         "games": len(test_games),
@@ -220,7 +264,7 @@ def main() -> None:
             key: value for key, value in load_latency_profile().items()
             if key != "quantiles_seconds"
         },
-        "no_execution_contract": "paired_away_yes",
+        "no_execution_contract": "paired_away_yes_independent_trade_liquidity",
     }
     STUDY_DIR.mkdir(parents=True, exist_ok=True)
     (STUDY_DIR / "holdout_summary.json").write_text(

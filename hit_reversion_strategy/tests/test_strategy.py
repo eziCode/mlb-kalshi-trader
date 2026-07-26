@@ -8,6 +8,10 @@ import tempfile
 
 import pandas as pd
 
+from scripts.backtest import (
+    apply_live_paired_execution_prices, apply_publication_latency,
+)
+
 from scripts.paper_trade import (
     completed_play_pitch_token, event_inputs_aligned,
     event_within_entry_window, EventCandidate,
@@ -31,6 +35,50 @@ from trade_tape_strategy.reversion_value import ReversionValueModel
 
 
 class TradeTapeStrategyTests(unittest.TestCase):
+    def test_paired_tape_uses_only_originating_market_liquidity(self):
+        home = pd.DataFrame([{
+            "game_pk": 1, "game_date": "2026-07-20", "home_win": 1,
+            "trade_id": "h1", "created_time": pd.Timestamp("2026-07-20T12:00:00Z"),
+            "yes_price_dollars": .60, "no_price_dollars": .40,
+            "count_fp": 100, "taker_outcome_side": "yes",
+        }])
+        away = pd.DataFrame([{
+            "game_pk": 1, "game_date": "2026-07-20", "home_win": 1,
+            "trade_id": "a1", "created_time": pd.Timestamp("2026-07-20T12:00:01Z"),
+            "yes_price_dollars": .35, "count_fp": 3,
+            "taker_outcome_side": "yes",
+        }])
+
+        paired = apply_live_paired_execution_prices(home, away)
+        home_row = paired[paired.home_market_observation].iloc[0]
+        away_row = paired[~paired.home_market_observation].iloc[0]
+        self.assertEqual(home_row.yes_count_fp, 100)
+        self.assertEqual(home_row.no_count_fp, 0)
+        self.assertEqual(away_row.yes_count_fp, 0)
+        self.assertEqual(away_row.no_count_fp, 3)
+        self.assertEqual(away_row.no_taker_outcome_side, "no")
+        self.assertEqual(away_row.no_price_dollars, .35)
+
+    def test_publication_latency_rejects_noncausal_pitch_clock(self):
+        updates = pd.DataFrame([{
+            "game_pk": 1, "at_bat_number": 1, "pitch_number": 1,
+            "pitch_start_time": pd.Timestamp("2026-07-20T12:00:01Z"),
+            "pitch_end_time": pd.Timestamp("2026-07-20T12:00:00Z"),
+            "completed_event": "single", "atomic_play_input": True,
+        }])
+        with self.assertRaisesRegex(ValueError, "non-causal pitch timestamps"):
+            apply_publication_latency(updates)
+
+    def test_publication_latency_rejects_non_atomic_completed_event(self):
+        updates = pd.DataFrame([{
+            "game_pk": 1, "at_bat_number": 1, "pitch_number": 1,
+            "pitch_start_time": pd.Timestamp("2026-07-20T12:00:00Z"),
+            "pitch_end_time": pd.Timestamp("2026-07-20T12:00:01Z"),
+            "completed_event": "single", "atomic_play_input": False,
+        }])
+        with self.assertRaisesRegex(ValueError, "without atomic play inputs"):
+            apply_publication_latency(updates)
+
     def test_direct_value_model_cannot_be_bypassed_by_large_raw_edge(self):
         model = ReversionValueModel.__new__(ReversionValueModel)
         model.threshold = 0.01

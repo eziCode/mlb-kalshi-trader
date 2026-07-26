@@ -397,8 +397,24 @@ def simulate_trade_tape(
         ).array.as_unit("ns").asi8
         yes_prices = game_trades["yes_price_dollars"].to_numpy(dtype=float)
         no_prices = game_trades["no_price_dollars"].to_numpy(dtype=float)
-        sizes = game_trades["count_fp"].to_numpy(dtype=float)
-        taker_sides = game_trades["taker_outcome_side"].astype(str).to_numpy()
+        yes_sizes = game_trades.get(
+            "yes_count_fp", game_trades["count_fp"]
+        ).to_numpy(dtype=float)
+        no_sizes = game_trades.get(
+            "no_count_fp", game_trades["count_fp"]
+        ).to_numpy(dtype=float)
+        yes_taker_sides = game_trades.get(
+            "yes_taker_outcome_side", game_trades["taker_outcome_side"]
+        ).astype(str).to_numpy()
+        no_taker_sides = game_trades.get(
+            "no_taker_outcome_side", game_trades["taker_outcome_side"]
+        ).astype(str).to_numpy()
+        home_observations = game_trades.get(
+            "home_market_observation",
+            pd.Series(True, index=game_trades.index),
+        ).astype(bool).to_numpy()
+        home_indices = np.flatnonzero(home_observations & np.isfinite(yes_prices))
+        home_times = times[home_indices]
         home_win = int(game_trades["home_win"].iloc[-1])
 
         update_rows = list(game_updates.itertuples(index=False))
@@ -446,7 +462,10 @@ def simulate_trade_tape(
                         candidate = None
                         pending_entry = None
                 current_fair = float(update.fair_after)
-                if str(update.completed_event) in allowed_events:
+                if (
+                    str(update.completed_event) in allowed_events
+                    and bool(getattr(update, "atomic_play_input", True))
+                ):
                     result.observed_hits += 1
                     event_inputs_aligned = (
                         update_index == newest_visible_update_index
@@ -472,10 +491,14 @@ def simulate_trade_tape(
                             pitch_start_ns = pd.Timestamp(
                                 update.pitch_start_time
                             ).value
-                            anchor_index = int(
+                            home_anchor_position = int(
                                 np.searchsorted(
-                                    times, pitch_start_ns, side="left"
+                                    home_times, pitch_start_ns, side="left"
                                 ) - 1
+                            )
+                            anchor_index = (
+                                int(home_indices[home_anchor_position])
+                                if home_anchor_position >= 0 else -1
                             )
                             if (
                                 anchor_index >= 0
@@ -517,8 +540,8 @@ def simulate_trade_tape(
 
             yes_price = float(yes_prices[trade_index])
             no_price = float(no_prices[trade_index])
-            size = float(sizes[trade_index])
-            taker_side = taker_sides[trade_index]
+            remaining_yes_size = float(yes_sizes[trade_index])
+            remaining_no_size = float(no_sizes[trade_index])
 
             active_candidate = (
                 pending_entry.candidate
@@ -534,7 +557,6 @@ def simulate_trade_tape(
                 candidate = None
                 pending_entry = None
 
-            remaining_size = size
             closed_positions: list[TapePosition] = []
             for position in positions:
                 target = _position_exit_target(position, current_fair, config)
@@ -551,7 +573,15 @@ def simulate_trade_tape(
                 reverted = (
                     position.side == "yes" and yes_price >= target
                 ) or (
-                    position.side == "no" and yes_price <= target
+                    position.side == "no" and no_price >= 1.0 - target
+                )
+                execution_taker_side = (
+                    yes_taker_sides[trade_index]
+                    if position.side == "yes" else no_taker_sides[trade_index]
+                )
+                remaining_size = (
+                    remaining_yes_size
+                    if position.side == "yes" else remaining_no_size
                 )
                 velocity = None
                 if config.momentum_exit_enabled:
@@ -577,7 +607,9 @@ def simulate_trade_tape(
                         trade_ns > position.pending_exit_ns
                         and (
                             not config.require_compatible_taker
-                            or compatible_taker(exit_taker_side, taker_side)
+                            or compatible_taker(
+                                exit_taker_side, execution_taker_side
+                            )
                         )
                         and (
                             reverted
@@ -613,7 +645,10 @@ def simulate_trade_tape(
                         )
                         result.pnl += partial_pnl
                         result.fees += exit_fee
-                        remaining_size -= sold_contracts
+                        if position.side == "yes":
+                            remaining_yes_size -= sold_contracts
+                        else:
+                            remaining_no_size -= sold_contracts
                         if position.contracts > 1e-9:
                             continue
                         result.reversion_exits += int(
@@ -701,7 +736,11 @@ def simulate_trade_tape(
                     trade_ns > pending_entry.created_ns
                     and (
                         not config.require_compatible_taker
-                        or compatible_taker(side, taker_side)
+                        or compatible_taker(
+                            side,
+                            yes_taker_sides[trade_index]
+                            if side == "yes" else no_taker_sides[trade_index],
+                        )
                     )
                     and (
                         last_entry_ns is None
@@ -733,7 +772,10 @@ def simulate_trade_tape(
                         candidate = None
                         continue
                     contracts = position_contracts(entry_price, config)
-                    if remaining_size >= contracts:
+                    available_size = (
+                        remaining_yes_size if side == "yes" else remaining_no_size
+                    )
+                    if available_size >= contracts:
                         entry_fee = taker_fee(contracts, entry_price)
                         position = TapePosition(
                             side=side,
@@ -761,6 +803,10 @@ def simulate_trade_tape(
                         result.no_trades += int(side == "no")
                         result.capital += contracts * entry_price + entry_fee
                         result.fees += entry_fee
+                        if side == "yes":
+                            remaining_yes_size -= contracts
+                        else:
+                            remaining_no_size -= contracts
                         pending_entry = None
                         candidate = None
                         continue
@@ -789,7 +835,11 @@ def simulate_trade_tape(
                             candidate = None
                             continue
                         contracts = position_contracts(entry_price, config)
-                        if remaining_size >= contracts:
+                        available_size = (
+                            remaining_yes_size
+                            if side == "yes" else remaining_no_size
+                        )
+                        if available_size >= contracts:
                             entry_fee = taker_fee(contracts, entry_price)
                             positions.append(TapePosition(
                                 side=side, contracts=contracts,
@@ -811,6 +861,10 @@ def simulate_trade_tape(
                             result.no_trades += int(side == "no")
                             result.capital += contracts * entry_price + entry_fee
                             result.fees += entry_fee
+                            if side == "yes":
+                                remaining_yes_size -= contracts
+                            else:
+                                remaining_no_size -= contracts
                             candidate = None
                             continue
                 elif candidate.watch_side != side:

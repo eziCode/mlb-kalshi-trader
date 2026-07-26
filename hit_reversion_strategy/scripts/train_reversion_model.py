@@ -200,6 +200,8 @@ def main() -> None:
 
     pre = trades[trades.game_date < OUTER_HOLDOUT_START].copy()
     holdout = trades[trades.game_date >= OUTER_HOLDOUT_START].copy()
+    pre_game_dates = pre[["game_pk", "game_date"]].drop_duplicates()
+    holdout_games = int(holdout.game_pk.nunique())
     pre_rows = build_opportunities(pre, away, updates, config)
     holdout_rows = build_opportunities(holdout, away, updates, config)
     del trades, away, updates, pre, holdout
@@ -221,7 +223,10 @@ def main() -> None:
     ))
     thresholds.append(float(validation.prediction.max()) + 1e-9)
     candidates = []
-    validation_games = int(pre[pre.game_date >= validation_start].game_pk.nunique())
+    validation_games = int(
+        pre_game_dates[pre_game_dates.game_date >= validation_start]
+        .game_pk.nunique()
+    )
     for threshold in thresholds:
         selected = validation[
             validation.prediction >= threshold
@@ -248,7 +253,6 @@ def main() -> None:
         holdout_rows.prediction >= selected["threshold"]
     ]
     holdout_metrics = metrics(holdout_selected)
-    holdout_games = int(holdout.game_pk.nunique())
     holdout_metrics["trades_per_game"] = (
         holdout_metrics["trades"] / holdout_games
     )
@@ -258,6 +262,9 @@ def main() -> None:
         and holdout_metrics["pnl_without_best_game"] > 0
     )
     metadata = {
+        "evaluation_status": (
+            "reused_research_holdout_not_an_unbiased_forward_estimate"
+        ),
         "model_features": list(MODEL_FEATURES),
         "categorical_features": list(CATEGORICAL_FEATURES),
         "opportunity_edge": OPPORTUNITY_EDGE,

@@ -1,4 +1,5 @@
 {
+  "evaluation_status": "reused_research_holdout_not_an_unbiased_forward_estimate",
   "model_features": [
     "event_type",
     "side",
@@ -31,29 +32,29 @@
   "minimum_deployment_roi": 0.015,
   "selection_objective": "maximum_net_pnl_per_scheduled_game",
   "validation_start": "2026-04-21",
-  "fit_rows": 2512,
-  "validation_rows": 2444,
-  "holdout_rows": 714,
-  "prediction_threshold": 0.003684393623567038,
+  "fit_rows": 2485,
+  "validation_rows": 2503,
+  "holdout_rows": 707,
+  "prediction_threshold": -0.001650028971448318,
   "validation": {
-    "games": 734,
-    "trades": 1955,
-    "pnl": 260.6757000000001,
-    "capital": 3773.9304,
-    "roi": 0.06907273647653918,
-    "pnl_without_best_game": 253.86000000000013,
-    "threshold": 0.003684393623567038,
-    "trades_per_game": 2.189249720044793
+    "games": 767,
+    "trades": 2315,
+    "pnl": 328.89130000000006,
+    "capital": 4470.834,
+    "roi": 0.07356374671929221,
+    "pnl_without_best_game": 322.07560000000007,
+    "threshold": -0.001650028971448318,
+    "trades_per_game": 2.5923852183650617
   },
   "holdout": {
-    "games": 228,
-    "trades": 567,
-    "pnl": 81.38400000000001,
-    "capital": 1093.4209,
-    "roi": 0.07443062410824597,
-    "pnl_without_best_game": 71.19170000000001,
-    "trades_per_game": 1.9090909090909092
+    "games": 249,
+    "trades": 664,
+    "pnl": 99.28900000000003,
+    "capital": 1282.2528,
+    "roi": 0.0774332487322313,
+    "pnl_without_best_game": 89.09670000000003,
+    "trades_per_game": 2.2356902356902357
   },
   "deployable": true,
-  "model_sha256": "509f8682ad0554260e7e50c8668ea03c8b71490f5a67d5e2915d888f83bd58ca"
+  "model_sha256": "bd71852d9ae298d3d4ba7e7027ecfb119b635f9d8aabc64dbabf2afcd0c99dbe"
 }
