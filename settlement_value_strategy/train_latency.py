@@ -54,6 +54,10 @@ def main() -> None:
         excluded_price_min=.45,
         excluded_price_max=.55,
         confirmation_taker_side="any",
+        early_exit_enabled=True,
+        early_exit_minimum_hold_seconds=60.0,
+        early_exit_stop_loss_points=.10,
+        early_exit_minimum_inning=1,
     )
     MODEL.mkdir(exist_ok=True)
     model.save_model(MODEL / "latency_value.cbm")

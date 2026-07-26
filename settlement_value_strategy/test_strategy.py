@@ -20,7 +20,7 @@ class MispricingTests(unittest.TestCase):
         records = pd.DataFrame([{
             "game_pk": 1, "execution_contract": "home_yes",
             "fill_time": start, "fill_price": .60, "contracts": 3.0,
-            "entry_fee": .05, "pnl": -1.85,
+            "entry_fee": .05, "pnl": -1.85, "home_win": 0,
         }])
         decisions = pd.DataFrame({
             "game_pk": [1], "signal_time": [start + pd.Timedelta(seconds=31)],
@@ -51,12 +51,12 @@ class MispricingTests(unittest.TestCase):
             row.pnl, 3 * (.48 - .60) - .05 - row.exit_fee
         )
 
-    def test_early_exit_falls_back_to_settlement_without_liquidity(self):
+    def test_early_exit_sells_available_size_and_settles_remainder(self):
         start = pd.Timestamp("2026-06-01T12:00:00Z")
         records = pd.DataFrame([{
             "game_pk": 1, "execution_contract": "away_yes",
             "fill_time": start, "fill_price": .60, "contracts": 3.0,
-            "entry_fee": .05, "pnl": 1.15,
+            "entry_fee": .05, "pnl": 1.15, "home_win": 0,
         }])
         decisions = pd.DataFrame({
             "game_pk": [1], "signal_time": [start + pd.Timedelta(seconds=31)],
@@ -64,17 +64,26 @@ class MispricingTests(unittest.TestCase):
             "fair_probability": [.80],
         })
         away = pd.DataFrame({
-            "game_pk": [1], "trade_id": [1],
-            "created_time": [start + pd.Timedelta(seconds=32)],
-            "yes_price_dollars": [.40], "count_fp": [2.0],
-            "taker_outcome_side": ["no"],
+            "game_pk": [1, 1], "trade_id": [1, 2],
+            "created_time": [
+                start + pd.Timedelta(seconds=31),
+                start + pd.Timedelta(seconds=32),
+            ],
+            "yes_price_dollars": [.40, .40], "count_fp": [10.0, 2.0],
+            "taker_outcome_side": ["yes", "no"],
         })
         exited = apply_early_exits(
             records, decisions, away.iloc[:0], away,
             EarlyExitConfig(minimum_hold_seconds=30),
         )
-        self.assertEqual(exited.iloc[0].pnl, 1.15)
-        self.assertTrue(pd.isna(exited.iloc[0].exit_time))
+        row = exited.iloc[0]
+        self.assertEqual(row.exit_contracts, 2.0)
+        self.assertEqual(row.remaining_contracts, 1.0)
+        self.assertEqual(row.exit_reason, "stop_loss_and_thesis_break_partial")
+        self.assertTrue(pd.notna(row.exit_time))
+        self.assertAlmostEqual(
+            row.pnl, 2 * .40 + 1.0 - 3 * .60 - .05 - row.exit_fee
+        )
 
     def test_reversal_requires_new_edge_to_cover_unwind_loss(self):
         position = SimpleNamespace(

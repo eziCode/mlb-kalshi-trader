@@ -3,7 +3,8 @@
 This strategy estimates the home team's final settlement probability after any
 safely observed pitch transition. It buys YES or NO only when the calibrated
 settlement value remains sufficiently far from the executable Kalshi price
-after fees. A filled position is held until the game settles.
+after fees. Positions normally settle at the end of the game, with a guarded
+stop-loss exit available for sufficiently adverse moves.
 
 The folder was formerly named `mispricing_strategy`. “Settlement value” is
 more precise: the model predicts the binary game outcome, not a short-term
@@ -174,16 +175,19 @@ tests stop-loss exits against exact later executions:
 .venv/bin/python -m settlement_value_strategy.research_early_exit
 ```
 
-An exit requires a later scored MLB state, a strictly later opposite-taker
-execution within five seconds, and enough printed size to sell the full
-position. Exit fees are charged and positions without an executable exit still
-settle. Results are written to `results/early_exit_research_summary.json` and
+An exit requires a later scored MLB state and a strictly later opposite-taker
+execution within five seconds. Each observed execution supplies only its
+printed size; the simulator sells that partial quantity and keeps managing the
+remainder. Exit fees are charged and any unsold contracts still settle. Results
+are written to `results/early_exit_research_summary.json` and
 `results/early_exit_research_trades.csv`.
 
 The current study selected a 10-point stop after 60 seconds on the tuning
-folds, but it reduced untouched final-holdout PnL from $11.65 to $11.22. No
-tested stop improved every chronological selection fold. Early exits therefore
-remain research-only and are not part of paper or live execution.
+folds, but it reduced untouched final-holdout PnL from $11.65 to $11.26. No
+tested stop improved every chronological selection fold. The live policy uses
+this rule: after a 60-second minimum hold, a 10-point adverse move triggers an
+IOC sale for the currently visible bid size. A partial fill reduces the
+position and leaves the remainder eligible for later exits or settlement.
 
 ## Paper trading
 

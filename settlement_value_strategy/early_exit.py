@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
 
 import numpy as np
 import pandas as pd
@@ -72,6 +73,8 @@ def apply_early_exits(
     output["exit_time"] = pd.to_datetime(output["exit_time"], utc=True)
     output["exit_price"] = output.get("exit_price", np.nan)
     output["exit_fee"] = output.get("exit_fee", 0.0)
+    output["exit_contracts"] = 0.0
+    output["remaining_contracts"] = output.contracts.astype(float)
     output["exit_model_probability"] = np.nan
     output["exit_observed_price"] = np.nan
     output["exit_model_edge"] = np.nan
@@ -96,6 +99,12 @@ def apply_early_exits(
         earliest_exit_signal = pd.Timestamp(
             fill_time_ns + hold_ns, tz="UTC"
         )
+        remaining = float(entry.contracts)
+        sold_proceeds = 0.0
+        total_exit_fee = 0.0
+        total_sold = 0.0
+        weighted_exit_value = 0.0
+        last_exit_time = None
         future = game_decisions[
             game_decisions.signal_time >= earliest_exit_signal
         ]
@@ -137,30 +146,48 @@ def apply_early_exits(
             for trade_index in range(start, stop):
                 if config.require_opposite_taker and takers[trade_index] != "no":
                     continue
-                if sizes[trade_index] + 1e-9 < float(entry.contracts):
+                available = math.floor(float(sizes[trade_index]) * 100) / 100
+                sold = min(remaining, available)
+                if sold <= 0:
                     continue
                 exit_price = float(prices[trade_index])
-                exit_fee = taker_fee(float(entry.contracts), exit_price)
-                realized = (
-                    float(entry.contracts) * (exit_price - float(entry.fill_price))
-                    - float(entry.entry_fee) - exit_fee
-                )
+                exit_fee = taker_fee(sold, exit_price)
+                sold_proceeds += sold * exit_price
+                total_exit_fee += exit_fee
+                total_sold += sold
+                weighted_exit_value += sold * exit_price
+                remaining = max(0.0, remaining - sold)
+                last_exit_time = pd.Timestamp(times[trade_index], tz="UTC")
                 reason = (
                     "stop_loss_and_thesis_break"
                     if stop_hit and thesis_broken
                     else "stop_loss" if stop_hit else "thesis_break"
                 )
-                output.at[index, "pnl"] = realized
                 output.at[index, "exit_reason"] = reason
-                output.at[index, "exit_time"] = pd.Timestamp(
-                    times[trade_index], tz="UTC"
-                )
-                output.at[index, "exit_price"] = exit_price
-                output.at[index, "exit_fee"] = exit_fee
                 output.at[index, "exit_model_probability"] = held_probability
                 output.at[index, "exit_observed_price"] = observed_price
                 output.at[index, "exit_model_edge"] = edge
+                if remaining <= 1e-9:
+                    break
+            if remaining <= 1e-9:
                 break
-            if pd.notna(output.at[index, "exit_time"]):
-                break
+        if total_sold > 0:
+            won = (
+                entry.execution_contract == "home_yes" and int(entry.home_win) == 1
+            ) or (
+                entry.execution_contract == "away_yes" and int(entry.home_win) == 0
+            )
+            payout = remaining if won else 0.0
+            output.at[index, "pnl"] = (
+                sold_proceeds + payout
+                - float(entry.contracts) * float(entry.fill_price)
+                - float(entry.entry_fee) - total_exit_fee
+            )
+            output.at[index, "exit_time"] = last_exit_time
+            output.at[index, "exit_price"] = weighted_exit_value / total_sold
+            output.at[index, "exit_fee"] = total_exit_fee
+            output.at[index, "exit_contracts"] = total_sold
+            output.at[index, "remaining_contracts"] = remaining
+            if remaining > 1e-9:
+                output.at[index, "exit_reason"] += "_partial"
     return output
