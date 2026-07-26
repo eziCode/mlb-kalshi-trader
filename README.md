@@ -2,9 +2,9 @@
 
 This repository contains two MLB Kalshi paper-trading strategies:
 
-- **Settlement value** (`mispricing` selector): predicts the home team's final
-  settlement probability after any completed pitch and holds qualifying
-  positions to settlement.
+- **Settlement value** (`mispricing` selector): predicts causal 3-10 second
+  post-pitch repricing, enters fee-adjusted residual value, and normally holds
+  qualifying positions to settlement.
 - **Event reversion** (`trade-tape` selector, retained for compatibility):
   trades delayed market reactions after selected completed events and exits at
   a configured target or hold limit.
@@ -204,6 +204,12 @@ strategies' exits are immediate-or-cancel and may fill partially. The executor
 checks the real available balance
 before every entry and limits principal plus fees to the configured per-order
 amount.
+When both strategies share `LIVE_RISK_DB`, duplicate and account-cap checks are
+global, but each strategy's per-game cooldown is independent. A fill from one
+strategy therefore cannot suppress the other strategy's valid signal. Entries
+and exits use immediate-or-cancel orders; settlement reversals must fully
+unwind conflicting exposure before opening the opposite side, and any partial
+remainder remains durably tracked.
 Set `LIVE_MAX_TOTAL_CAPITAL=ALL_LIQUID_CASH` to make all currently available
 Kalshi cash eligible while atomically reserving concurrent pending orders. A
 numeric value retains a fixed total allocation cap.
@@ -226,9 +232,9 @@ docker run -d \
   -e LIVE_TRADING_ENABLED=YES_I_UNDERSTAND_THIS_PLACES_REAL_ORDERS \
   -e ALLOW_UNVALIDATED_LIVE=YES_I_ACCEPT_THE_UNVALIDATED_MODEL_RISK \
   -e LIVE_MAX_TOTAL_CAPITAL=ALL_LIQUID_CASH \
-  -e LIVE_MAX_ORDER_CAPITAL=0.75 \
+  -e LIVE_MAX_ORDER_CAPITAL=2 \
   -e LIVE_RISK_DB=/app/live-state/risk.sqlite3 \
-  -e PAPER_STARTING_CASH=15 \
+  -e PAPER_STARTING_CASH=34.36 \
   -e PAPER_LOG_DIR=/app/live-logs \
   -v "$PWD/secrets/kalshi-private.key:/run/secrets/kalshi-private.key:ro" \
   -v "$PWD/live_logs:/app/live-logs" \
@@ -247,6 +253,8 @@ use `live-both`. This also starts hit reversion, so configure a shared
 docker run --rm --env-file .env \
   -e KALSHI_PRIVATE_KEY_PATH=/run/secrets/kalshi-private.key \
   -e LIVE_TRADING_ENABLED=YES_I_UNDERSTAND_THIS_PLACES_REAL_ORDERS \
+  -e LIVE_MAX_TOTAL_CAPITAL=ALL_LIQUID_CASH \
+  -e LIVE_MAX_ORDER_CAPITAL=2 \
   -e LIVE_RISK_DB=/app/live-state/risk.sqlite3 \
   -v "$PWD/secrets/kalshi-private.key:/run/secrets/kalshi-private.key:ro" \
   -v settlement-live-state:/app/live-state \

@@ -1,14 +1,14 @@
 # Settlement-value strategy
 
-This strategy estimates the home team's final settlement probability after any
-safely observed pitch transition. It buys YES or NO only when the calibrated
-settlement value remains sufficiently far from the executable Kalshi price
-after fees. Positions normally settle at the end of the game, with a guarded
-stop-loss exit available for sufficiently adverse moves.
+This strategy predicts the causal short-horizon market repricing after a safely
+observed pitch transition, anchors that residual to the current Kalshi price,
+and buys only when the resulting probability remains sufficiently far from the
+executable price after fees. The deployed policy normally holds positions to
+game settlement; early exits are currently disabled.
 
-The folder was formerly named `mispricing_strategy`. “Settlement value” is
-more precise: the model predicts the binary game outcome, not a short-term
-price move.
+The folder was formerly named `mispricing_strategy`. The current deployed model
+is a latency-residual regressor rather than the legacy unrestricted binary
+winner classifier retained for research compatibility.
 
 ## Strategy thesis
 
@@ -64,8 +64,10 @@ Event names such as single, walk, strikeout, or home run are deliberately not
 features. The contract is event-agnostic and represents the observable state
 transition instead.
 
-Raw CatBoost probabilities are calibrated by a one-dimensional logistic model
-fit on a later chronological interval.
+The deployed CatBoost regressor predicts the home market's causal 3-10 second
+log-odds move. That bounded residual is added to the signal-time market logit;
+the legacy settlement classifier and its probability calibration are not used
+by the live policy.
 
 ## Entry, fill, and settlement
 
@@ -113,6 +115,19 @@ actual $2 order budget. All seven folds are positive; the July 18-22 final
 holdout contains 41 fills, +$19.70, and 26.67% ROI. Removing its best four
 games leaves +$1.86.
 
+The two-position limit counts concurrently open positions, not lifetime trades
+in a game. A fully exited reversal frees a slot. The 120-second cooldown is
+scoped to settlement value in the shared live risk ledger, so a hit-reversion
+order cannot suppress a settlement signal. Durable trigger keys prevent only
+duplicate submission of the same pitch decision.
+
+Opposite-side entries are not blocked unconditionally. Live and replay both
+permit a reversal only when the new trade's expected PnL exceeds the realized
+loss and fees required to unwind every conflicting position. Live unwinds use
+immediate-or-cancel partial sells; if any conflicting contracts remain, the
+opposite entry is skipped and the remainder stays tracked. Fill-or-kill is not
+used for this path.
+
 ## Data and training flow
 
 Run commands from the repository root. Download and process data specifically
@@ -132,11 +147,12 @@ data/settlement_value/away_execution_trades.parquet
 data/settlement_value/state_updates.parquet
 ```
 
-Then train and evaluate:
+Train the deployed latency model and evaluate its frozen live policy:
 
 ```bash
-.venv/bin/python -m settlement_value_strategy.train
-.venv/bin/python -m settlement_value_strategy.backtest
+.venv/bin/python -m settlement_value_strategy.train_latency
+.venv/bin/python -m settlement_value_strategy.research_latency
+.venv/bin/python -m settlement_value_strategy.backtest_live_policy
 ```
 
 `setup_data.py mispricing` already runs the preparation step. To rerun only
@@ -146,12 +162,11 @@ that derivation:
 .venv/bin/python -m settlement_value_strategy.prepare_data
 ```
 
-Training chronology is fixed:
-
-- fit before June 17, 2026;
-- calibrate June 17-21;
-- tune thresholds and side June 22-27;
-- evaluate the outer development holdout from June 28 onward.
+Research uses expanding-window chronological folds: every model is trained
+strictly before the fold it scores. Policy selection excludes the final July
+18-22 period. The final production model is then trained through July 22 for
+future games, and `live_config.json` records and verifies the exact model-file
+hash at startup.
 
 The settlement-specific local state model is trained from MLB-only game states
 from the 2023 pitch-clock season onward, using only games strictly before June
@@ -160,9 +175,10 @@ market prior. Its batting-team feature contract is identical in preprocessing
 and live inference. Kalshi-linked rows remain exclusive to settlement-model
 training and execution replay.
 
-`train` rewrites the model, calibration, policy configuration, tuning grid,
-and training summary. `backtest` rewrites holdout summaries and trade records.
-Always retrain after regenerating shared data because a frozen model can be
+`train_latency` atomically rewrites the latency model and live configuration.
+`research_latency` rewrites the chronological selection artifacts, and
+`backtest_live_policy` rewrites the exact deployed-policy fold results. Always
+retrain after regenerating shared data because a frozen model can be
 incompatible with changed anchors or preprocessing even if schemas match.
 
 ## Tests
@@ -228,9 +244,10 @@ polling gaps and signals older than the five-second fill window, requires
 enough top-level size, and applies the same model-side eligibility rule as the
 backtest. It logs all model features and execution timing to a versioned CSV.
 Workers share cash through SQLite; startup reconciliation settles positions
-whose original worker missed the final game state. It never submits real
-orders. `ALLOW_UNVALIDATED_MISPRICING=1` permits paper observation when a future
-loaded policy is disabled.
+whose original worker missed the final game state. Paper mode never submits
+orders; guarded live mode requires the explicit real-money acknowledgement.
+`ALLOW_UNVALIDATED_MISPRICING=1` permits paper observation when a future loaded
+policy is disabled.
 
 ## Docker and reference result
 
@@ -238,13 +255,15 @@ The external strategy selector remains `mispricing` for command compatibility:
 
 ```bash
 docker build -t mlb-kalshi-trader .
-docker run --rm mlb-kalshi-trader mispricing pipeline
 docker run --rm mlb-kalshi-trader mispricing backtest
 ```
 
 The deployed policy is now the market-anchored latency-residual model in
 `model/live_config.json`, not the legacy settlement classifier in
-`model/config.json`. The saved expanding-window replay contains 1,518 fills
-across 1,370 games, producing $230.35 net PnL and 8.36% ROI; its final fold has
-39 fills, $11.65 net PnL, and 15.71% ROI. Additional same-side positions are
-allowed only when both settlement probability and expected return improve.
+`model/config.json`. The saved expanding-window replay contains 1,069 fills
+across 1,440 games, producing $169.49 net PnL and 8.93% ROI at the live $2
+budget. Its July 18-22 final fold has 41 fills, $19.70 net PnL, and 26.67% ROI;
+removing its four best games leaves $1.86. This short final period is promising
+but not sufficient by itself to establish durable profitability. Additional
+same-side positions are allowed only when both probability and expected return
+improve.

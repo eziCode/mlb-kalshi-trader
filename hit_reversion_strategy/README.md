@@ -93,12 +93,19 @@ The checked-in deployment policy currently uses:
 
 Fees use Kalshi’s rounded taker-fee formula.
 
+The 60-second cooldown is scoped to hit reversion in the shared live risk
+ledger. Settlement-value orders in the same game do not start or extend this
+cooldown. There is no hidden live maximum-trades or maximum-positions limit;
+each MLB event can produce at most one entry, and the durable event key only
+prevents the same event from being submitted twice after a retry or restart.
+
 ## Exit behavior
 
-For a YES position, target reversion occurs when the observed YES price reaches
-or exceeds the configured frozen target. For NO, it occurs when YES falls to
-or below that target. The current policy can use the latest observable trade
-without requiring a compatible taker direction.
+For a home YES position, target reversion occurs when the observed home YES
+price reaches or exceeds the configured target. A home-NO signal is executed
+as paired away-team YES, so its exit is evaluated against the held away YES
+contract reaching `1 - home_target`; it does not borrow the home market's
+price, liquidity, or taker direction.
 
 The checked-in policy has a 240-second maximum hold. Its exit target updates
 with subsequent causal baseball states, preserving the original market anchor
@@ -108,6 +115,12 @@ can delay a reversion exit while the held-side price continues moving
 favorably, then exit on velocity reversal, trailing giveback, or the momentum
 hold limit. Momentum is disabled in the selected configuration. Any remaining
 position settles at the final game outcome.
+
+Live entries and exits are immediate-or-cancel. Every available contract up to
+the $2 budget is accepted; an unfilled entry remainder is cancelled, while an
+exit can sell partially and keeps the unsold position active for later eligible
+trades or settlement. The shared account cap and duplicate-order ledger are
+safety controls, not strategy activity limits.
 
 ## Data, tuning, and evaluation
 
@@ -142,7 +155,8 @@ was already enabled and remains profitable.
 
 Tests cover confirmation, candidate expiry, next-pitch invalidation, exact
 later-trade fill timing, rejection of trades preceding live event observation,
-state-model feature parity, reversion exits, and momentum-delayed exits.
+state-model feature parity, independent home/away liquidity, partial reversion
+exits, strategy-scoped cooldowns, and momentum-delayed exits.
 
 ## Live paper trading
 
