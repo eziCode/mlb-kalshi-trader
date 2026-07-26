@@ -129,9 +129,10 @@ class KalshiAccountClient:
 
     def create_immediate_or_cancel(
         self, ticker: str, count: float, price: float, client_order_id: str,
+        order_side: str = "bid", reduce_only: bool = False,
     ) -> dict:
         return self.create_order(
-            ticker, count, price, client_order_id,
+            ticker, count, price, client_order_id, order_side, reduce_only,
             time_in_force="immediate_or_cancel",
         )
 
@@ -341,7 +342,10 @@ class LiveRiskLedger:
             )
         return client_id
 
-    def finish_exit(self, client_id: str, filled: bool, fee: float) -> None:
+    def finish_exit(
+        self, client_id: str, filled: bool, fee: float,
+        *, close_entry: bool = True,
+    ) -> None:
         with closing(self._connect()) as connection, connection:
             row = connection.execute(
                 "SELECT entry_client_order_id FROM live_exits "
@@ -355,7 +359,7 @@ class LiveRiskLedger:
                 "UPDATE live_exits SET status=?,fee=?,updated_at=? "
                 "WHERE client_order_id=?", (status, fee, stamp, client_id),
             )
-            if filled:
+            if filled and close_entry:
                 connection.execute(
                     "UPDATE live_orders SET status='closed',updated_at=? "
                     "WHERE client_order_id=?", (stamp, row[0]),
@@ -609,6 +613,56 @@ class LiveExecutor:
         fee = filled * float(result.get("average_fee_paid") or 0)
         fill = LiveFill(True, client_id, ticker, filled, average_price, fee, "filled")
         self.ledger.finish_exit(client_id, True, fee)
+        return fill
+
+    def execute_partial_exit(
+        self, *, trigger_key: str, entry_client_order_id: str,
+        ticker: str, contracts: float, price: float,
+    ) -> LiveFill:
+        """IOC sale that accepts any immediately available partial fill."""
+        client_id = self.ledger.reserve_exit(
+            trigger_key, entry_client_order_id, ticker, contracts, price
+        )
+        if client_id is None:
+            return LiveFill(False, "", ticker, reason="duplicate_exit")
+        try:
+            owned = self.client.position_contracts(ticker)
+        except requests.RequestException:
+            self.ledger.finish_exit(
+                client_id, False, 0.0, close_entry=False
+            )
+            return LiveFill(False, client_id, ticker, reason="position_check_error")
+        count = min(float(contracts), float(owned))
+        if count <= 0:
+            self.ledger.finish_exit(
+                client_id, False, 0.0, close_entry=False
+            )
+            return LiveFill(False, client_id, ticker, reason="no_exchange_position")
+        try:
+            result = self.client.create_immediate_or_cancel(
+                ticker, count, price, client_id,
+                order_side="ask", reduce_only=False,
+            )
+        except requests.HTTPError as error:
+            status = error.response.status_code if error.response is not None else 0
+            self.ledger.finish_exit(
+                client_id, False, 0.0, close_entry=False
+            )
+            return LiveFill(
+                False, client_id, ticker, reason=f"exit_http_{status}"
+            )
+        filled = float(result.get("fill_count") or 0)
+        if filled <= 0:
+            self.ledger.finish_exit(
+                client_id, False, 0.0, close_entry=False
+            )
+            return LiveFill(False, client_id, ticker, reason="ioc_not_filled")
+        average_price = float(result["average_fill_price"])
+        fee = filled * float(result.get("average_fee_paid") or 0)
+        fill = LiveFill(
+            True, client_id, ticker, filled, average_price, fee, "filled"
+        )
+        self.ledger.finish_exit(client_id, True, fee, close_entry=False)
         return fill
 
 

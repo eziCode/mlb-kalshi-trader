@@ -199,10 +199,11 @@ docker exec \
 
 Real execution can run settlement value by itself or both strategies together.
 The single-strategy command below consumes the paper container's private shared
-feed and starts settlement-value execution only. Entry orders are
-immediate-or-cancel and may fill partially; exits are fill-or-kill. The executor
-checks the real available balance before every entry and limits principal plus
-fees to the configured per-order amount.
+feed and starts settlement-value execution only. Entry orders and settlement
+stop-loss exits are immediate-or-cancel and may fill partially; hit-reversion
+exits remain fill-or-kill. The executor checks the real available balance
+before every entry and limits principal plus fees to the configured per-order
+amount.
 Set `LIVE_MAX_TOTAL_CAPITAL=ALL_LIQUID_CASH` to make all currently available
 Kalshi cash eligible while atomically reserving concurrent pending orders. A
 numeric value retains a fixed total allocation cap.

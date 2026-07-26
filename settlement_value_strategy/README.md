@@ -3,7 +3,8 @@
 This strategy estimates the home team's final settlement probability after any
 safely observed pitch transition. It buys YES or NO only when the calibrated
 settlement value remains sufficiently far from the executable Kalshi price
-after fees. A filled position is held until the game settles.
+after fees. Positions normally settle at the end of the game, with a guarded
+stop-loss exit available for sufficiently adverse moves.
 
 The folder was formerly named `mispricing_strategy`. “Settlement value” is
 more precise: the model predicts the binary game outcome, not a short-term
@@ -164,6 +165,27 @@ incompatible with changed anchors or preprocessing even if schemas match.
   settlement_value_strategy.test_strategy \
   settlement_value_strategy.test_pipeline -v
 ```
+
+## Early-exit research
+
+The research-only early-exit overlay keeps the deployed entry set fixed, then
+tests stop-loss exits against exact later executions:
+
+```bash
+.venv/bin/python -m settlement_value_strategy.research_early_exit
+```
+
+An exit requires a later scored MLB state and a strictly later opposite-taker
+execution within five seconds. Each observed execution supplies only its
+printed size; the simulator sells that partial quantity and keeps managing the
+remainder. Exit fees are charged and any unsold contracts still settle. Results
+are written to `results/early_exit_research_summary.json` and
+`results/early_exit_research_trades.csv`.
+
+The backtest evaluates the same stop policy used by live execution. After a
+60-second minimum hold, a 20-point adverse move triggers an IOC sale for the
+currently visible bid size. A partial fill reduces the position and leaves the
+remainder eligible for later exits or settlement.
 
 ## Paper trading
 

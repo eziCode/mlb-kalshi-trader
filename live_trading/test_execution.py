@@ -45,9 +45,11 @@ class FakeClient:
 
     def create_immediate_or_cancel(
         self, ticker, count, price, client_order_id,
+        order_side="bid", reduce_only=False,
     ):
         self.orders.append((
-            ticker, count, price, client_order_id, "bid", False, "ioc",
+            ticker, count, price, client_order_id,
+            order_side, reduce_only, "ioc",
         ))
         return {
             "fill_count": f"{count:.2f}",
@@ -57,6 +59,25 @@ class FakeClient:
 
 
 class LiveExecutionTests(unittest.TestCase):
+    def test_partial_exit_uses_ioc_and_keeps_entry_open(self):
+        with tempfile.TemporaryDirectory() as directory:
+            executor = LiveExecutor.__new__(LiveExecutor)
+            executor.client = FakeClient(position=3.0)
+            executor.ledger = LiveRiskLedger(Path(directory) / "risk.db", 15.0)
+            entry_id = executor.ledger.reserve("entry", 1, "TEST", 2.0, 0, .8)
+            executor.ledger.finish(type("Fill", (), {
+                "filled": True, "capital": 2.0, "contracts": 3.0,
+                "price": .60, "fee": .20, "client_order_id": entry_id,
+            })())
+            fill = executor.execute_partial_exit(
+                trigger_key="stop-1", entry_client_order_id=entry_id,
+                ticker="TEST", contracts=1.25, price=.49,
+            )
+            self.assertTrue(fill.filled)
+            self.assertEqual(fill.contracts, 1.25)
+            self.assertEqual(executor.client.orders[-1][-3:], ("ask", False, "ioc"))
+            self.assertEqual(len(executor.ledger.filled_for_game(1)), 1)
+
     def test_taker_fee_uses_centicent_total_cost_rounding(self):
         self.assertAlmostEqual(taker_fee(5.0, 0.34), 0.0786)
         self.assertAlmostEqual(taker_fee(0.45, 0.33), 0.0070)

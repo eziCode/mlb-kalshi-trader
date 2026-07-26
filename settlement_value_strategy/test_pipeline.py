@@ -19,12 +19,14 @@ from settlement_value_strategy.play_eligibility import (
 )
 from settlement_value_strategy.build_normalized_raw import pitch_times, state_model_frame
 from settlement_value_strategy.live_paper_trader import (
-    SharedPaperPortfolio, PaperPosition, build_live_decision_row,
+    SharedPaperPortfolio, PaperPosition, MarketSnapshot, build_live_decision_row,
     conflicting_positions, consecutive_pitch, execution_within_window,
     reconcile_final_positions,
     pregame_probability_from_rating_state, replay_fill_from_observed_trades,
-    should_surface_worker_line, wait_for_pregame_anchor, discover_daily_games,
+    should_surface_worker_line, stop_loss_positions, wait_for_pregame_anchor,
+    discover_daily_games,
 )
+from settlement_value_strategy.strategy import MispricingConfig
 
 
 class PregameAnchorRetryTests(unittest.IsolatedAsyncioTestCase):
@@ -58,6 +60,42 @@ class DeployedPolicyTests(unittest.TestCase):
 
 
 class PipelineTests(unittest.TestCase):
+    def test_live_stop_loss_allows_partial_visible_liquidity(self):
+        now = pd.Timestamp("2026-07-01T12:02:00Z").to_pydatetime()
+        position = PaperPosition(
+            "yes", 3, .62, .05,
+            now - pd.Timedelta(seconds=61), .65, "trigger",
+        )
+        home = MarketSnapshot(now, .52, .53, 1.25, 10)
+        away = MarketSnapshot(now, .48, .49, 10, 10)
+        config = MispricingConfig(
+            early_exit_enabled=True,
+            early_exit_minimum_hold_seconds=60,
+            early_exit_stop_loss_points=.10,
+        )
+        self.assertEqual(
+            stop_loss_positions([position], home, away, now, config, 1),
+            [(position, home)],
+        )
+        self.assertEqual(
+            stop_loss_positions(
+                [position], MarketSnapshot(now, .53, .54, 10, 10),
+                away, now, config, 1,
+            ), [],
+        )
+
+    def test_partial_sale_reduces_persisted_position(self):
+        now = pd.Timestamp("2026-07-01T12:00:00Z").to_pydatetime()
+        with tempfile.TemporaryDirectory() as directory:
+            portfolio = SharedPaperPortfolio(
+                Path(directory) / "paper.sqlite3", starting_cash=10,
+            )
+            position = PaperPosition("yes", 3, .60, .05, now, .7, "trigger")
+            self.assertTrue(portfolio.open_position(1, "HOME", position))
+            remaining = portfolio.reduce_position(1, "trigger", 1.25, .60)
+            self.assertEqual(remaining, 1.75)
+            self.assertEqual(portfolio.load_positions(1)[0].contracts, 1.75)
+
     def test_home_and_away_positions_conflict(self):
         now = pd.Timestamp.now(tz="UTC").to_pydatetime()
         home = PaperPosition("yes", 2, .5, .01, now, .6, "home")

@@ -1,10 +1,10 @@
 """Live paper trader for the calibrated event-agnostic mispricing strategy.
 
 Paper mode never submits an order. Guarded live mode can submit tightly capped
-fill-or-kill orders. The module polls MLB and Kalshi feeds. Model features
+orders. The module polls MLB and Kalshi feeds. Model features
 are created only after a completed pitch and only from trades observable at
-the configured signal delay.  Paper positions are held to settlement, which
-matches the backtest contract.
+the configured signal delay. Guarded live mode can apply a configured
+immediate-or-cancel stop-loss exit.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ import argparse
 import asyncio
 import csv
 from contextlib import closing
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 import json
 import math
@@ -363,6 +363,42 @@ class SharedPaperPortfolio:
             )
         return True
 
+    def reduce_position(
+        self, game_pk: int, trigger_pitch: str, sold_contracts: float,
+        net_proceeds: float,
+    ) -> float:
+        """Credit a partial sale and return the contracts still open."""
+        with closing(self._connect()) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT contracts FROM positions WHERE game_pk=? AND trigger_pitch=?",
+                (game_pk, trigger_pitch),
+            ).fetchone()
+            if row is None:
+                raise RuntimeError("Sold position is missing from the portfolio")
+            current = float(row[0])
+            if sold_contracts <= 0 or sold_contracts > current + 1e-9:
+                raise RuntimeError("Invalid partial-sale contract count")
+            remaining = max(0.0, current - float(sold_contracts))
+            if remaining <= 1e-9:
+                connection.execute(
+                    "DELETE FROM positions WHERE game_pk=? AND trigger_pitch=?",
+                    (game_pk, trigger_pitch),
+                )
+                remaining = 0.0
+            else:
+                connection.execute(
+                    "UPDATE positions SET contracts=?,updated_at=? "
+                    "WHERE game_pk=? AND trigger_pitch=?",
+                    (remaining, datetime.now(timezone.utc).isoformat(),
+                     game_pk, trigger_pitch),
+                )
+            connection.execute(
+                "UPDATE portfolio SET cash=cash+? WHERE id=1",
+                (float(net_proceeds),),
+            )
+        return remaining
+
     def metrics(self) -> PortfolioMetrics:
         with closing(self._connect()) as connection, connection:
             starting, cash = connection.execute(
@@ -425,6 +461,35 @@ def conflicting_positions(
     if proposed_side in {"no", "away_yes"}:
         return [position for position in positions if position.side == "yes"]
     return []
+
+
+def stop_loss_positions(
+    positions: list[PaperPosition], home_market: MarketSnapshot,
+    away_market: MarketSnapshot, now: datetime, config, inning: int,
+) -> list[tuple[PaperPosition, MarketSnapshot]]:
+    """Find positions whose executable bid crossed the configured stop."""
+    if (
+        not config.early_exit_enabled
+        or inning < config.early_exit_minimum_inning
+    ):
+        return []
+    selected = []
+    for position in positions:
+        if (
+            (now - position.entry_time).total_seconds()
+            < config.early_exit_minimum_hold_seconds
+        ):
+            continue
+        execution_market = (
+            away_market if position.side == "away_yes" else home_market
+        )
+        if (
+            execution_market.bid
+            <= position.entry_price - config.early_exit_stop_loss_points
+            and execution_market.bid_size >= 0.01
+        ):
+            selected.append((position, execution_market))
+    return selected
 
 
 def flow_features(trades: pd.DataFrame, signal_index: int) -> dict:
@@ -1231,6 +1296,75 @@ async def run_worker() -> None:
             decision_time = datetime.now(timezone.utc)
             signal_time = pd.Timestamp(row["signal_time"]).to_pydatetime()
             execution_age = (decision_time - signal_time).total_seconds()
+            if live_executor is not None and positions:
+                entries = {
+                    str(item["trigger_key"]): item
+                    for item in live_executor.ledger.filled_for_game(int(GAME_PK))
+                }
+                for position, exit_market in stop_loss_positions(
+                    positions, market, away_market, decision_time,
+                    predictor.config, int(game.state["inning"]),
+                ):
+                    entry = entries.get(str(position.trigger_pitch))
+                    if entry is None:
+                        print(
+                            "STOP LOSS SKIP strategy=settlement_value "
+                            f"reason=ENTRY_NOT_FOUND game_pk={GAME_PK} "
+                            f"trigger={position.trigger_pitch}", flush=True,
+                        )
+                        continue
+                    sell_count = math.floor(min(
+                        float(position.contracts), float(exit_market.bid_size)
+                    ) * 100.0) / 100.0
+                    if sell_count <= 0:
+                        continue
+                    exit_ticker = str(entry["ticker"])
+                    exit_fill = await asyncio.to_thread(
+                        live_executor.execute_partial_exit,
+                        trigger_key=(
+                            f"sv-stop:{GAME_PK}:{token}:"
+                            f"{position.trigger_pitch}"
+                        ),
+                        entry_client_order_id=str(entry["client_order_id"]),
+                        ticker=exit_ticker,
+                        contracts=sell_count,
+                        price=float(exit_market.bid),
+                    )
+                    if not exit_fill.filled:
+                        print(
+                            "STOP LOSS NO FILL strategy=settlement_value "
+                            f"reason={exit_fill.reason} game_pk={GAME_PK} "
+                            f"ticker={exit_ticker}", flush=True,
+                        )
+                        continue
+                    net_proceeds = (
+                        exit_fill.contracts * exit_fill.price - exit_fill.fee
+                    )
+                    remaining = portfolio.reduce_position(
+                        int(GAME_PK), position.trigger_pitch,
+                        exit_fill.contracts, net_proceeds,
+                    )
+                    position_index = positions.index(position)
+                    if remaining <= 0:
+                        positions.pop(position_index)
+                        live_executor.ledger.close_entry(
+                            str(entry["client_order_id"])
+                        )
+                    else:
+                        positions[position_index] = replace(
+                            position, contracts=remaining
+                        )
+                    action = "STOP_LOSS_EXIT"
+                    print(
+                        "TRADE SELL strategy=settlement_value "
+                        f"reason=STOP_LOSS side={position.side.upper()} "
+                        f"contracts={exit_fill.contracts:.4f} "
+                        f"remaining={remaining:.4f} "
+                        f"price={exit_fill.price:.4f} fee={exit_fill.fee:.4f} "
+                        f"entry_price={position.entry_price:.4f} "
+                        f"age={(decision_time-position.entry_time).total_seconds():.1f}s "
+                        f"game_pk={GAME_PK} ticker={exit_ticker}", flush=True,
+                    )
             if decision["eligible"] and (
                 predictor.config.execution_contract != "away_yes"
                 or decision["side"] == "no"
