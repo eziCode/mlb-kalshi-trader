@@ -75,10 +75,11 @@ def apply_publication_latency(updates: pd.DataFrame) -> pd.DataFrame:
     delayed["event_available_time"] = delayed["pitch_end_time"].astype(
         "datetime64[ns, UTC]"
     )
-    hit_mask = (
-        delayed["is_hit"]
-        & delayed["completed_event"].isin(["single", "double", "triple"])
-    )
+    # Apply the measured terminal-play publication distribution to every
+    # completed event considered by research configurations. The archived
+    # sample was collected on hits, so this is an explicit approximation for
+    # walks/outs until event-specific observation samples accumulate.
+    hit_mask = delayed["completed_event"].notna()
     delays = delayed.loc[hit_mask].apply(
         publication_delay_seconds, axis=1
     )
@@ -160,7 +161,7 @@ def main() -> None:
         "games": len(test_games),
         "trade_tape_rows": len(test_trades),
         "state_updates": len(test_updates),
-        "observed_hits": result.observed_hits,
+        "observed_events": result.observed_hits,
         "misaligned_event_updates": result.misaligned_event_updates,
         "eligible_hit_updates": result.eligible_hit_updates,
         "rejected_fair_updates": result.rejected_fair_updates,
@@ -215,7 +216,7 @@ def main() -> None:
     print(f"Latch target touch:    {config.latch_reversion_exit}")
     print(f"Games:                 {len(test_games):,}")
     print(f"Observed trades:       {len(test_trades):,}")
-    print(f"Observed hits:         {result.observed_hits:,}")
+    print(f"Observed events:       {result.observed_hits:,}")
     print("Event availability:    empirical live publication latency")
     print("NO execution:          paired away-team YES trade")
     print(f"Misaligned hit state:  {result.misaligned_event_updates:,}")

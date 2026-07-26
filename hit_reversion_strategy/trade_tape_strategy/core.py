@@ -388,7 +388,7 @@ def simulate_trade_tape(
                         candidate = None
                         pending_entry = None
                 current_fair = float(update.fair_after)
-                if bool(update.is_hit) and str(update.completed_event) in allowed_events:
+                if str(update.completed_event) in allowed_events:
                     result.observed_hits += 1
                     event_inputs_aligned = (
                         update_index == newest_visible_update_index

@@ -575,6 +575,19 @@ class TradeTapeStrategyTests(unittest.TestCase):
         self.assertEqual(result.trades, 0)
         self.assertEqual(result.rejected_fair_updates, 1)
 
+    def test_configured_non_hit_event_can_generate_a_signal(self):
+        trades, updates = self._frames(include_reversion=False)
+        updates.loc[updates["is_hit"], "is_hit"] = False
+        updates.loc[updates["completed_event"].notna(), "completed_event"] = "walk"
+        result = simulate_trade_tape(
+            trades, updates,
+            TradeTapeConfig(
+                minimum_edge=0.05,
+                allowed_event_types=("walk",),
+            ),
+        )
+        self.assertEqual(result.trades, 1)
+
     def test_next_completed_plate_appearance_invalidates_candidate(self):
         trades, updates = self._frames(include_reversion=False)
         next_pa = updates.iloc[0].copy()
