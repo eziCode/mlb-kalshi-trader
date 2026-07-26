@@ -180,15 +180,18 @@ docker run --rm mlb-kalshi-trader trade-tape tune
 docker run --rm mlb-kalshi-trader trade-tape backtest
 ```
 
-The current exact-policy holdout contains 564 fills across 297 games, $81.44
-net PnL, and 7.23% ROI at the live $2 budget. Removing the best game leaves
-$71.25 and removing the best four leaves $57.03. The replay uses the checked-in
-shared-WebSocket observation-latency profile, paired away-team YES execution,
+The current exact-policy research holdout contains 661 fills across 297 games,
+$98.71 net PnL, and 7.48% ROI at the live $2 budget. Removing the best game
+leaves $88.52 and removing the best four leaves $76.38. The replay uses the checked-in
+shared-WebSocket observation-latency profile, paired away-team YES execution
+using only actual away-market trade size and aggressor direction,
 dynamic targets, partial exits, the 60-second entry cooldown, and the same
 direct-value gate loaded by live trading.
 
 The value-model metadata hashes the model binary, deployment configuration,
 and latency profile. Both replay and live startup fail closed if those files do
 not match, preventing a model trained under one policy from silently running
-under another. Historical executions remain a fill proxy rather than a full
+under another. This holdout has been reused during strategy development, so
+its 7.48% ROI is a research diagnostic rather than an unbiased forward-return
+estimate. Historical executions remain a fill proxy rather than a full
 order-book reconstruction.

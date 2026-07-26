@@ -100,11 +100,18 @@ All thresholds are rechecked at the eventual fill price. There is no early
 exit in this strategy; profit and loss are determined by final game settlement.
 
 The policy buys home YES for home-team signals and routes away-team signals to
-the paired away-YES market. It does not impose a per-game position cap; fills
-must be separated by at least 200 seconds. The tuner
-rejects policies whose tuning profit disappears after removing their best game
-or whose game-level win rate is below 50%, then ranks the survivors by their
-worst chronological fold.
+the paired away-YES market. Entries start in inning 2, require a compatible
+post-signal trade within five seconds, allow at most two open positions per
+game, and must be separated by at least 120 seconds. The research selector
+requires at least 0.75 fills per scheduled game, positive aggregate PnL,
+positive PnL in most chronological folds, and resistance to top-game
+concentration. Ties favor the strongest worst chronological fold.
+
+The frozen-policy expanding-window replay currently contains 1,069 fills over
+1,440 scheduled games (0.742/game), +$169.49 net PnL, and 8.93% ROI at the
+actual $2 order budget. All seven folds are positive; the July 18-22 final
+holdout contains 41 fills, +$19.70, and 26.67% ROI. Removing its best four
+games leaves +$1.86.
 
 ## Data and training flow
 
@@ -182,10 +189,11 @@ remainder. Exit fees are charged and any unsold contracts still settle. Results
 are written to `results/early_exit_research_summary.json` and
 `results/early_exit_research_trades.csv`.
 
-The backtest evaluates the same stop policy used by live execution. After a
-60-second minimum hold, a 20-point adverse move triggers an IOC sale for the
-currently visible bid size. A partial fill reduces the position and leaves the
-remainder eligible for later exits or settlement.
+The current frozen policy has early exits disabled. The previous 20-point stop
+improved aggregate tuning PnL but reduced the earlier untouched holdout, and
+the historical overlay uses trade prints while live execution observes an
+order-book bid. It therefore remains a research experiment rather than part of
+the parity-tested production policy.
 
 ## Paper trading
 

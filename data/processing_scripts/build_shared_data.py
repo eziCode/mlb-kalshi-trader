@@ -356,6 +356,14 @@ def build_shared(
     ], errors="ignore").merge(
         pitch_times, on=["game_pk", "at_bat_number", "pitch_number"], how="inner"
     ).dropna(subset=["fair_after", "pitch_start_time", "pitch_end_time"])
+    valid_clock = work.pitch_end_time > work.pitch_start_time
+    if not valid_clock.all():
+        print(
+            f"Excluding {int((~valid_clock).sum())} state rows with "
+            "pitch_end_time <= pitch_start_time",
+            flush=True,
+        )
+        work = work[valid_clock].copy()
     work["is_hit"] = work.completed_event.isin(
         ["single", "double", "triple", "home_run"]
     )
@@ -427,6 +435,9 @@ def build_shared(
             pitch_times,
             on=["game_pk", "at_bat_number", "pitch_number"], how="inner",
         ).dropna(subset=["fair_after", "pitch_start_time", "pitch_end_time"])
+        settlement = settlement[
+            settlement.pitch_end_time > settlement.pitch_start_time
+        ].copy()
         settlement["is_hit"] = settlement.completed_event.isin(
             ["single", "double", "triple", "home_run"]
         )

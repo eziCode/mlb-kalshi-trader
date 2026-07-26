@@ -112,7 +112,8 @@ def main() -> None:
         "early_june": ("2026-06-01", "2026-06-17"),
         "late_june": ("2026-06-17", "2026-06-28"),
         "early_july": ("2026-06-28", "2026-07-11"),
-        "final": ("2026-07-11", "2026-07-18"),
+        "mid_july": ("2026-07-11", "2026-07-18"),
+        "final": ("2026-07-18", "2026-07-23"),
     }
     partitions = {
         name: period(labeled, start, end)
@@ -146,39 +147,47 @@ def main() -> None:
             final_model = model
     tuning_folds = [name for name in fold_ranges if name != "final"]
     grid: list[dict] = []
-    for shrinkage in (.25, .5, .75, 1.0):
-        for edge in (.01, .015, .02, .025, .03, .04):
-            for maximum_positions in (1, 2):
-                config = MispricingConfig(
-                    minimum_expected_pnl=0.0,
-                    minimum_probability_edge=edge,
-                    side_filter="both",
-                    execution_contract="paired_both",
-                    maximum_positions_per_game=maximum_positions,
-                    minimum_seconds_between_entries=200.0,
-                    conditional_stacking=True,
-                )
-                item = {
-                    "shrinkage": shrinkage,
-                    "minimum_probability_edge": edge,
-                    "maximum_positions_per_game": maximum_positions,
-                }
-                for name in tuning_folds:
-                    rows = partitions[name]
-                    probability = _expit(
-                        _logit(rows.market_home_price)
-                        + shrinkage * np.clip(predicted[name], -.5, .5)
-                    )
-                    games = set(rows.game_pk)
-                    result = simulate_paired_both(
-                        rows,
-                        probability,
-                        home[home.game_pk.isin(games)],
-                        away[away.game_pk.isin(games)],
-                        config,
-                    )
-                    item[name] = metrics(result)
-                grid.append(item)
+    for shrinkage in (.75, 1.0):
+        for edge in (.015, .02):
+            for maximum_positions in (2, 3):
+                for minimum_inning in (1, 2, 3):
+                    for cooldown in (120.0, 200.0):
+                        config = MispricingConfig(
+                            bet_size=2.0,
+                            minimum_expected_pnl=0.0,
+                            minimum_probability_edge=edge,
+                            side_filter="both",
+                            execution_contract="paired_both",
+                            maximum_positions_per_game=maximum_positions,
+                            minimum_seconds_between_entries=cooldown,
+                            conditional_stacking=True,
+                            minimum_entry_inning=minimum_inning,
+                            excluded_price_min=.45,
+                            excluded_price_max=.55,
+                        )
+                        item = {
+                            "shrinkage": shrinkage,
+                            "minimum_probability_edge": edge,
+                            "maximum_positions_per_game": maximum_positions,
+                            "minimum_entry_inning": minimum_inning,
+                            "minimum_seconds_between_entries": cooldown,
+                        }
+                        for name in tuning_folds:
+                            rows = partitions[name]
+                            probability = _expit(
+                                _logit(rows.market_home_price)
+                                + shrinkage * np.clip(predicted[name], -.5, .5)
+                            )
+                            games = set(rows.game_pk)
+                            result = simulate_paired_both(
+                                rows,
+                                probability,
+                                home[home.game_pk.isin(games)],
+                                away[away.game_pk.isin(games)],
+                                config,
+                            )
+                            item[name] = metrics(result)
+                        grid.append(item)
     eligible = []
     for item in grid:
         fold_metrics = [item[name] for name in tuning_folds]
@@ -193,8 +202,13 @@ def main() -> None:
         item["tuning_total_pnl"] = total_pnl
         item["profitable_folds"] = profitable_folds
         item["robust_folds"] = robust_folds
+        item["minimum_fold_pnl"] = min(
+            value["pnl"] for value in fold_metrics
+        )
+        scheduled_games = sum(len(set(partitions[name].game_pk)) for name in tuning_folds)
+        item["trades_per_game"] = total_trades / scheduled_games
         if (
-            total_trades >= 200
+            item["trades_per_game"] >= .75
             and total_pnl > 0
             and profitable_folds >= 4
             and robust_folds >= 3
@@ -202,6 +216,7 @@ def main() -> None:
             eligible.append(item)
     eligible.sort(key=lambda item: (
         item["profitable_folds"],
+        item["minimum_fold_pnl"],
         item["robust_folds"],
         item["tuning_total_pnl"],
         item["tuning_total_trades"],
@@ -211,13 +226,19 @@ def main() -> None:
     selected_records: list[pd.DataFrame] = []
     if selected is not None:
         config = MispricingConfig(
+            bet_size=2.0,
             minimum_expected_pnl=0.0,
             minimum_probability_edge=selected["minimum_probability_edge"],
             side_filter="both",
             execution_contract="paired_both",
             maximum_positions_per_game=selected["maximum_positions_per_game"],
-            minimum_seconds_between_entries=200.0,
+            minimum_seconds_between_entries=selected[
+                "minimum_seconds_between_entries"
+            ],
             conditional_stacking=True,
+            minimum_entry_inning=selected["minimum_entry_inning"],
+            excluded_price_min=.45,
+            excluded_price_max=.55,
         )
         for name, rows in partitions.items():
             probability = _expit(

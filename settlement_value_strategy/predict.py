@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import hashlib
 from pathlib import Path
 
 from catboost import CatBoostClassifier, CatBoostRegressor
@@ -11,7 +12,7 @@ import pandas as pd
 
 from settlement_value_strategy.strategy import (
     MispricingConfig, _expit, _logit, market_adjusted_probability,
-    mispricing_feature_frame, model_signal,
+    entry_state_allowed, mispricing_feature_frame, model_signal,
 )
 
 
@@ -34,7 +35,14 @@ class MispricingPredictor:
         else:
             self.model = CatBoostClassifier()
             model_name = raw.get("model_file", "settlement_value.cbm")
-        self.model.load_model(self.root / "model" / model_name)
+        model_path = self.root / "model" / model_name
+        expected_model_hash = raw.get("model_sha256")
+        actual_model_hash = hashlib.sha256(model_path.read_bytes()).hexdigest()
+        if expected_model_hash and actual_model_hash != expected_model_hash:
+            raise RuntimeError(
+                "Settlement-value model hash does not match live_config.json"
+            )
+        self.model.load_model(model_path)
         self.calibration = json.loads(
             (self.root / "model/calibration.json").read_text()
         )
@@ -75,6 +83,7 @@ class MispricingPredictor:
         side, expected_pnl, edge, eligible = model_signal(
             probability, market, self.config
         )
+        eligible = eligible and entry_state_allowed(row, self.config)
         return {
             "settlement_probability": probability,
             "side": side,

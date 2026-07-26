@@ -167,10 +167,21 @@ class MispricingConfig:
     excluded_price_max: float = 0.0
     confirmation_taker_side: str = "compatible"
     require_post_signal_trade: bool = True
+    minimum_entry_inning: int = 1
     early_exit_enabled: bool = False
     early_exit_minimum_hold_seconds: float = 60.0
     early_exit_stop_loss_points: float = 0.20
     early_exit_minimum_inning: int = 1
+
+
+def entry_state_allowed(row, config: MispricingConfig) -> bool:
+    """Shared live/replay eligibility for state-dependent entry filters."""
+    inning = (
+        row.get("inning_after", 1)
+        if isinstance(row, dict)
+        else getattr(row, "inning_after", 1)
+    )
+    return int(float(inning)) >= int(config.minimum_entry_inning)
 
 
 def execution_indexes(
@@ -638,6 +649,8 @@ def simulate_paired_both(
         best_probability = {"yes": float("-inf"), "no": float("-inf")}
         best_expected_return = {"yes": float("-inf"), "no": float("-inf")}
         for row in game.sort_values("signal_time").itertuples(index=False):
+            if not entry_state_allowed(row, config):
+                continue
             model_side, _, _, eligible = model_signal(
                 float(row.fair_probability),
                 float(row.market_home_price),

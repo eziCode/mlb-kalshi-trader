@@ -1,4 +1,6 @@
 {
+  "evaluation_status": "reused_research_holdout_not_an_unbiased_forward_estimate",
+  "holdout_start": "2026-06-28",
   "selected_config": {
     "enabled": true,
     "minimum_edge": 0.01,
@@ -86,31 +88,31 @@
     "maximum_entry_inning": 9
   },
   "games": 297,
-  "trade_tape_rows": 2456553,
+  "trade_tape_rows": 5293802,
   "state_updates": 86977,
   "observed_events": 6444,
-  "misaligned_event_updates": 311,
-  "eligible_hit_updates": 5760,
-  "rejected_fair_updates": 309,
-  "invalidated_candidates": 124,
-  "expired_candidates": 4382,
-  "fresh_hit_anchors": 5251,
-  "confirmed_signals": 564,
-  "model_rejected_signals": 158,
-  "trades": 564,
-  "yes_trades": 331,
-  "no_trades": 233,
-  "reversion_exits": 362,
+  "misaligned_event_updates": 238,
+  "eligible_hit_updates": 5829,
+  "rejected_fair_updates": 313,
+  "invalidated_candidates": 57,
+  "expired_candidates": 4509,
+  "fresh_hit_anchors": 5302,
+  "confirmed_signals": 661,
+  "model_rejected_signals": 50,
+  "trades": 661,
+  "yes_trades": 386,
+  "no_trades": 275,
+  "reversion_exits": 431,
   "momentum_exits": 0,
-  "timeout_exits": 104,
-  "settlements": 98,
-  "fees": 82.69809999999993,
-  "capital": 1126.6310999999994,
-  "pnl": 81.44370000000002,
-  "net_ev_per_scheduled_game": 0.2742212121212122,
-  "roi": 0.07228958973349844,
-  "pnl_without_best_game": 71.25140000000002,
-  "pnl_without_top_four_games": 57.02900000000001,
+  "timeout_exits": 116,
+  "settlements": 114,
+  "fees": 93.09810000000019,
+  "capital": 1320.2726999999993,
+  "pnl": 98.7121,
+  "net_ev_per_scheduled_game": 0.3323639730639731,
+  "roi": 0.07476644787095882,
+  "pnl_without_best_game": 88.5198,
+  "pnl_without_top_four_games": 76.3801,
   "segment_results": {
     "catcher_interf:no": {
       "trades": 1,
@@ -123,59 +125,59 @@
       "wins": 2
     },
     "double:no": {
-      "trades": 55,
-      "pnl": 3.532300000000002,
-      "wins": 40
+      "trades": 72,
+      "pnl": 8.433500000000008,
+      "wins": 48
     },
     "double:yes": {
-      "trades": 69,
-      "pnl": 15.938400000000005,
-      "wins": 52
+      "trades": 86,
+      "pnl": 16.746800000000004,
+      "wins": 60
     },
     "field_error:no": {
       "trades": 12,
-      "pnl": 6.170800000000002,
-      "wins": 7
+      "pnl": 2.2213000000000003,
+      "wins": 8
     },
     "field_error:yes": {
-      "trades": 9,
-      "pnl": 0.6197000000000007,
-      "wins": 6
+      "trades": 10,
+      "pnl": 0.9820999999999999,
+      "wins": 7
     },
     "fielders_choice:no": {
-      "trades": 4,
-      "pnl": 1.5007000000000001,
-      "wins": 2
+      "trades": 6,
+      "pnl": 3.3711999999999986,
+      "wins": 5
     },
     "fielders_choice:yes": {
       "trades": 15,
-      "pnl": 2.980900000000001,
-      "wins": 12
+      "pnl": 3.0069,
+      "wins": 13
     },
     "hit_by_pitch:no": {
       "trades": 19,
-      "pnl": 3.8713999999999995,
-      "wins": 17
+      "pnl": 3.079200000000001,
+      "wins": 18
     },
     "hit_by_pitch:yes": {
       "trades": 24,
-      "pnl": 5.350700000000002,
+      "pnl": 5.462000000000002,
       "wins": 17
     },
     "single:no": {
-      "trades": 103,
-      "pnl": 8.282500000000006,
-      "wins": 70
+      "trades": 126,
+      "pnl": 18.9609,
+      "wins": 89
     },
     "single:yes": {
-      "trades": 149,
-      "pnl": 26.291000000000004,
-      "wins": 100
+      "trades": 177,
+      "pnl": 26.796000000000006,
+      "wins": 120
     },
     "triple:no": {
-      "trades": 9,
-      "pnl": 1.527399999999999,
-      "wins": 9
+      "trades": 8,
+      "pnl": 0.5707999999999996,
+      "wins": 7
     },
     "triple:yes": {
       "trades": 11,
@@ -183,14 +185,14 @@
       "wins": 7
     },
     "walk:no": {
-      "trades": 30,
-      "pnl": -0.30000000000000066,
-      "wins": 18
+      "trades": 31,
+      "pnl": 1.3452000000000013,
+      "wins": 26
     },
     "walk:yes": {
-      "trades": 52,
-      "pnl": 4.910400000000003,
-      "wins": 32
+      "trades": 61,
+      "pnl": 6.968700000000001,
+      "wins": 41
     }
   },
   "time_based_exit": true,
@@ -214,5 +216,5 @@
       "catcher_interf"
     ]
   },
-  "no_execution_contract": "paired_away_yes"
+  "no_execution_contract": "paired_away_yes_independent_trade_liquidity"
 }
