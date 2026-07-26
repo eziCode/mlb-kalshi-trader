@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import unittest
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -8,11 +9,22 @@ import pandas as pd
 from settlement_value_strategy.strategy import (
     MISPRICING_FEATURES, MispricingConfig, mispricing_feature_frame,
     market_adjusted_probability, model_signal, signal_economics, simulate_mispricing,
-    simulate_away_yes, simulate_paired_both,
+    reversal_economics, simulate_away_yes, simulate_paired_both,
 )
 
 
 class MispricingTests(unittest.TestCase):
+    def test_reversal_requires_new_edge_to_cover_unwind_loss(self):
+        position = SimpleNamespace(
+            contracts=5.0, entry_price=.60, entry_fee=.05,
+        )
+        rejected = reversal_economics([position], .40, .50)
+        accepted = reversal_economics([position], .40, 1.20)
+        self.assertLess(rejected["net_reversal_value"], 0)
+        self.assertFalse(rejected["allowed"])
+        self.assertGreater(accepted["net_reversal_value"], 0)
+        self.assertTrue(accepted["allowed"])
+
     def test_identity_probability_transform_preserves_raw_forecast(self):
         actual = market_adjusted_probability(
             [.2, .8], [.7, .3], {"mode": "identity"}

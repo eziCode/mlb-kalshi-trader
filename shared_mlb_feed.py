@@ -125,6 +125,26 @@ class FeedState:
         return min(60.0, 2.0 ** min(failures, 6))
 
     @staticmethod
+    def _websocket_retry_policy(
+        status: str, error: Exception, failures: int,
+    ) -> tuple[float, bool, bool]:
+        """Return (delay, expected_unavailability, permanently_stop)."""
+        if status == "Final":
+            return 0.0, True, True
+        code = getattr(error, "code", None)
+        message = str(error).lower()
+        unavailable = (
+            code == 4400
+            and "not available for subscription" in message
+        )
+        if unavailable:
+            return (
+                float(os.getenv("MLB_WS_UNAVAILABLE_RETRY_SECONDS", "300")),
+                True, False,
+            )
+        return min(30.0, 2.0 ** min(failures - 1, 5)), False, False
+
+    @staticmethod
     def _classify_failure(
         error: Exception,
     ) -> tuple[str, int | None, float | None]:
@@ -421,25 +441,43 @@ class FeedState:
             try:
                 asyncio.run(self._websocket_game_loop(game_pk, wakeup))
                 failures = 0
+                with self.lock:
+                    status = self.games[game_pk].status
+                if status == "Final":
+                    return
+                # A clean upstream close outside Final is reconnectable, but
+                # reconnecting in a tight loop can hammer MLB and flood logs.
+                self.stopping.wait(5.0)
             except Exception as error:
                 failures += 1
                 with self.lock:
                     game = self.games[game_pk]
                     game.websocket_connected = False
                     game.websocket_failures = failures
-                delay = min(30.0, 2.0 ** min(failures - 1, 5))
+                    status = game.status
+                delay, expected, stop = self._websocket_retry_policy(
+                    status, error, failures
+                )
                 observed_at = datetime.now(timezone.utc).isoformat()
                 self._append_transport_record({
-                    "kind": "mlb_websocket_error", "game_pk": game_pk,
+                    "kind": (
+                        "mlb_websocket_unavailable"
+                        if expected else "mlb_websocket_error"
+                    ),
+                    "game_pk": game_pk, "game_status": status,
                     "observed_at": observed_at, "failure_count": failures,
                     "error_type": type(error).__name__, "error": str(error),
-                    "retry_seconds": delay,
+                    "close_code": getattr(error, "code", None),
+                    "retry_seconds": delay, "terminal": stop,
                 }, observed_at)
-                print(
-                    f"MLB Gameday WebSocket {game_pk} failed ({failures}): "
-                    f"{error}; polling remains active; retrying in {delay:.1f}s",
-                    flush=True,
-                )
+                if stop:
+                    return
+                if not expected:
+                    print(
+                        f"MLB Gameday WebSocket {game_pk} failed ({failures}): "
+                        f"{error}; polling remains active; retrying in "
+                        f"{delay:.1f}s", flush=True,
+                    )
                 self.stopping.wait(delay)
             finally:
                 with self.lock:

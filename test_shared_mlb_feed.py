@@ -8,11 +8,39 @@ import unittest
 from unittest.mock import Mock, patch
 
 import requests
+from websockets.exceptions import ConnectionClosedError
 
 import shared_mlb_feed as feed
 
 
 class SharedMlbFeedTests(unittest.TestCase):
+    def test_unavailable_pregame_socket_is_expected_and_retries_slowly(self):
+        error = Mock(code=4400)
+        error.__str__ = Mock(return_value=(
+            "Game is not available for subscription at this time."
+        ))
+        with patch.dict(os.environ, {
+            "MLB_WS_UNAVAILABLE_RETRY_SECONDS": "240"
+        }):
+            self.assertEqual(
+                feed.FeedState._websocket_retry_policy("Preview", error, 3),
+                (240.0, True, False),
+            )
+
+    def test_final_game_socket_failure_stops_without_retry(self):
+        error = RuntimeError("closed")
+        self.assertEqual(
+            feed.FeedState._websocket_retry_policy("Final", error, 1),
+            (0.0, True, True),
+        )
+
+    def test_unexpected_live_socket_failure_uses_bounded_backoff(self):
+        error = RuntimeError("network down")
+        self.assertEqual(
+            feed.FeedState._websocket_retry_policy("Live", error, 20),
+            (30.0, False, False),
+        )
+
     def test_poll_intervals_are_adaptive(self):
         with patch.dict(os.environ, {
             "MLB_LIVE_POLL_SECONDS": "1.25",
@@ -66,7 +94,7 @@ class SharedMlbFeedTests(unittest.TestCase):
         ), patch.object(feed.websockets, "connect", return_value=Connection()):
             import asyncio
             asyncio.run(state._websocket_game_loop(123, wakeup))
-            path = Path(directory) / "mlb_feed_transport_2026-07-25.jsonl"
+            path = next(Path(directory).glob("mlb_feed_transport_*.jsonl"))
             records = [json.loads(line) for line in path.read_text().splitlines()]
         self.assertGreaterEqual(wakeup.set.call_count, 2)
         self.assertIsNotNone(state.games[123].websocket_last_message_at)

@@ -48,7 +48,8 @@ from live_trading.execution import (
 )
 from settlement_value_strategy.strategy import (
     MISPRICING_FEATURES, anchored_event_target, confirmation_taker_allowed,
-    contracts_for_budget, execution_price_allowed, taker_fee,
+    contracts_for_budget, execution_price_allowed, reversal_economics,
+    taker_fee,
 )
 from shared_kalshi_feed import get_market as get_shared_market
 from shared_mlb_feed import get_game as get_shared_game
@@ -339,6 +340,29 @@ class SharedPaperPortfolio:
             connection.execute("DELETE FROM positions WHERE game_pk=?", (game_pk,))
         return True
 
+    def close_position(
+        self, game_pk: int, trigger_pitch: str, net_proceeds: float,
+    ) -> bool:
+        """Remove one sold position and credit its net exchange proceeds."""
+        with closing(self._connect()) as connection, connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT 1 FROM positions WHERE game_pk=? AND trigger_pitch=?",
+                (game_pk, trigger_pitch),
+            ).fetchone()
+            if row is None:
+                connection.rollback()
+                return False
+            connection.execute(
+                "DELETE FROM positions WHERE game_pk=? AND trigger_pitch=?",
+                (game_pk, trigger_pitch),
+            )
+            connection.execute(
+                "UPDATE portfolio SET cash=cash+? WHERE id=1",
+                (float(net_proceeds),),
+            )
+        return True
+
     def metrics(self) -> PortfolioMetrics:
         with closing(self._connect()) as connection, connection:
             starting, cash = connection.execute(
@@ -390,6 +414,17 @@ def consecutive_pitch(
     ) or (
         current_at_bat == previous_at_bat + 1 and current_pitch == 1
     )
+
+
+def conflicting_positions(
+    positions: list[PaperPosition], proposed_side: str,
+) -> list[PaperPosition]:
+    """Paired home YES and away YES positions settle oppositely."""
+    if proposed_side == "yes":
+        return [position for position in positions if position.side in {"no", "away_yes"}]
+    if proposed_side in {"no", "away_yes"}:
+        return [position for position in positions if position.side == "yes"]
+    return []
 
 
 def flow_features(trades: pd.DataFrame, signal_index: int) -> dict:
@@ -1265,16 +1300,6 @@ async def run_worker() -> None:
                         AWAY_MARKET_TICKER if route_away_yes else MARKET_TICKER
                     )
                     trigger_key = f"{GAME_PK}:{token}"
-                    if (
-                        predictor.config.maximum_positions_per_game > 0
-                        and len(positions)
-                        >= predictor.config.maximum_positions_per_game
-                    ):
-                        action = "SKIP_MAXIMUM_GAME_POSITIONS"
-                        handled_tokens.add(token)
-                        previous_game = game
-                        await asyncio.sleep(POLL_SECONDS)
-                        continue
                     if live_executor is not None:
                         executable_market = away_market if route_away_yes else market
                         if not execution_price_allowed(
@@ -1292,8 +1317,10 @@ async def run_worker() -> None:
                             previous_game = game
                             await asyncio.sleep(POLL_SECONDS)
                             continue
-                        actual_contracts = (
-                            live_executor.per_order_budget / executable_market.ask
+                        actual_contracts = contracts_for_budget(
+                            float(executable_market.ask),
+                            live_executor.per_order_budget,
+                            float(executable_market.ask_size),
                         )
                         actual_fee = taker_fee(
                             actual_contracts, executable_market.ask
@@ -1324,6 +1351,106 @@ async def run_worker() -> None:
                             and actual_return > best_return
                         ):
                             action = "LIVE_SKIP_ACTUAL_STACKING_CHECK"
+                            handled_tokens.add(token)
+                            previous_game = game
+                            await asyncio.sleep(POLL_SECONDS)
+                            continue
+                        conflicts = conflicting_positions(
+                            positions, execution_side
+                        )
+                        if conflicts:
+                            conflict_market = (
+                                away_market
+                                if conflicts[0].side == "away_yes"
+                                else market
+                            )
+                            economics = reversal_economics(
+                                conflicts, float(conflict_market.bid),
+                                actual_contracts * actual_edge - actual_fee,
+                            )
+                            print(
+                                "REVERSAL EVALUATION strategy=settlement_value "
+                                f"game_pk={GAME_PK} conflicts={len(conflicts)} "
+                                f"exit_bid={conflict_market.bid:.4f} "
+                                f"unwind_pnl={economics['unwind_pnl']:+.4f} "
+                                f"new_expected_pnl={economics['new_expected_pnl']:+.4f} "
+                                f"net_reversal_value={economics['net_reversal_value']:+.4f} "
+                                f"allowed={economics['allowed']}", flush=True,
+                            )
+                            if not economics["allowed"]:
+                                action = "LIVE_SKIP_UNPROFITABLE_REVERSAL"
+                                handled_tokens.add(token)
+                                previous_game = game
+                                await asyncio.sleep(POLL_SECONDS)
+                                continue
+                            entries = {
+                                str(item["trigger_key"]): item
+                                for item in live_executor.ledger.filled_for_game(
+                                    int(GAME_PK)
+                                )
+                            }
+                            exit_failed = False
+                            for conflict in list(conflicts):
+                                entry = entries.get(str(conflict.trigger_pitch))
+                                if entry is None:
+                                    action = "LIVE_SKIP_REVERSAL_ENTRY_NOT_FOUND"
+                                    exit_failed = True
+                                    break
+                                conflict_ticker = str(entry["ticker"])
+                                exit_fill = await asyncio.to_thread(
+                                    live_executor.execute_exit,
+                                    trigger_key=(
+                                        f"sv-reversal:{trigger_key}:"
+                                        f"{conflict.trigger_pitch}"
+                                    ),
+                                    entry_client_order_id=str(
+                                        entry["client_order_id"]
+                                    ),
+                                    ticker=conflict_ticker,
+                                    contracts=float(conflict.contracts),
+                                    price=float(conflict_market.bid),
+                                )
+                                if not exit_fill.filled:
+                                    action = (
+                                        "LIVE_SKIP_REVERSAL_EXIT_"
+                                        f"{exit_fill.reason.upper()}"
+                                    )
+                                    exit_failed = True
+                                    break
+                                net_proceeds = (
+                                    exit_fill.contracts * exit_fill.price
+                                    - exit_fill.fee
+                                )
+                                if not portfolio.close_position(
+                                    int(GAME_PK), conflict.trigger_pitch,
+                                    net_proceeds,
+                                ):
+                                    raise RuntimeError(
+                                        "Filled reversal exit could not be "
+                                        "persisted locally"
+                                    )
+                                positions.remove(conflict)
+                                print(
+                                    "TRADE SELL strategy=settlement_value "
+                                    f"reason=PROFITABLE_REVERSAL "
+                                    f"side={conflict.side.upper()} "
+                                    f"contracts={exit_fill.contracts:.4f} "
+                                    f"price={exit_fill.price:.4f} "
+                                    f"fee={exit_fill.fee:.4f} "
+                                    f"game_pk={GAME_PK} ticker={conflict_ticker}",
+                                    flush=True,
+                                )
+                            if exit_failed:
+                                handled_tokens.add(token)
+                                previous_game = game
+                                await asyncio.sleep(POLL_SECONDS)
+                                continue
+                        if (
+                            predictor.config.maximum_positions_per_game > 0
+                            and len(positions)
+                            >= predictor.config.maximum_positions_per_game
+                        ):
+                            action = "SKIP_MAXIMUM_GAME_POSITIONS"
                             handled_tokens.add(token)
                             previous_game = game
                             await asyncio.sleep(POLL_SECONDS)

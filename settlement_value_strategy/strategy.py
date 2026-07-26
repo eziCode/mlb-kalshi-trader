@@ -5,6 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import math
 from decimal import Decimal, ROUND_DOWN
+from types import SimpleNamespace
 
 import numpy as np
 import pandas as pd
@@ -88,6 +89,36 @@ def contracts_for_budget(
         ))
         count = min(count, available)
     return max(0.0, count)
+
+
+def reversal_economics(
+    conflicting_positions, exit_price: float, new_expected_pnl: float,
+) -> dict:
+    """Evaluate selling conflicts before buying the opposite outcome."""
+    exit_price = float(exit_price)
+    unwind_pnl = 0.0
+    exit_fees = 0.0
+    proceeds = 0.0
+    for position in conflicting_positions:
+        fee = taker_fee(float(position.contracts), exit_price)
+        gross = float(position.contracts) * exit_price
+        entry_cost = (
+            float(position.contracts) * float(position.entry_price)
+            + float(position.entry_fee)
+        )
+        proceeds += gross - fee
+        exit_fees += fee
+        unwind_pnl += gross - fee - entry_cost
+    net_value = float(new_expected_pnl) + unwind_pnl
+    return {
+        "unwind_pnl": unwind_pnl,
+        "unwind_loss": max(0.0, -unwind_pnl),
+        "exit_fees": exit_fees,
+        "net_proceeds": proceeds,
+        "new_expected_pnl": float(new_expected_pnl),
+        "net_reversal_value": net_value,
+        "allowed": bool(conflicting_positions) and net_value > 0.0,
+    }
 
 
 def compatible_taker(side: str, taker_outcome_side: str) -> bool:
@@ -599,14 +630,10 @@ def simulate_paired_both(
             continue
         last_fill_ns: int | None = None
         positions = 0
+        active_positions: list[dict] = []
         best_probability = {"yes": float("-inf"), "no": float("-inf")}
         best_expected_return = {"yes": float("-inf"), "no": float("-inf")}
         for row in game.sort_values("signal_time").itertuples(index=False):
-            if (
-                config.maximum_positions_per_game > 0
-                and positions >= config.maximum_positions_per_game
-            ):
-                break
             model_side, _, _, eligible = model_signal(
                 float(row.fair_probability),
                 float(row.market_home_price),
@@ -666,6 +693,59 @@ def simulate_paired_both(
                     or edge < config.minimum_probability_edge
                 ):
                     continue
+                conflicting_side = "no" if model_side == "yes" else "yes"
+                conflicts = [
+                    item for item in active_positions
+                    if item["model_side"] == conflicting_side
+                ]
+                if conflicts:
+                    conflict_tape = tapes[conflicting_side]
+                    if conflict_tape is None or conflict_tape.empty:
+                        continue
+                    conflict_times = pd.to_datetime(
+                        conflict_tape.created_time, utc=True
+                    ).array.as_unit("ns").asi8
+                    exit_index = int(np.searchsorted(
+                        conflict_times, times[index], side="right"
+                    ) - 1)
+                    if exit_index < 0:
+                        continue
+                    exit_price = float(
+                        conflict_tape.iloc[exit_index].yes_price_dollars
+                    )
+                    economics = reversal_economics(
+                        [item["position"] for item in conflicts],
+                        exit_price, expected,
+                    )
+                    if not economics["allowed"]:
+                        continue
+                    for conflict in conflicts:
+                        position = conflict["position"]
+                        exit_fee = taker_fee(position.contracts, exit_price)
+                        realized = (
+                            position.contracts * exit_price - exit_fee
+                            - position.contracts * position.entry_price
+                            - position.entry_fee
+                        )
+                        old_pnl = float(conflict["record"]["pnl"])
+                        result.pnl += realized - old_pnl
+                        result.fees += exit_fee
+                        conflict["record"].update({
+                            "pnl": realized,
+                            "exit_reason": "profitable_reversal",
+                            "exit_time": pd.Timestamp(
+                                conflict_times[exit_index], tz="UTC"
+                            ),
+                            "exit_price": exit_price,
+                            "exit_fee": exit_fee,
+                        })
+                        active_positions.remove(conflict)
+                        positions -= 1
+                if (
+                    config.maximum_positions_per_game > 0
+                    and positions >= config.maximum_positions_per_game
+                ):
+                    continue
                 if config.conditional_stacking and not (
                     execution_probability > best_probability[model_side]
                     and expected_return > best_expected_return[model_side]
@@ -683,7 +763,7 @@ def simulate_paired_both(
                 result.fees += fee
                 result.capital += principal + fee
                 result.pnl += pnl
-                result.records.append({
+                record = {
                     **row._asdict(), "model_side": model_side,
                     "side": "yes" if model_side == "yes" else "away_yes",
                     "execution_contract": (
@@ -693,6 +773,15 @@ def simulate_paired_both(
                     "fill_price": price, "contracts": contracts,
                     "entry_fee": fee, "predicted_expected_pnl": expected,
                     "pnl": pnl,
+                }
+                result.records.append(record)
+                active_positions.append({
+                    "model_side": model_side,
+                    "position": SimpleNamespace(
+                        contracts=contracts, entry_price=price,
+                        entry_fee=fee,
+                    ),
+                    "record": record,
                 })
                 last_fill_ns = int(times[index])
                 positions += 1

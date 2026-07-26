@@ -20,7 +20,8 @@ from settlement_value_strategy.play_eligibility import (
 from settlement_value_strategy.build_normalized_raw import pitch_times, state_model_frame
 from settlement_value_strategy.live_paper_trader import (
     SharedPaperPortfolio, PaperPosition, build_live_decision_row,
-    consecutive_pitch, execution_within_window, reconcile_final_positions,
+    conflicting_positions, consecutive_pitch, execution_within_window,
+    reconcile_final_positions,
     pregame_probability_from_rating_state, replay_fill_from_observed_trades,
     should_surface_worker_line, wait_for_pregame_anchor, discover_daily_games,
 )
@@ -57,6 +58,14 @@ class DeployedPolicyTests(unittest.TestCase):
 
 
 class PipelineTests(unittest.TestCase):
+    def test_home_and_away_positions_conflict(self):
+        now = pd.Timestamp.now(tz="UTC").to_pydatetime()
+        home = PaperPosition("yes", 2, .5, .01, now, .6, "home")
+        away = PaperPosition("away_yes", 2, .5, .01, now, .6, "away")
+        self.assertEqual(conflicting_positions([away], "yes"), [away])
+        self.assertEqual(conflicting_positions([home], "away_yes"), [home])
+        self.assertEqual(conflicting_positions([home], "yes"), [])
+
     def test_shared_atomic_rule_rejects_incomplete_ball_in_play(self):
         play = {
             "about": {"isComplete": False}, "result": {}, "runners": [],
@@ -400,6 +409,23 @@ class PipelineTests(unittest.TestCase):
             metrics = portfolio.metrics()
             self.assertEqual(metrics.open_positions, 0)
             self.assertAlmostEqual(metrics.cash, 109.9)
+
+    def test_sold_position_is_removed_and_net_proceeds_are_credited(self):
+        now = pd.Timestamp("2026-07-01T12:00:00Z").to_pydatetime()
+        with tempfile.TemporaryDirectory() as directory:
+            portfolio = SharedPaperPortfolio(
+                Path(directory) / "paper.sqlite3", starting_cash=10,
+            )
+            position = PaperPosition(
+                "away_yes", 2, .50, .02, now, .60, "entry-trigger",
+            )
+            self.assertTrue(portfolio.open_position(123, "AWAY", position))
+            self.assertTrue(portfolio.close_position(
+                123, "entry-trigger", net_proceeds=.78
+            ))
+            metrics = portfolio.metrics()
+            self.assertEqual(metrics.open_positions, 0)
+            self.assertAlmostEqual(metrics.cash, 9.76)
 
     def test_worker_supervisor_has_sleep_dependency(self):
         self.assertIsNotNone(live_paper_trader.time.sleep)
