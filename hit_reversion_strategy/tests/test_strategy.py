@@ -282,6 +282,18 @@ class TradeTapeStrategyTests(unittest.TestCase):
             self.assertFalse(portfolio.open_position(1, "ticker", too_soon, 180))
             self.assertTrue(portfolio.open_position(1, "ticker", allowed, 180))
 
+    def test_partial_sale_credits_cash_and_persists_remainder(self):
+        start = pd.Timestamp("2026-07-20T12:00:00Z").to_pydatetime()
+        position = Position("yes", 10, .4, .1, start, .6, .6, 1)
+        with tempfile.TemporaryDirectory() as directory:
+            portfolio = SharedPaperPortfolio(Path(directory) / "paper.sqlite3")
+            self.assertTrue(portfolio.open_position(1, "ticker", position))
+            remaining = portfolio.reduce_position(1, 1, 3.25, 1.60)
+            self.assertEqual(remaining, 6.75)
+            loaded = portfolio.load_positions(1)
+            self.assertEqual(len(loaded), 1)
+            self.assertEqual(loaded[0].contracts, 6.75)
+
     def test_live_anchor_uses_last_trade_strictly_before_pitch_start(self):
         start = pd.Timestamp("2026-07-20T12:00:05Z")
         trades = pd.DataFrame({
@@ -411,6 +423,26 @@ class TradeTapeStrategyTests(unittest.TestCase):
         )
         self.assertIsNotNone(fill)
         self.assertEqual(fill["price"], .59)
+        self.assertIsNone(pending)
+
+    def test_live_exit_uses_available_partial_trade_size(self):
+        entry = pd.Timestamp("2026-07-20T12:00:00Z")
+        position = Position(
+            "yes", 10, .4, .1, entry.to_pydatetime(), .6, .6, 1
+        )
+        trades = pd.DataFrame({
+            "trade_id": [1, 2],
+            "created_time": [
+                entry + pd.Timedelta(seconds=1),
+                entry + pd.Timedelta(seconds=2),
+            ],
+            "yes_price_dollars": [.61, .62],
+            "count_fp": [100, 3.257],
+            "taker_outcome_side": ["yes", "no"],
+        })
+        fill, pending, _ = replay_position_exit(trades, position, .6)
+        self.assertIsNotNone(fill)
+        self.assertEqual(fill["contracts"], 3.25)
         self.assertIsNone(pending)
 
     def test_live_exit_supports_frozen_target_and_maximum_hold(self):

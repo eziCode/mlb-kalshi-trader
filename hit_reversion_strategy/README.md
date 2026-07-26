@@ -4,6 +4,8 @@ This strategy trades delayed Kalshi reactions after configured completed MLB
 events. It estimates a state-adjusted market target immediately after the
 event, enters when the exact trade tape remains sufficiently far from that
 target, and exits when the market reaches its configured target or hold limit.
+Live exits use immediate-or-cancel sells: any available quantity is sold and
+the remaining contracts stay open for later eligible exits.
 Positions still open at game end settle normally.
 
 The folder was formerly named `portable_trade_tape_strategy`. “Hit reversion”

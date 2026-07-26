@@ -8,6 +8,7 @@ import csv
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 import json
+import math
 import os
 from pathlib import Path
 import tempfile
@@ -455,6 +456,41 @@ class SharedPaperPortfolio:
                 (game_pk, event_id),
             )
         return True
+
+    def reduce_position(
+        self, game_pk: int, event_id: int, contracts: float, proceeds: float,
+    ) -> float | None:
+        """Credit a partial sale and return the persisted remainder."""
+        with self._connect() as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            row = connection.execute(
+                "SELECT contracts FROM positions WHERE game_pk=? AND event_id=?",
+                (game_pk, event_id),
+            ).fetchone()
+            if row is None:
+                connection.rollback()
+                return None
+            remaining = max(0.0, float(row[0]) - float(contracts))
+            connection.execute(
+                "UPDATE portfolio SET cash = cash + ? WHERE id = 1",
+                (proceeds,),
+            )
+            if remaining <= 0.005:
+                remaining = 0.0
+                connection.execute(
+                    "DELETE FROM positions WHERE game_pk=? AND event_id=?",
+                    (game_pk, event_id),
+                )
+            else:
+                connection.execute(
+                    "UPDATE positions SET contracts=?,updated_at=? "
+                    "WHERE game_pk=? AND event_id=?",
+                    (
+                        remaining, datetime.now(timezone.utc).isoformat(),
+                        game_pk, event_id,
+                    ),
+                )
+        return remaining
 
     def load_positions(self, game_pk: int) -> list[Position]:
         with self._connect() as connection:
@@ -1335,10 +1371,13 @@ def replay_position_exit(
                 if position.side == "yes" or paired_away_yes
                 else 1.0 - yes_price
             )
-            if float(trade.count_fp) >= position.contracts:
-                fee = taker_fee(position.contracts, price)
+            available = math.floor(float(trade.count_fp) * 100) / 100
+            exit_contracts = min(float(position.contracts), available)
+            if exit_contracts >= 0.01:
+                fee = taker_fee(exit_contracts, price)
                 return {
                     "time": when, "price": price, "fee": fee,
+                    "contracts": exit_contracts,
                     "reason": "TIMEOUT" if timed_out else "TARGET_REVERSION",
                 }, None, last_seen
     return None, pending_time, last_seen
@@ -1779,7 +1818,9 @@ async def main() -> None:
                 price = exit_fill["price"]
                 fee = exit_fill["fee"]
                 closed_side = position.side
-                closed_contracts = position.contracts
+                closed_contracts = min(
+                    position.contracts, float(exit_fill["contracts"])
+                )
                 if live_executor is not None:
                     actual_ticker = position.market_ticker or (
                         str(MARKET_TICKER) if position.side == "yes"
@@ -1789,14 +1830,15 @@ async def main() -> None:
                         fetch_market_snapshot, actual_ticker
                     )
                     live_exit = await asyncio.to_thread(
-                        live_executor.execute_exit,
+                        live_executor.execute_partial_exit,
                         trigger_key=(
                             f"hr-exit:{GAME_PK}:{position.event_id}:"
-                            f"{exit_fill.get('reason')}"
+                            f"{exit_fill.get('reason')}:"
+                            f"{pd.Timestamp(exit_fill['time']).value}"
                         ),
                         entry_client_order_id=position.entry_client_order_id,
                         ticker=actual_ticker,
-                        contracts=position.contracts,
+                        contracts=closed_contracts,
                         price=executable.bid,
                     )
                     if not live_exit.filled:
@@ -1805,21 +1847,36 @@ async def main() -> None:
                     price = live_exit.price
                     fee = live_exit.fee
                     closed_contracts = live_exit.contracts
-                portfolio.close_position(
-                    int(GAME_PK), position.event_id,
-                    position.contracts * price - fee,
+                remaining = portfolio.reduce_position(
+                    int(GAME_PK), position.event_id, closed_contracts,
+                    closed_contracts * price - fee,
                 )
+                if remaining is None:
+                    action = "EXIT_SKIP_MISSING_POSITION"
+                    continue
                 reason = str(exit_fill.get("reason") or "TARGET_REVERSION")
-                action = f"CLOSE_{position.side.upper()}_{reason}"
+                action = (
+                    f"CLOSE_{position.side.upper()}_{reason}"
+                    if remaining <= 0
+                    else f"PARTIAL_CLOSE_{position.side.upper()}_{reason}"
+                )
                 print(
                     f"TRADE SELL strategy=hit_reversion "
                     f"side={closed_side.upper()} "
                     f"contracts={closed_contracts:.4f} price={price:.4f} "
-                    f"fee={fee:.4f} reason={reason} game_pk={GAME_PK} "
+                    f"remaining={remaining:.4f} fee={fee:.4f} "
+                    f"reason={reason} game_pk={GAME_PK} "
                     f"ticker={MARKET_TICKER}",
                     flush=True,
                 )
-                closed_positions.append(position)
+                if remaining <= 0:
+                    closed_positions.append(position)
+                    if live_executor is not None:
+                        live_executor.ledger.close_entry(
+                            position.entry_client_order_id
+                        )
+                else:
+                    position.contracts = remaining
                 exit_pending_trade.pop(position.event_id, None)
                 exit_scanned_through.pop(position.event_id, None)
         if closed_positions:
