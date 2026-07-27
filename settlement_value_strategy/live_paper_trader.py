@@ -102,6 +102,7 @@ class GameSnapshot:
     home_score: int
     away_score: int
     pitch_token: tuple[int, int, str] | None
+    entry_allowed: bool = True
 
 
 @dataclass(frozen=True)
@@ -794,6 +795,7 @@ def fetch_game_snapshot() -> GameSnapshot:
         "abstractGameState", "Preview"
     )
     inning_state = str(linescore.get("inningState") or "").lower()
+    entry_allowed = True
     if inning_state.startswith("top"):
         topbot = 0
     elif inning_state.startswith("bottom"):
@@ -801,7 +803,21 @@ def fetch_game_snapshot() -> GameSnapshot:
     elif status != "Live":
         topbot = 0
     else:
-        raise RuntimeError(f"No active inning half: {inning_state!r}")
+        # MLB legitimately reports states such as ``Middle`` and ``End``
+        # between half innings.  The latest completed play still identifies
+        # the batting team, so keep monitoring positions and pitch continuity
+        # without permitting a new entry from the transitional linescore.
+        latest_play = next(
+            reversed(
+                payload.get("liveData", {}).get("plays", {}).get(
+                    "allPlays", []
+                )
+            ),
+            None,
+        )
+        about = (latest_play or {}).get("about") or {}
+        topbot = int(not bool(about.get("isTopInning")))
+        entry_allowed = False
     teams = linescore.get("teams") or {}
     home = int(teams.get("home", {}).get("runs") or 0)
     away = int(teams.get("away", {}).get("runs") or 0)
@@ -838,7 +854,7 @@ def fetch_game_snapshot() -> GameSnapshot:
     }
     return GameSnapshot(
         received_at, status, state, home, away,
-        pitch_token,
+        pitch_token, entry_allowed,
     )
 
 
@@ -1365,7 +1381,7 @@ async def run_worker() -> None:
                         f"age={(decision_time-position.entry_time).total_seconds():.1f}s "
                         f"game_pk={GAME_PK} ticker={exit_ticker}", flush=True,
                     )
-            if decision["eligible"] and (
+            if game.entry_allowed and decision["eligible"] and (
                 predictor.config.execution_contract != "away_yes"
                 or decision["side"] == "no"
             ):

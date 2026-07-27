@@ -213,6 +213,7 @@ class GameSnapshot:
     event_source: str | None = None
     event_state: dict | None = None
     event_terminal_reason: str | None = None
+    entry_allowed: bool = True
 
 
 @dataclass
@@ -1407,7 +1408,9 @@ def fetch_game_snapshot() -> GameSnapshot:
     status = payload.get("gameData", {}).get("status", {}).get(
         "abstractGameState", "Preview"
     )
+    resolved_play, event_source = latest_resolved_play(payload)
     inning_state = str(linescore.get("inningState") or "")
+    entry_allowed = True
     if inning_state.lower().startswith("top"):
         topbot = 0
     elif inning_state.lower().startswith("bottom"):
@@ -1415,12 +1418,16 @@ def fetch_game_snapshot() -> GameSnapshot:
     elif status != "Live":
         topbot = 0
     else:
-        raise RuntimeError(f"No active inning half: {inning_state!r}")
+        # ``Middle`` and ``End`` are normal live states between half innings.
+        # Preserve the completed play and position-management loop, but do not
+        # allow a new entry from an ambiguous transitional linescore.
+        about = (resolved_play or {}).get("about") or {}
+        topbot = int(not bool(about.get("isTopInning")))
+        entry_allowed = False
     teams = linescore.get("teams") or {}
     home_score = int(teams.get("home", {}).get("runs") or 0)
     away_score = int(teams.get("away", {}).get("runs") or 0)
     offense = linescore.get("offense") or {}
-    resolved_play, event_source = latest_resolved_play(payload)
     terminal_reason = play_terminal_reason(payload, resolved_play)
     latest_play = (
         resolved_play
@@ -1467,6 +1474,7 @@ def fetch_game_snapshot() -> GameSnapshot:
         event_source if latest_play is not None else None,
         state_from_play(latest_play) if latest_play is not None else None,
         terminal_reason if latest_play is not None else None,
+        entry_allowed,
     )
 
 
@@ -1915,7 +1923,8 @@ async def main() -> None:
                 candidate = None
 
             if (
-                new_event
+                game.entry_allowed
+                and new_event
                 and event_inputs_aligned(game)
                 and game.completed_event in hybrid_config.allowed_event_types
                 and game.event_state is not None
@@ -2045,7 +2054,7 @@ async def main() -> None:
                             f"{game.completed_event.upper()}"
                         )
 
-            if candidate is not None:
+            if candidate is not None and game.entry_allowed:
                 target = float(anchored_event_target(
                     candidate.target, candidate.post_fair, fair_prob
                 ))

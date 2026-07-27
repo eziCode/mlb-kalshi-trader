@@ -147,7 +147,7 @@ class PipelineTests(unittest.TestCase):
                 },
                 "plays": {"allPlays": [{
                     "atBatIndex": 71,
-                    "about": {"isComplete": True},
+                    "about": {"isComplete": True, "isTopInning": True},
                     "result": {"homeScore": 1, "awayScore": 2},
                     "playEvents": [{
                         "isPitch": True,
@@ -215,6 +215,24 @@ class PipelineTests(unittest.TestCase):
         ):
             snapshot = live_paper_trader.fetch_game_snapshot()
         self.assertEqual(snapshot.pitch_token[:2], (71, 3))
+
+    def test_live_snapshot_accepts_half_inning_transition_without_entries(self):
+        payload = self._scoring_play_payload(linescore_away=2)
+        payload["liveData"]["linescore"]["inningState"] = "Middle"
+        with (
+            patch.object(live_paper_trader, "GAME_PK", 823352),
+            patch(
+                "settlement_value_strategy.live_paper_trader.fetch_mlb_payload",
+                return_value=(
+                    payload,
+                    pd.Timestamp("2026-07-25T01:07:44Z").to_pydatetime(),
+                ),
+            ),
+        ):
+            snapshot = live_paper_trader.fetch_game_snapshot()
+        self.assertEqual(snapshot.state["inning_topbot"], 0)
+        self.assertEqual(snapshot.pitch_token[:2], (71, 3))
+        self.assertFalse(snapshot.entry_allowed)
 
     def test_postponed_doubleheader_matches_original_ticker_date(self):
         response = Mock()

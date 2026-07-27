@@ -270,6 +270,27 @@ class TradeTapeStrategyTests(unittest.TestCase):
         self.assertEqual(game.event_state["score_diff"], 1)
         self.assertEqual(game.event_state["runner_on_first"], 1)
 
+    def test_live_snapshot_accepts_half_inning_transition_without_entries(self):
+        payload = self._early_hit_payload()
+        play = payload["liveData"]["plays"]["allPlays"][0]
+        play["about"]["isComplete"] = True
+        payload["liveData"]["linescore"]["inningState"] = "End"
+        with (
+            patch("scripts.paper_trade.GAME_PK", 1),
+            patch.dict("os.environ", {"ATOMIC_PLAY_EVENTS_ENABLED": "1"}),
+            patch(
+                "scripts.paper_trade.fetch_mlb_payload",
+                return_value=(
+                    payload,
+                    pd.Timestamp("2026-07-25T01:00:55Z").to_pydatetime(),
+                ),
+            ),
+        ):
+            game = fetch_game_snapshot()
+        self.assertEqual(game.state["inning_topbot"], 1)
+        self.assertEqual(game.completed_event, "single")
+        self.assertFalse(game.entry_allowed)
+
     def test_live_event_inputs_cannot_mix_completed_play_with_newer_pitch(self):
         event_token = (50, 6, "2026-07-25T01:00:54Z", "2026-07-25T01:00:43Z")
         newer_token = (51, 2, "2026-07-25T01:01:43Z", "2026-07-25T01:01:30Z")
