@@ -142,6 +142,15 @@ class FeedState:
                 float(os.getenv("MLB_WS_UNAVAILABLE_RETRY_SECONDS", "300")),
                 True, False,
             )
+        # MLB frequently accepts a pregame socket and then closes it without a
+        # close frame. Polling is authoritative and already uses a pregame
+        # cadence, so treat every non-live socket failure as expected and retry
+        # quietly instead of flooding the combined runtime log.
+        if status != "Live":
+            return (
+                float(os.getenv("MLB_WS_UNAVAILABLE_RETRY_SECONDS", "300")),
+                True, False,
+            )
         return min(30.0, 2.0 ** min(failures - 1, 5)), False, False
 
     @staticmethod

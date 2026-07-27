@@ -27,6 +27,18 @@ class SharedMlbFeedTests(unittest.TestCase):
                 (240.0, True, False),
             )
 
+    def test_generic_pregame_socket_close_is_silent_and_retries_slowly(self):
+        error = ConnectionClosedError(None, None)
+        with patch.dict(os.environ, {
+            "MLB_WS_UNAVAILABLE_RETRY_SECONDS": "240"
+        }):
+            self.assertEqual(
+                feed.FeedState._websocket_retry_policy(
+                    "Preview", error, 20
+                ),
+                (240.0, True, False),
+            )
+
     def test_final_game_socket_failure_stops_without_retry(self):
         error = RuntimeError("closed")
         self.assertEqual(
