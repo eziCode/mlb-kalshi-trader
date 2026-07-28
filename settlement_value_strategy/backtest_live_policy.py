@@ -43,9 +43,9 @@ def deployed_config() -> MispricingConfig:
         key: value for key, value in raw.items()
         if key in MispricingConfig.__dataclass_fields__
     })
-    # Live execution is capped at $2 even though the research artifact retained
+    # Live execution is capped at $2.50 even though older research artifacts retained
     # its original $10 notional. Both liquidity and fees must use real sizing.
-    return replace(config, bet_size=2.0)
+    return replace(config, bet_size=2.5)
 
 
 def metrics(result, total_games: int) -> dict:

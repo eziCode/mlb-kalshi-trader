@@ -78,7 +78,7 @@ The checked-in deployment policy currently uses:
 - both YES- and NO-side residuals, with paired away-YES execution for NO;
 - a direct reversion-value model in addition to the target residual;
 - a one-point minimum edge with no confirmation delay;
-- fixed-budget sizing of $2 per entry;
+- fixed-budget sizing of $2.50 per entry;
 - unlimited positions per game, with at least 60 seconds between entries;
 - ten-second maximum pre-event anchor age;
 - twenty-second event-to-entry deadline;
@@ -117,7 +117,7 @@ hold limit. Momentum is disabled in the selected configuration. Any remaining
 position settles at the final game outcome.
 
 Live entries and exits are immediate-or-cancel. Every available contract up to
-the $2 budget is accepted; an unfilled entry remainder is cancelled, while an
+the $2.50 budget is accepted; an unfilled entry remainder is cancelled, while an
 exit can sell partially and keeps the unsold position active for later eligible
 trades or settlement. The shared account cap and duplicate-order ledger are
 safety controls, not strategy activity limits.
@@ -194,9 +194,9 @@ docker run --rm mlb-kalshi-trader trade-tape tune
 docker run --rm mlb-kalshi-trader trade-tape backtest
 ```
 
-The current exact-policy research holdout contains 661 fills across 297 games,
-$98.71 net PnL, and 7.48% ROI at the live $2 budget. Removing the best game
-leaves $88.52 and removing the best four leaves $76.38. The replay uses the checked-in
+The current exact-policy research holdout contains 581 fills across 297 games,
+$112.94 net PnL, and 7.78% ROI at the live $2.50 budget. Removing the best game
+leaves $100.19 and removing the best four leaves $82.26. The replay uses the checked-in
 shared-WebSocket observation-latency profile, paired away-team YES execution
 using only actual away-market trade size and aggressor direction,
 dynamic targets, partial exits, the 60-second entry cooldown, and the same
@@ -206,6 +206,6 @@ The value-model metadata hashes the model binary, deployment configuration,
 and latency profile. Both replay and live startup fail closed if those files do
 not match, preventing a model trained under one policy from silently running
 under another. This holdout has been reused during strategy development, so
-its 7.48% ROI is a research diagnostic rather than an unbiased forward-return
+its 7.78% ROI is a research diagnostic rather than an unbiased forward-return
 estimate. Historical executions remain a fill proxy rather than a full
 order-book reconstruction.

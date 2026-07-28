@@ -32,7 +32,7 @@ from settlement_value_strategy.strategy import MispricingConfig
 class DeployedPolicyParityTests(unittest.TestCase):
     def test_frozen_policy_matches_selected_research_constraints(self):
         config = deployed_config()
-        self.assertEqual(config.bet_size, 2.0)
+        self.assertEqual(config.bet_size, 2.5)
         self.assertEqual(config.minimum_probability_edge, .02)
         self.assertEqual(config.minimum_entry_inning, 2)
         self.assertEqual(config.minimum_seconds_between_entries, 120.0)
@@ -431,24 +431,24 @@ class PipelineTests(unittest.TestCase):
             "trade_id": [1],
             "created_time": [signal + pd.Timedelta(seconds=1)],
             "yes_price_dollars": [.40],
-            "count_fp": [5.0],
+            "count_fp": [10.0],
             "taker_outcome_side": ["yes"],
         })
         config = MispricingPredictor().config
         fill = replay_fill_from_observed_trades(
             trades, signal, .45, [], "yes", config,
-            confirmation_budget=2.0,
+            confirmation_budget=2.5,
         )
         self.assertIsNotNone(fill)
-        self.assertLess(fill["contracts"], 5.0)
+        self.assertLess(fill["contracts"], 10.0)
         self.assertLessEqual(
-            fill["contracts"] * fill["price"] + fill["fee"], 2.0
+            fill["contracts"] * fill["price"] + fill["fee"], 2.5
         )
         self.assertGreaterEqual(fill["edge"], .02)
         self.assertGreaterEqual(fill["expected_pnl"], 0.0)
         self.assertIsNone(replay_fill_from_observed_trades(
             trades, signal, .41, [], "yes", config,
-            confirmation_budget=2.0,
+            confirmation_budget=2.5,
         ))
 
     def test_startup_reconciles_positions_from_final_games(self):

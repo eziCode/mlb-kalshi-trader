@@ -320,8 +320,8 @@ class TradeTapeStrategyTests(unittest.TestCase):
         source = inspect.getsource(run_daily_coordinator)
         self.assertIn('os.getenv("SUPPRESS_SLATE_SUMMARY") != "1"', source)
 
-    def test_live_orders_use_two_dollar_budget(self):
-        self.assertEqual(LIVE_ORDER_BUDGET, 2.0)
+    def test_live_orders_use_two_fifty_budget(self):
+        self.assertEqual(LIVE_ORDER_BUDGET, 2.5)
 
     def test_live_worker_initializes_executor_before_candidate_loop(self):
         source = inspect.getsource(main)
@@ -739,16 +739,16 @@ class TradeTapeStrategyTests(unittest.TestCase):
         self.assertEqual(result.trades, 0)
         self.assertEqual(result.model_rejected_signals, 1)
 
-    def test_fixed_budget_sizing_matches_two_dollar_live_cap(self):
+    def test_fixed_budget_sizing_matches_two_fifty_live_cap(self):
         config = TradeTapeConfig(
-            position_sizing="fixed_budget", order_budget=2.0
+            position_sizing="fixed_budget", order_budget=2.5
         )
         contracts = position_contracts(0.43, config)
         capital = contracts * 0.43 + taker_fee(contracts, 0.43)
-        self.assertLessEqual(capital, 2.0)
+        self.assertLessEqual(capital, 2.5)
         next_contract = contracts + 0.01
         self.assertGreater(
-            next_contract * 0.43 + taker_fee(next_contract, 0.43), 2.0
+            next_contract * 0.43 + taker_fee(next_contract, 0.43), 2.5
         )
 
     def test_maximum_entry_inning_rejects_extra_inning_event(self):

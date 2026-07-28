@@ -46,7 +46,7 @@ def main() -> None:
         maximum_fill_delay_seconds=5.0,
         minimum_expected_pnl=0.0,
         minimum_probability_edge=.02,
-        bet_size=2.0,
+        bet_size=2.5,
         side_filter="both",
         minimum_seconds_between_entries=120.0,
         execution_contract="paired_both",

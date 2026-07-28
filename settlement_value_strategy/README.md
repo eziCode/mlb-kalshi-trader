@@ -109,11 +109,11 @@ requires at least 0.75 fills per scheduled game, positive aggregate PnL,
 positive PnL in most chronological folds, and resistance to top-game
 concentration. Ties favor the strongest worst chronological fold.
 
-The frozen-policy expanding-window replay currently contains 1,069 fills over
-1,440 scheduled games (0.742/game), +$169.49 net PnL, and 8.93% ROI at the
-actual $2 order budget. All seven folds are positive; the July 18-22 final
-holdout contains 41 fills, +$19.70, and 26.67% ROI. Removing its best four
-games leaves +$1.86.
+The frozen-policy expanding-window replay currently contains 1,071 fills over
+1,440 scheduled games (0.744/game), +$201.83 net PnL, and 8.74% ROI at the
+actual $2.50 order budget. All seven folds are positive; the July 18-22 final
+holdout contains 41 fills, +$25.12, and 27.62% ROI. Removing its best four
+games leaves +$2.80.
 
 The two-position limit counts concurrently open positions, not lifetime trades
 in a game. A fully exited reversal frees a slot. The 120-second cooldown is
@@ -260,10 +260,10 @@ docker run --rm mlb-kalshi-trader mispricing backtest
 
 The deployed policy is now the market-anchored latency-residual model in
 `model/live_config.json`, not the legacy settlement classifier in
-`model/config.json`. The saved expanding-window replay contains 1,069 fills
-across 1,440 games, producing $169.49 net PnL and 8.93% ROI at the live $2
-budget. Its July 18-22 final fold has 41 fills, $19.70 net PnL, and 26.67% ROI;
-removing its four best games leaves $1.86. This short final period is promising
+`model/config.json`. The saved expanding-window replay contains 1,071 fills
+across 1,440 games, producing $201.83 net PnL and 8.74% ROI at the live $2.50
+budget. Its July 18-22 final fold has 41 fills, $25.12 net PnL, and 27.62% ROI;
+removing its four best games leaves $2.80. This short final period is promising
 but not sufficient by itself to establish durable profitability. Additional
 same-side positions are allowed only when both probability and expected return
 improve.

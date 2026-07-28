@@ -77,7 +77,7 @@ SLATE_TIMEZONE = ZoneInfo(os.getenv("SLATE_TIMEZONE", "America/Chicago"))
 KALSHI_EVENT_TIMEZONE = ZoneInfo("America/New_York")
 MAX_EVENT_TIME_DELTA = timedelta(minutes=90)
 LIVE_MODE = os.getenv("LIVE_TRADING_ENABLED") == REAL_MONEY_ACK
-LIVE_ORDER_BUDGET = 2.0
+LIVE_ORDER_BUDGET = 2.5
 
 DECISION_LOG_COLUMNS = [
     "decision_time", "market_received_at", "state_received_at",

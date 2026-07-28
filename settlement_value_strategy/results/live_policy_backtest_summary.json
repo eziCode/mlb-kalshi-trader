@@ -8,7 +8,7 @@
     "maximum_fill_delay_seconds": 5.0,
     "minimum_expected_pnl": 0.0,
     "minimum_probability_edge": 0.02,
-    "bet_size": 2.0,
+    "bet_size": 2.5,
     "side_filter": "both",
     "minimum_seconds_between_entries": 120.0,
     "execution_contract": "paired_both",
@@ -27,83 +27,83 @@
   "aggregate": {
     "games": 1440,
     "orders": 4744,
-    "trades": 1069,
-    "trades_per_game": 0.7423611111111111,
-    "pnl": 169.4923,
-    "capital": 1897.3229000000006,
-    "roi": 0.08933234295543471,
+    "trades": 1071,
+    "trades_per_game": 0.74375,
+    "pnl": 201.83050000000011,
+    "capital": 2310.2940000000003,
+    "roi": 0.08736139209987996,
     "positive_folds": 7
   },
   "folds": {
     "april": {
       "games": 386,
       "orders": 1645,
-      "trades": 318,
-      "trades_per_game": 0.8238341968911918,
-      "pnl": 40.433499999999974,
-      "capital": 564.0858000000004,
-      "roi": 0.07167969837212698,
-      "pnl_without_top_four_games": 11.498799999999974
+      "trades": 320,
+      "trades_per_game": 0.8290155440414507,
+      "pnl": 41.30680000000001,
+      "capital": 688.5802,
+      "roi": 0.05998836446357303,
+      "pnl_without_top_four_games": 7.319500000000005
     },
     "may": {
       "games": 415,
       "orders": 1327,
       "trades": 316,
       "trades_per_game": 0.7614457831325301,
-      "pnl": 45.56770000000001,
-      "capital": 553.1612000000002,
-      "roi": 0.08237689122085928,
-      "pnl_without_top_four_games": 21.059100000000004
+      "pnl": 56.947900000000075,
+      "capital": 669.8351000000001,
+      "roi": 0.08501779019940887,
+      "pnl_without_top_four_games": 26.407700000000077
     },
     "early_june": {
       "games": 206,
       "orders": 646,
       "trades": 153,
       "trades_per_game": 0.7427184466019418,
-      "pnl": 11.131500000000015,
-      "capital": 278.8318999999999,
-      "roi": 0.039921902766505625,
-      "pnl_without_top_four_games": -16.917699999999982
+      "pnl": 13.654000000000005,
+      "capital": 341.3270000000001,
+      "roi": 0.04000269536251161,
+      "pnl_without_top_four_games": -20.995799999999996
     },
     "late_june": {
       "games": 143,
       "orders": 431,
       "trades": 105,
       "trades_per_game": 0.7342657342657343,
-      "pnl": 17.057500000000008,
-      "capital": 187.23440000000002,
-      "roi": 0.09110238289545086,
-      "pnl_without_top_four_games": -4.445199999999993
+      "pnl": 20.42620000000001,
+      "capital": 226.47070000000002,
+      "roi": 0.09019356587849998,
+      "pnl_without_top_four_games": -5.433899999999994
     },
     "early_july": {
       "games": 175,
       "orders": 441,
       "trades": 111,
       "trades_per_game": 0.6342857142857142,
-      "pnl": 31.588200000000008,
-      "capital": 193.70760000000004,
-      "roi": 0.16307155733693465,
-      "pnl_without_top_four_games": 6.7524000000000015
+      "pnl": 40.0703,
+      "capital": 235.73690000000002,
+      "roi": 0.16997890444813687,
+      "pnl_without_top_four_games": 9.413900000000005
     },
     "mid_july": {
       "games": 45,
       "orders": 107,
       "trades": 25,
       "trades_per_game": 0.5555555555555556,
-      "pnl": 4.009500000000001,
-      "capital": 46.41420000000001,
-      "roi": 0.08638520108070376,
-      "pnl_without_top_four_games": -5.426599999999999
+      "pnl": 4.3063,
+      "capital": 57.4055,
+      "roi": 0.07501546019109667,
+      "pnl_without_top_four_games": -6.577400000000001
     },
     "final_holdout": {
       "games": 70,
       "orders": 147,
       "trades": 41,
       "trades_per_game": 0.5857142857142857,
-      "pnl": 19.7044,
-      "capital": 73.8878,
-      "roi": 0.2666800202469149,
-      "pnl_without_top_four_games": 1.8569999999999993
+      "pnl": 25.119,
+      "capital": 90.9386,
+      "roi": 0.27621933920249486,
+      "pnl_without_top_four_games": 2.8039999999999985
     }
   }
 }

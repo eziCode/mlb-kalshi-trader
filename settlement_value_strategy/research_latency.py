@@ -153,7 +153,7 @@ def main() -> None:
                 for minimum_inning in (1, 2, 3):
                     for cooldown in (120.0, 200.0):
                         config = MispricingConfig(
-                            bet_size=2.0,
+                            bet_size=2.5,
                             minimum_expected_pnl=0.0,
                             minimum_probability_edge=edge,
                             side_filter="both",
@@ -226,7 +226,7 @@ def main() -> None:
     selected_records: list[pd.DataFrame] = []
     if selected is not None:
         config = MispricingConfig(
-            bet_size=2.0,
+            bet_size=2.5,
             minimum_expected_pnl=0.0,
             minimum_probability_edge=selected["minimum_probability_edge"],
             side_filter="both",

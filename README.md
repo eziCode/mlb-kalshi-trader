@@ -232,7 +232,7 @@ docker run -d \
   -e LIVE_TRADING_ENABLED=YES_I_UNDERSTAND_THIS_PLACES_REAL_ORDERS \
   -e ALLOW_UNVALIDATED_LIVE=YES_I_ACCEPT_THE_UNVALIDATED_MODEL_RISK \
   -e LIVE_MAX_TOTAL_CAPITAL=ALL_LIQUID_CASH \
-  -e LIVE_MAX_ORDER_CAPITAL=2 \
+  -e LIVE_MAX_ORDER_CAPITAL=2.5 \
   -e LIVE_RISK_DB=/app/live-state/risk.sqlite3 \
   -e PAPER_STARTING_CASH=34.36 \
   -e PAPER_LOG_DIR=/app/live-logs \
@@ -254,7 +254,7 @@ docker run --rm --env-file .env \
   -e KALSHI_PRIVATE_KEY_PATH=/run/secrets/kalshi-private.key \
   -e LIVE_TRADING_ENABLED=YES_I_UNDERSTAND_THIS_PLACES_REAL_ORDERS \
   -e LIVE_MAX_TOTAL_CAPITAL=ALL_LIQUID_CASH \
-  -e LIVE_MAX_ORDER_CAPITAL=2 \
+  -e LIVE_MAX_ORDER_CAPITAL=2.5 \
   -e LIVE_RISK_DB=/app/live-state/risk.sqlite3 \
   -v "$PWD/secrets/kalshi-private.key:/run/secrets/kalshi-private.key:ro" \
   -v settlement-live-state:/app/live-state \

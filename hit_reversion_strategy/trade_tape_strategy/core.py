@@ -35,7 +35,7 @@ class TradeTapeConfig:
     minimum_reversion_move: float = 0.0
     side_filter: str = "both"
     position_sizing: str = "fixed_payout"
-    order_budget: float = 2.0
+    order_budget: float = 2.5
     require_compatible_taker: bool = True
     require_post_signal_trade: bool = True
     minimum_edges_by_segment: dict[str, float] = field(default_factory=dict)

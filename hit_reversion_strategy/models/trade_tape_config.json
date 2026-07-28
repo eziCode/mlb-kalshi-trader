@@ -30,7 +30,7 @@
   "minimum_reversion_move": 0.0,
   "side_filter": "both",
   "position_sizing": "fixed_budget",
-  "order_budget": 2.0,
+  "order_budget": 2.5,
   "require_compatible_taker": false,
   "require_post_signal_trade": false,
   "minimum_edges_by_segment": {},
