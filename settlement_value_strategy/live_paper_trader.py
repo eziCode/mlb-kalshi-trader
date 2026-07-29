@@ -46,6 +46,7 @@ from settlement_value_strategy.play_eligibility import (
 from live_trading.execution import (
     LiveExecutor, REAL_MONEY_ACK,
 )
+from live_trading.portfolio_reporting import format_live_portfolio_summary
 from settlement_value_strategy.strategy import (
     MISPRICING_FEATURES, anchored_event_target, confirmation_taker_allowed,
     contracts_for_budget, execution_price_allowed, reversal_economics,
@@ -68,6 +69,23 @@ SLATE_TIMEZONE = ZoneInfo(os.getenv("SLATE_TIMEZONE", "America/Chicago"))
 KALSHI_EVENT_TIMEZONE = ZoneInfo("America/New_York")
 MAX_EVENT_TIME_DELTA = timedelta(minutes=90)
 LIVE_MODE = os.getenv("LIVE_TRADING_ENABLED") == REAL_MONEY_ACK
+
+
+def print_portfolio_summary(live_executor, portfolio_path: Path, metrics) -> None:
+    if live_executor is None:
+        print(
+            f"Settlement-value paper portfolio: cash=${metrics.cash:.2f} "
+            f"equity=${metrics.equity:.2f} PnL=${metrics.pnl:+.2f} "
+            f"open_positions={metrics.open_positions}", flush=True,
+        )
+        return
+    settlement_db = os.getenv("SETTLEMENT_VALUE_PORTFOLIO_DB", str(portfolio_path))
+    hit_db = os.getenv("HIT_REVERSION_PORTFOLIO_DB", "")
+    print(format_live_portfolio_summary(
+        live_executor.client,
+        settlement_value_db=settlement_db,
+        hit_reversion_db=hit_db,
+    ), flush=True)
 
 MLB_TEAM_CODES = {
     108: "LAA", 109: "ARI", 110: "BAL", 111: "BOS", 112: "CHC",
@@ -1236,7 +1254,7 @@ async def run_worker() -> None:
                     )
                 portfolio.settle(int(GAME_PK), total_payout)
             metrics = portfolio.metrics()
-            print(f"Shared portfolio: equity=${metrics.equity:.2f} PnL=${metrics.pnl:+.2f}")
+            print_portfolio_summary(live_executor, portfolio_path, metrics)
             return
         if game.status != "Live":
             previous_game = game
@@ -1711,7 +1729,10 @@ async def run_worker() -> None:
         await asyncio.sleep(POLL_SECONDS)
 
 
-MAIN_LOG_ACTIONS = ("TRADER READY", "TRADE ", "Shared portfolio")
+MAIN_LOG_ACTIONS = (
+    "TRADER READY", "TRADE ", "Portfolio summary:",
+    "Settlement-value portfolio:",
+)
 
 
 def should_surface_worker_line(line: str) -> bool:
@@ -1898,7 +1919,7 @@ def run_all_games(game_date: date) -> int:
                 time.sleep(1)
         final = portfolio.metrics()
         print(
-            f"Shared portfolio: cash=${final.cash:.2f} "
+            f"Settlement-value portfolio: cash=${final.cash:.2f} "
             f"equity=${final.equity:.2f} PnL=${final.pnl:+.2f} "
             f"open_positions={final.open_positions}"
         )

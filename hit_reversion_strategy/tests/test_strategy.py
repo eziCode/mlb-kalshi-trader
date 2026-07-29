@@ -523,6 +523,76 @@ class TradeTapeStrategyTests(unittest.TestCase):
         fill, pending, _ = replay_position_exit(trades, position, .6)
         self.assertIsNotNone(fill)
         self.assertEqual(fill["contracts"], 3.25)
+        self.assertIsNotNone(pending)
+        self.assertEqual(pending.reason, "TARGET_REVERSION")
+
+    def test_live_partial_exit_does_not_replay_historical_target_touch(self):
+        entry = pd.Timestamp("2026-07-20T12:00:00Z")
+        position = Position(
+            "yes", 10, .4, .1, entry.to_pydatetime(), .6, .6, 1
+        )
+        initial = pd.DataFrame({
+            "trade_id": [1, 2],
+            "created_time": [
+                entry + pd.Timedelta(seconds=1),
+                entry + pd.Timedelta(seconds=2),
+            ],
+            "yes_price_dollars": [.61, .62],
+            "count_fp": [100, 3.25],
+            "taker_outcome_side": ["yes", "no"],
+        })
+        fill, pending, scanned = replay_position_exit(
+            initial, position, .6
+        )
+        self.assertIsNotNone(fill)
+        self.assertIsNotNone(pending)
+
+        position.contracts -= fill["contracts"]
+        later = pd.concat([initial, pd.DataFrame({
+            "trade_id": [3],
+            "created_time": [entry + pd.Timedelta(seconds=3)],
+            "yes_price_dollars": [.50],
+            "count_fp": [100],
+            "taker_outcome_side": ["no"],
+        })], ignore_index=True)
+        second_fill, pending, scanned = replay_position_exit(
+            later, position, .6, scanned, pending
+        )
+
+        self.assertIsNone(second_fill)
+        self.assertIsNone(pending)
+        self.assertEqual(
+            scanned, later.created_time.iloc[-1].to_pydatetime()
+        )
+
+    def test_live_partial_timeout_preserves_timeout_reason(self):
+        entry = pd.Timestamp("2026-07-20T12:00:00Z")
+        position = Position(
+            "yes", 10, .4, .1, entry.to_pydatetime(), .6, .6, 1
+        )
+        trades = pd.DataFrame({
+            "trade_id": [1, 2, 3],
+            "created_time": [
+                entry + pd.Timedelta(seconds=240),
+                entry + pd.Timedelta(seconds=241),
+                entry + pd.Timedelta(seconds=242),
+            ],
+            "yes_price_dollars": [.20, .20, .20],
+            "count_fp": [100, 3.25, 100],
+            "taker_outcome_side": ["yes", "no", "no"],
+        })
+        config = TradeTapeConfig(maximum_hold_seconds=240)
+        first, pending, scanned = replay_position_exit(
+            trades.iloc[:2], position, .6, config=config
+        )
+        self.assertEqual(first["reason"], "TIMEOUT")
+        self.assertEqual(pending.reason, "TIMEOUT")
+
+        position.contracts -= first["contracts"]
+        second, pending, _ = replay_position_exit(
+            trades, position, .6, scanned, pending, config
+        )
+        self.assertEqual(second["reason"], "TIMEOUT")
         self.assertIsNone(pending)
 
     def test_live_exit_supports_frozen_target_and_maximum_hold(self):

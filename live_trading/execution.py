@@ -78,7 +78,18 @@ class KalshiAccountClient:
         return response.json()
 
     def available_balance(self) -> float:
-        return float(self.request("GET", "/portfolio/balance")["balance"]) / 100
+        return self.balance_snapshot()["cash"]
+
+    def balance_snapshot(self) -> dict[str, float]:
+        """Return authoritative account cash, position value, and total equity."""
+        payload = self.request("GET", "/portfolio/balance")
+        cash = float(payload["balance"]) / 100
+        position_value = float(payload.get("portfolio_value") or 0) / 100
+        return {
+            "cash": cash,
+            "position_value": position_value,
+            "total": cash + position_value,
+        }
 
     def positions(self) -> list[dict]:
         return list(self.request(

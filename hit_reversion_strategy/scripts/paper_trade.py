@@ -51,6 +51,7 @@ from shared_mlb_feed import get_game as get_shared_game  # noqa: E402
 from live_trading.execution import (  # noqa: E402
     LiveExecutor, REAL_MONEY_ACK,
 )
+from live_trading.portfolio_reporting import format_live_portfolio_summary  # noqa: E402
 
 
 GAME_PK_TEXT = os.getenv("MLB_GAME_PK")
@@ -78,6 +79,23 @@ KALSHI_EVENT_TIMEZONE = ZoneInfo("America/New_York")
 MAX_EVENT_TIME_DELTA = timedelta(minutes=90)
 LIVE_MODE = os.getenv("LIVE_TRADING_ENABLED") == REAL_MONEY_ACK
 LIVE_ORDER_BUDGET = 2.5
+
+
+def print_portfolio_summary(live_executor, portfolio_path: Path, metrics) -> None:
+    if live_executor is None:
+        print(
+            f"Hit-reversion paper portfolio: cash=${metrics.cash:.2f} "
+            f"equity=${metrics.equity:.2f} PnL=${metrics.pnl:+.2f} "
+            f"open_positions={metrics.open_positions}", flush=True,
+        )
+        return
+    settlement_db = os.getenv("SETTLEMENT_VALUE_PORTFOLIO_DB", "")
+    hit_db = os.getenv("HIT_REVERSION_PORTFOLIO_DB", str(portfolio_path))
+    print(format_live_portfolio_summary(
+        live_executor.client,
+        settlement_value_db=settlement_db,
+        hit_reversion_db=hit_db,
+    ), flush=True)
 
 DECISION_LOG_COLUMNS = [
     "decision_time", "market_received_at", "state_received_at",
@@ -228,6 +246,12 @@ class Position:
     event_id: int
     market_ticker: str = ""
     entry_client_order_id: str = ""
+
+
+@dataclass(frozen=True)
+class PendingExit:
+    triggered_at: datetime
+    reason: str
 
 
 @dataclass
@@ -545,7 +569,10 @@ class DiscoveredGame:
     away_market_ticker: str
 
 
-MAIN_LOG_ACTIONS = ("TRADER READY", "TRADE ", "Shared portfolio:")
+MAIN_LOG_ACTIONS = (
+    "TRADER READY", "TRADE ", "Portfolio summary:",
+    "Hit-reversion portfolio:",
+)
 
 
 def should_surface_worker_line(line: str) -> bool:
@@ -881,7 +908,7 @@ def run_daily_coordinator(game_date: date) -> int:
         if show_slate:
             final = portfolio.metrics()
             print(
-                f"Shared portfolio: cash=${final.cash:.2f} "
+                f"Hit-reversion portfolio: cash=${final.cash:.2f} "
                 f"equity=${final.equity:.2f} PnL=${final.pnl:+.2f} "
                 f"open_positions={final.open_positions}"
             )
@@ -1311,13 +1338,13 @@ def replay_candidate_entry(
 def replay_position_exit(
     trades: pd.DataFrame, position: Position, current_fair: float,
     scanned_after: datetime | None = None,
-    pending_time: datetime | None = None,
+    pending_exit: PendingExit | None = None,
     config: TradeTapeConfig | None = None,
-) -> tuple[dict | None, datetime | None, datetime]:
+) -> tuple[dict | None, PendingExit | None, datetime]:
     """Find the backtest-style trade after target reversion that can exit."""
     config = config or TradeTapeConfig()
     if trades.empty:
-        return None, pending_time, scanned_after or position.entry_time
+        return None, pending_exit, scanned_after or position.entry_time
     target = (
         float(position.anchor_target)
         if config.exit_target_mode == "frozen"
@@ -1353,20 +1380,30 @@ def replay_position_exit(
             and (when - position.entry_time).total_seconds()
             >= config.maximum_hold_seconds
         )
-        if pending_time is None:
-            if reverted or timed_out:
-                pending_time = when
-            continue
-        if not reverted and not timed_out and not config.latch_reversion_exit:
-            pending_time = None
+        if pending_exit is None:
+            if timed_out:
+                pending_exit = PendingExit(when, "TIMEOUT")
+            elif reverted:
+                pending_exit = PendingExit(when, "TARGET_REVERSION")
             continue
         if (
-            when > pending_time
+            pending_exit.reason == "TARGET_REVERSION"
+            and not reverted
+            and not config.latch_reversion_exit
+        ):
+            pending_exit = None
+            continue
+        if (
+            when > pending_exit.triggered_at
             and (
                 not config.require_compatible_taker
                 or str(trade.taker_outcome_side) == exit_taker_side
             )
-            and (reverted or timed_out or config.latch_reversion_exit)
+            and (
+                pending_exit.reason == "TIMEOUT"
+                or reverted
+                or config.latch_reversion_exit
+            )
         ):
             price = (
                 yes_price
@@ -1380,9 +1417,13 @@ def replay_position_exit(
                 return {
                     "time": when, "price": price, "fee": fee,
                     "contracts": exit_contracts,
-                    "reason": "TIMEOUT" if timed_out else "TARGET_REVERSION",
-                }, None, last_seen
-    return None, pending_time, last_seen
+                    "reason": pending_exit.reason,
+                }, (
+                    PendingExit(when, pending_exit.reason)
+                    if exit_contracts < float(position.contracts)
+                    else None
+                ), last_seen
+    return None, pending_exit, last_seen
 
 
 def fetch_mlb_payload(
@@ -1679,7 +1720,7 @@ async def main() -> None:
     previous_fair: float | None = None
     previous_event_id: int | None = None
     last_logged_event_signature: tuple | None = None
-    exit_pending_trade: dict[int, datetime] = {}
+    exit_pending_trade: dict[int, PendingExit] = {}
     exit_scanned_through: dict[int, datetime] = {
         position.event_id: position.entry_time for position in positions
     }
@@ -1720,10 +1761,7 @@ async def main() -> None:
                 )
             positions.clear()
             final = portfolio.metrics()
-            print(
-                f"Shared portfolio: cash=${final.cash:.2f} "
-                f"equity=${final.equity:.2f} PnL=${final.pnl:+.2f}"
-            )
+            print_portfolio_summary(live_executor, portfolio_path, final)
             break
         if game.status != "Live":
             await asyncio.sleep(POLL_SECONDS)
@@ -1887,10 +1925,18 @@ async def main() -> None:
                         live_executor.ledger.close_entry(
                             position.entry_client_order_id
                         )
+                    exit_pending_trade.pop(position.event_id, None)
+                    exit_scanned_through.pop(position.event_id, None)
                 else:
                     position.contracts = remaining
-                exit_pending_trade.pop(position.event_id, None)
-                exit_scanned_through.pop(position.event_id, None)
+                    # The replay fill can be larger than immediately available
+                    # live liquidity. Preserve the exit latch and scan cursor so
+                    # the remainder continues forward from this fill instead of
+                    # replaying historical target touches from the entry time.
+                    exit_pending_trade[position.event_id] = PendingExit(
+                        exit_fill["time"], reason,
+                    )
+                    exit_scanned_through[position.event_id] = scanned_through
         if closed_positions:
             positions = [
                 position for position in positions

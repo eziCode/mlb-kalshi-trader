@@ -73,6 +73,16 @@ def run(selected: date | None) -> int:
             state / "hit-reversion" / f"hit_reversion_portfolio_{state_date}.sqlite3"
         ),
     })
+    common["SETTLEMENT_VALUE_PORTFOLIO_DB"] = settlement["PAPER_PORTFOLIO_DB"]
+    common["HIT_REVERSION_PORTFOLIO_DB"] = hit["PAPER_PORTFOLIO_DB"]
+    settlement.update({
+        "SETTLEMENT_VALUE_PORTFOLIO_DB": common["SETTLEMENT_VALUE_PORTFOLIO_DB"],
+        "HIT_REVERSION_PORTFOLIO_DB": common["HIT_REVERSION_PORTFOLIO_DB"],
+    })
+    hit.update({
+        "SETTLEMENT_VALUE_PORTFOLIO_DB": common["SETTLEMENT_VALUE_PORTFOLIO_DB"],
+        "HIT_REVERSION_PORTFOLIO_DB": common["HIT_REVERSION_PORTFOLIO_DB"],
+    })
     processes: list[subprocess.Popen] = []
     try:
         kalshi = subprocess.Popen(
