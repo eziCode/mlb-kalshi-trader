@@ -47,6 +47,9 @@ from live_trading.execution import (
     LiveExecutor, REAL_MONEY_ACK,
 )
 from live_trading.portfolio_reporting import format_live_portfolio_summary
+from live_trading.portfolio_paths import (
+    hit_reversion_path, settlement_value_path,
+)
 from settlement_value_strategy.strategy import (
     MISPRICING_FEATURES, anchored_event_target, confirmation_taker_allowed,
     contracts_for_budget, execution_price_allowed, reversal_economics,
@@ -1798,10 +1801,7 @@ def run_all_games(game_date: date) -> int:
     ):
         raise RuntimeError("Set ALLOW_UNVALIDATED_MISPRICING=1 for paper mode")
     LOG_DIR.mkdir(parents=True, exist_ok=True)
-    database = Path(os.getenv(
-        "PAPER_PORTFOLIO_DB",
-        str(LOG_DIR / f"settlement_value_portfolio_{game_date}.sqlite3"),
-    ))
+    database = settlement_value_path(game_date, LOG_DIR)
     live_available_cash = None
     starting_cash = float(os.getenv("PAPER_STARTING_CASH", "1000"))
     if LIVE_MODE:
@@ -1845,6 +1845,10 @@ def run_all_games(game_date: date) -> int:
             "KALSHI_MARKET_TICKER": game.market_ticker,
             "KALSHI_AWAY_MARKET_TICKER": game.away_market_ticker,
             "PAPER_PORTFOLIO_DB": str(database),
+            "SETTLEMENT_VALUE_PORTFOLIO_DB": str(database),
+            "HIT_REVERSION_PORTFOLIO_DB": str(
+                hit_reversion_path(game_date, LOG_DIR)
+            ),
             "PYTHONUNBUFFERED": "1",
             "PYTHONFAULTHANDLER": "1",
             "OMP_NUM_THREADS": "1",

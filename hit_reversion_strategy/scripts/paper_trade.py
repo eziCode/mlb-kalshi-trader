@@ -52,6 +52,9 @@ from live_trading.execution import (  # noqa: E402
     LiveExecutor, REAL_MONEY_ACK,
 )
 from live_trading.portfolio_reporting import format_live_portfolio_summary  # noqa: E402
+from live_trading.portfolio_paths import (  # noqa: E402
+    hit_reversion_path, settlement_value_path,
+)
 
 
 GAME_PK_TEXT = os.getenv("MLB_GAME_PK")
@@ -830,10 +833,7 @@ def run_daily_coordinator(game_date: date) -> int:
 
     log_dir = LOG_DIR
     log_dir.mkdir(parents=True, exist_ok=True)
-    portfolio_path = Path(os.getenv(
-        "PAPER_PORTFOLIO_DB",
-        str(log_dir / f"hit_reversion_portfolio_{game_date.isoformat()}.sqlite3"),
-    ))
+    portfolio_path = hit_reversion_path(game_date, log_dir)
     live_available_cash = None
     starting_cash = float(os.getenv("PAPER_STARTING_CASH", "1000"))
     if LIVE_MODE:
@@ -855,6 +855,10 @@ def run_daily_coordinator(game_date: date) -> int:
             env["KALSHI_MARKET_TICKER"] = game.market_ticker
             env["KALSHI_AWAY_MARKET_TICKER"] = game.away_market_ticker
             env["PAPER_PORTFOLIO_DB"] = str(portfolio_path)
+            env["HIT_REVERSION_PORTFOLIO_DB"] = str(portfolio_path)
+            env["SETTLEMENT_VALUE_PORTFOLIO_DB"] = str(
+                settlement_value_path(game_date, log_dir)
+            )
             env["PYTHONUNBUFFERED"] = "1"
             process = subprocess.Popen(
                 [sys.executable, "-u", str(Path(__file__).resolve())],

@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import argparse
-from datetime import date, datetime
+from datetime import date
 import os
 from pathlib import Path
 import signal
 import subprocess
 import sys
 import time
-from zoneinfo import ZoneInfo
 
 import requests
 
@@ -49,9 +48,6 @@ def wait_ready(process: subprocess.Popen, url: str, name: str) -> None:
 def run(selected: date | None) -> int:
     state = Path(os.getenv("LIVE_STATE_DIR", "/app/live-state"))
     state.mkdir(parents=True, exist_ok=True)
-    state_date = selected or datetime.now(
-        ZoneInfo(os.getenv("SLATE_TIMEZONE", "America/Chicago"))
-    ).date()
     common = os.environ.copy()
     common.update({
         "KALSHI_FEED_URL": FEED_URL,
@@ -60,28 +56,14 @@ def run(selected: date | None) -> int:
         "MLB_FEED_BIND": "127.0.0.1",
         "PYTHONUNBUFFERED": "1",
         "PAPER_LOG_DIR": os.getenv("PAPER_LOG_DIR", "/app/live-logs"),
+        "SETTLEMENT_VALUE_PORTFOLIO_DIR": str(state),
+        "HIT_REVERSION_PORTFOLIO_DIR": str(state / "hit-reversion"),
     })
     settlement = common.copy()
-    settlement["PAPER_PORTFOLIO_DB"] = str(
-        state / f"settlement_value_portfolio_{state_date}.sqlite3"
-    )
     hit = common.copy()
     hit.update({
         "ALLOW_UNVALIDATED_HYBRID": "1",
         "SUPPRESS_SLATE_SUMMARY": "1",
-        "PAPER_PORTFOLIO_DB": str(
-            state / "hit-reversion" / f"hit_reversion_portfolio_{state_date}.sqlite3"
-        ),
-    })
-    common["SETTLEMENT_VALUE_PORTFOLIO_DB"] = settlement["PAPER_PORTFOLIO_DB"]
-    common["HIT_REVERSION_PORTFOLIO_DB"] = hit["PAPER_PORTFOLIO_DB"]
-    settlement.update({
-        "SETTLEMENT_VALUE_PORTFOLIO_DB": common["SETTLEMENT_VALUE_PORTFOLIO_DB"],
-        "HIT_REVERSION_PORTFOLIO_DB": common["HIT_REVERSION_PORTFOLIO_DB"],
-    })
-    hit.update({
-        "SETTLEMENT_VALUE_PORTFOLIO_DB": common["SETTLEMENT_VALUE_PORTFOLIO_DB"],
-        "HIT_REVERSION_PORTFOLIO_DB": common["HIT_REVERSION_PORTFOLIO_DB"],
     })
     processes: list[subprocess.Popen] = []
     try:
