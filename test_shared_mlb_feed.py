@@ -14,6 +14,17 @@ import shared_mlb_feed as feed
 
 
 class SharedMlbFeedTests(unittest.TestCase):
+    def test_health_counts_recent_requests_not_retained_cache(self):
+        state = feed.FeedState()
+        state.games[100] = feed.GameFeed(last_requested_at=900.0)
+        state.games[200] = feed.GameFeed(last_requested_at=700.0)
+        state.games[300] = feed.GameFeed()
+        with patch.dict(os.environ, {"MLB_ACTIVE_GAME_SECONDS": "120"}), \
+                patch.object(feed.time, "monotonic", return_value=1000.0):
+            self.assertEqual(state.health(), {
+                "ok": True, "games": 1, "cached_games": 3,
+            })
+
     def test_unavailable_pregame_socket_is_expected_and_retries_slowly(self):
         error = Mock(code=4400)
         error.__str__ = Mock(return_value=(

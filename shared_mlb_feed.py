@@ -46,6 +46,7 @@ class GameFeed:
     websocket_failures: int = 0
     pending_websocket_notification: dict | None = None
     last_websocket_notification: dict | None = None
+    last_requested_at: float | None = None
 
 
 class FeedState:
@@ -61,6 +62,7 @@ class FeedState:
         game_pk = int(game_pk)
         with self.lock:
             game = self.games.setdefault(game_pk, GameFeed())
+            game.last_requested_at = time.monotonic()
             worker = self.workers.get(game_pk)
             if worker is None or not worker.is_alive():
                 wakeup = self.websocket_wakeups.setdefault(
@@ -79,6 +81,22 @@ class FeedState:
                 self.websocket_workers[game_pk] = websocket_worker
                 websocket_worker.start()
             return game
+
+    def health(self) -> dict:
+        """Report active consumers separately from retained game caches."""
+        now = time.monotonic()
+        active_window = float(os.getenv("MLB_ACTIVE_GAME_SECONDS", "120"))
+        with self.lock:
+            active_games = sum(
+                game.last_requested_at is not None
+                and now - game.last_requested_at <= active_window
+                for game in self.games.values()
+            )
+            return {
+                "ok": True,
+                "games": active_games,
+                "cached_games": len(self.games),
+            }
 
     def response(self, game_pk: int) -> dict:
         self.request(game_pk)
@@ -501,7 +519,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
         if path == "/health":
-            self._reply(200, {"ok": True, "games": len(STATE.games)})
+            self._reply(200, STATE.health())
             return
         if path.startswith("/games/"):
             try:
