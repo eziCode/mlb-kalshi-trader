@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import sqlite3
 import tempfile
 import unittest
 from unittest.mock import Mock, patch
@@ -93,6 +94,49 @@ class LiveExecutionTests(unittest.TestCase):
             self.assertEqual(fill.contracts, 1.25)
             self.assertEqual(executor.client.orders[-1][-3:], ("ask", False, "ioc"))
             self.assertEqual(len(executor.ledger.filled_for_game(1)), 1)
+
+    def test_partial_exit_reports_and_persists_actual_fill(self):
+        class PartialExitClient(FakeClient):
+            def create_immediate_or_cancel(
+                self, ticker, count, price, client_order_id,
+                order_side="bid", reduce_only=False,
+            ):
+                return {
+                    "fill_count": "1.25",
+                    "average_fill_price": "0.4600",
+                    "average_fee_paid": "0.01200000",
+                }
+
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / "risk.db"
+            executor = LiveExecutor.__new__(LiveExecutor)
+            executor.client = PartialExitClient(position=3.0)
+            executor.ledger = LiveRiskLedger(path, 15.0)
+            entry_id = executor.ledger.reserve("entry", 1, "TEST", 2.0, 0, .8)
+            executor.ledger.finish(type("Fill", (), {
+                "filled": True, "capital": 2.0, "contracts": 3.0,
+                "price": .60, "fee": .20, "client_order_id": entry_id,
+            })())
+            output = StringIO()
+            with redirect_stdout(output):
+                fill = executor.execute_partial_exit(
+                    trigger_key="stop-actual", entry_client_order_id=entry_id,
+                    ticker="TEST", contracts=2.50, price=.49,
+                )
+
+            self.assertEqual(fill.contracts, 1.25)
+            self.assertEqual(fill.price, .46)
+            self.assertIn(
+                "KALSHI EXIT FILLED ticker=TEST contracts=1.2500 "
+                "price=0.4600 fee=0.0150",
+                output.getvalue(),
+            )
+            with sqlite3.connect(path) as connection:
+                recorded = connection.execute(
+                    "SELECT contracts,price,fee,status FROM live_exits "
+                    "WHERE trigger_key='stop-actual'"
+                ).fetchone()
+            self.assertEqual(recorded, (1.25, .46, .015, "filled"))
 
     def test_taker_fee_uses_centicent_total_cost_rounding(self):
         self.assertAlmostEqual(taker_fee(5.0, 0.34), 0.0786)

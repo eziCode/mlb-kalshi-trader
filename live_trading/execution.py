@@ -363,6 +363,7 @@ class LiveRiskLedger:
 
     def finish_exit(
         self, client_id: str, filled: bool, fee: float,
+        contracts: float | None = None, price: float | None = None,
         *, close_entry: bool = True,
     ) -> None:
         with closing(self._connect()) as connection, connection:
@@ -374,10 +375,21 @@ class LiveRiskLedger:
                 raise RuntimeError("Unknown live exit reservation")
             status = "filled" if filled else "not_filled"
             stamp = datetime.now(timezone.utc).isoformat()
-            connection.execute(
-                "UPDATE live_exits SET status=?,fee=?,updated_at=? "
-                "WHERE client_order_id=?", (status, fee, stamp, client_id),
-            )
+            if filled:
+                if contracts is None or price is None:
+                    raise ValueError(
+                        "Filled exits require actual contracts and price"
+                    )
+                connection.execute(
+                    "UPDATE live_exits SET status=?,contracts=?,price=?,fee=?,"
+                    "updated_at=? WHERE client_order_id=?",
+                    (status, contracts, price, fee, stamp, client_id),
+                )
+            else:
+                connection.execute(
+                    "UPDATE live_exits SET status=?,fee=?,updated_at=? "
+                    "WHERE client_order_id=?", (status, fee, stamp, client_id),
+                )
             if filled and close_entry:
                 connection.execute(
                     "UPDATE live_orders SET status='closed',updated_at=? "
@@ -632,7 +644,15 @@ class LiveExecutor:
         average_price = float(result["average_fill_price"])
         fee = filled * float(result.get("average_fee_paid") or 0)
         fill = LiveFill(True, client_id, ticker, filled, average_price, fee, "filled")
-        self.ledger.finish_exit(client_id, True, fee)
+        self.ledger.finish_exit(
+            client_id, True, fee, filled, average_price
+        )
+        print(
+            f"KALSHI EXIT FILLED ticker={ticker} contracts={filled:.4f} "
+            f"price={average_price:.4f} fee={fee:.4f} "
+            f"client_order_id={client_id}",
+            flush=True,
+        )
         return fill
 
     def execute_partial_exit(
@@ -682,7 +702,15 @@ class LiveExecutor:
         fill = LiveFill(
             True, client_id, ticker, filled, average_price, fee, "filled"
         )
-        self.ledger.finish_exit(client_id, True, fee, close_entry=False)
+        self.ledger.finish_exit(
+            client_id, True, fee, filled, average_price, close_entry=False
+        )
+        print(
+            f"KALSHI EXIT FILLED ticker={ticker} contracts={filled:.4f} "
+            f"price={average_price:.4f} fee={fee:.4f} "
+            f"client_order_id={client_id}",
+            flush=True,
+        )
         return fill
 
 
