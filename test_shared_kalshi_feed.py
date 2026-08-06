@@ -19,6 +19,7 @@ class SharedKalshiFeedTests(unittest.TestCase):
         with feed.STATE.lock:
             feed.STATE.markets = defaultdict(feed.FeedMarket)
             feed.STATE.requested.clear()
+            feed.STATE.requested_at.clear()
             feed.STATE.subscribed.clear()
 
     def test_ticker_normalizes_backtest_compatible_top_of_book(self):
@@ -78,6 +79,31 @@ class SharedKalshiFeedTests(unittest.TestCase):
         payload = feed.STATE.payload("TEST")
         self.assertIn("TEST", feed.STATE.requested)
         self.assertIsNone(payload["snapshot"])
+
+    def test_inactive_ticker_request_expires_but_active_request_renews(self):
+        with patch("shared_kalshi_feed.time.monotonic", return_value=100.0):
+            feed.STATE.request("OLD")
+            feed.STATE.request("ACTIVE")
+        with patch("shared_kalshi_feed.time.monotonic", return_value=350.0):
+            feed.STATE.request("ACTIVE")
+        with patch.dict(
+            "os.environ", {"KALSHI_FEED_TICKER_LEASE_SECONDS": "300"}
+        ):
+            expired = feed.STATE.prune_expired_requests(now=401.0)
+
+        self.assertEqual(expired, {"OLD"})
+        self.assertEqual(feed.STATE.requested, {"ACTIVE"})
+
+    def test_health_reports_current_requested_and_socket_subscription_counts(self):
+        feed.STATE.request("ACTIVE")
+        feed.STATE.subscribed.update({"ACTIVE", "EXPIRED_ON_SOCKET"})
+        feed.STATE.connected = True
+        handler = feed.Handler.__new__(feed.Handler)
+        handler.path = "/health"
+        with patch.object(handler, "_reply") as reply:
+            handler.do_GET()
+        self.assertEqual(reply.call_args.args[1]["requested_tickers"], 1)
+        self.assertEqual(reply.call_args.args[1]["subscribed_tickers"], 2)
 
     def test_market_endpoint_fails_closed_while_websocket_is_disconnected(self):
         feed._set_snapshot("TEST", .40, .42, 10, 10)

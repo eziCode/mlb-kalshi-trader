@@ -43,6 +43,7 @@ class FeedState:
         self.lock = threading.RLock()
         self.markets: dict[str, FeedMarket] = defaultdict(FeedMarket)
         self.requested: set[str] = set()
+        self.requested_at: dict[str, float] = {}
         self.subscribed: set[str] = set()
         self.connected = False
         self.loop: asyncio.AbstractEventLoop | None = None
@@ -52,8 +53,24 @@ class FeedState:
         with self.lock:
             is_new = ticker not in self.requested
             self.requested.add(ticker)
+            self.requested_at[ticker] = time.monotonic()
         if is_new and self.loop is not None and self.wakeup is not None:
             self.loop.call_soon_threadsafe(self.wakeup.set)
+
+    def prune_expired_requests(self, now: float | None = None) -> set[str]:
+        """Drop tickers that no worker has read within the lease window."""
+        cutoff = (now if now is not None else time.monotonic()) - float(
+            os.getenv("KALSHI_FEED_TICKER_LEASE_SECONDS", "300")
+        )
+        with self.lock:
+            expired = {
+                ticker for ticker in self.requested
+                if self.requested_at.get(ticker, 0.0) < cutoff
+            }
+            self.requested.difference_update(expired)
+            for ticker in expired:
+                self.requested_at.pop(ticker, None)
+        return expired
 
     def payload(self, ticker: str) -> dict:
         self.request(ticker)
@@ -233,9 +250,11 @@ async def websocket_loop() -> None:
                 with STATE.lock:
                     STATE.connected = True
                     STATE.subscribed.clear()
+                STATE.prune_expired_requests()
                 delay = 1.0
                 print("Kalshi shared WebSocket connected", flush=True)
                 while True:
+                    STATE.prune_expired_requests()
                     with STATE.lock:
                         pending = sorted(STATE.requested - STATE.subscribed)
                     if pending:
@@ -263,9 +282,18 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         path = urlparse(self.path).path
         if path == "/health":
+            STATE.prune_expired_requests()
+            with STATE.lock:
+                requested = len(STATE.requested)
+                subscribed = len(STATE.subscribed)
             self._reply(
                 200 if STATE.connected else 503,
-                {"ok": STATE.connected, "connected": STATE.connected},
+                {
+                    "ok": STATE.connected,
+                    "connected": STATE.connected,
+                    "requested_tickers": requested,
+                    "subscribed_tickers": subscribed,
+                },
             )
             return
         if path.startswith("/markets/"):
