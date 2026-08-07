@@ -46,6 +46,9 @@ from settlement_value_strategy.play_eligibility import (
 from live_trading.execution import (
     LiveExecutor, REAL_MONEY_ACK,
 )
+from live_trading.forked_worker import (
+    spawn_forked_worker, worker_lifecycle_line,
+)
 from live_trading.portfolio_reporting import format_live_portfolio_summary
 from live_trading.portfolio_paths import (
     hit_reversion_path, settlement_value_path,
@@ -1755,7 +1758,7 @@ async def run_worker() -> None:
 
 MAIN_LOG_ACTIONS = (
     "TRADER READY", "TRADE ", "Portfolio summary:",
-    "Settlement-value portfolio:",
+    "Settlement-value portfolio:", "Forked worker failed:", "Traceback ",
 )
 
 
@@ -1765,11 +1768,14 @@ def should_surface_worker_line(line: str) -> bool:
 
 def _relay(stream, handle, label: str) -> None:
     """Persist all worker detail, but surface only executions and settlement."""
-    for line in stream:
-        handle.write(line)
-        handle.flush()
-        if should_surface_worker_line(line):
-            print(f"[{label}] {line.rstrip()}", flush=True)
+    try:
+        for line in stream:
+            handle.write(line)
+            handle.flush()
+            if should_surface_worker_line(line):
+                print(f"[{label}] {line.rstrip()}", flush=True)
+    finally:
+        stream.close()
 
 
 def reconcile_final_positions(portfolio: SharedPaperPortfolio) -> int:
@@ -1857,6 +1863,14 @@ def run_all_games(game_date: date) -> int:
     maximum_restarts = int(os.getenv("PAPER_WORKER_MAX_RESTARTS", "10"))
     restart_delay = float(os.getenv("PAPER_WORKER_RESTART_DELAY", "2"))
 
+    def configured_worker() -> None:
+        global GAME_PK_TEXT, GAME_PK, MARKET_TICKER, AWAY_MARKET_TICKER
+        GAME_PK_TEXT = os.environ["MLB_GAME_PK"]
+        GAME_PK = int(GAME_PK_TEXT)
+        MARKET_TICKER = os.environ["KALSHI_MARKET_TICKER"]
+        AWAY_MARKET_TICKER = os.environ["KALSHI_AWAY_MARKET_TICKER"]
+        asyncio.run(run_worker())
+
     def start_worker(game: DiscoveredGame, restarted: bool = False):
         path = LOG_DIR / f"settlement_value_console_{game.market_ticker}.log"
         handle = path.open("a")
@@ -1878,23 +1892,36 @@ def run_all_games(game_date: date) -> int:
             "NUMEXPR_NUM_THREADS": "1",
             "VECLIB_MAXIMUM_THREADS": "1",
         })
-        process = subprocess.Popen(
-            [sys.executable, "-u", str(Path(__file__).resolve())],
-            cwd=REPOSITORY_ROOT, env=env, stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT, text=True, bufsize=1,
-        )
+        if restarted:
+            # Relay threads already exist after initial startup, so restarts
+            # use exec rather than forking a multithreaded coordinator.
+            process = subprocess.Popen(
+                [sys.executable, "-u", str(Path(__file__).resolve())],
+                cwd=REPOSITORY_ROOT, env=env, stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT, text=True, bufsize=1,
+            )
+        else:
+            process = spawn_forked_worker(configured_worker, env)
+        launcher = "exec_restart" if restarted else "fork_shared_imports"
+        handle.write(worker_lifecycle_line(
+            "RESTART" if restarted else "START",
+            strategy="settlement_value", pid=process.pid, launcher=launcher,
+            game_pk=game.game_pk, home_ticker=game.market_ticker,
+            away_ticker=game.away_market_ticker,
+        ) + "\n")
+        handle.flush()
         thread = threading.Thread(
             target=_relay, args=(process.stdout, handle,
                 f"{game.away_code}@{game.home_code} {game.market_ticker}"),
             daemon=True,
         )
-        thread.start()
         children[game.game_pk] = (game, process, handle, thread)
         action = "restarted" if restarted else "started"
         print(
             f"Trader {action}: {game.away_code}@{game.home_code} "
             f"game_pk={game.game_pk} home_ticker={game.market_ticker} "
             f"away_ticker={game.away_market_ticker} "
+            f"worker_pid={process.pid} launcher={launcher} "
             f"game_log={path}",
             flush=True,
         )
@@ -1902,6 +1929,9 @@ def run_all_games(game_date: date) -> int:
     try:
         for game in games:
             start_worker(game)
+        # Fork the entire initial slate before starting relay threads.
+        for _, _, _, thread in children.values():
+            thread.start()
         opening = portfolio.metrics()
         if LIVE_MODE:
             live_available_cash = LiveExecutor(
@@ -1924,6 +1954,19 @@ def run_all_games(game_date: date) -> int:
                 if code is None:
                     continue
                 thread.join(timeout=5)
+                launcher = (
+                    "fork_shared_imports"
+                    if restart_counts[game_pk] == 0 else "exec_restart"
+                )
+                lifecycle = worker_lifecycle_line(
+                    "EXIT", strategy="settlement_value", pid=process.pid,
+                    launcher=launcher, status=code, game_pk=game_pk,
+                    home_ticker=game.market_ticker,
+                    away_ticker=game.away_market_ticker,
+                )
+                handle.write(lifecycle + "\n")
+                handle.flush()
+                print(lifecycle, flush=True)
                 handle.close()
                 del children[game_pk]
                 if code == 0:
@@ -1931,13 +1974,14 @@ def run_all_games(game_date: date) -> int:
                 restart_counts[game_pk] += 1
                 attempt = restart_counts[game_pk]
                 print(
-                    f"Game {game_pk} exited with status {code}; "
-                    f"restart {attempt}/{maximum_restarts}",
-                    flush=True,
+                    f"WORKER RETRY strategy=settlement_value "
+                    f"game_pk={game_pk} home_ticker={game.market_ticker} "
+                    f"attempt={attempt}/{maximum_restarts}", flush=True,
                 )
                 if attempt <= maximum_restarts:
                     time.sleep(restart_delay)
                     start_worker(game, restarted=True)
+                    children[game_pk][3].start()
                 else:
                     return_code = code
             if children:

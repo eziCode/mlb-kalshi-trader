@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 from unittest.mock import AsyncMock, Mock, patch
+from io import StringIO
 from datetime import date
 from pathlib import Path
 import tempfile
@@ -73,6 +74,28 @@ class DeployedPolicyTests(unittest.TestCase):
 
 
 class PipelineTests(unittest.TestCase):
+    def test_worker_relay_persists_labels_and_closes_fork_pipe(self):
+        class Stream(list):
+            closed = False
+
+            def close(self):
+                self.closed = True
+
+        stream = Stream([
+            "diagnostic detail\n",
+            "TRADE BUY strategy=settlement_value side=YES\n",
+        ])
+        handle = StringIO()
+        with patch("builtins.print") as output:
+            live_paper_trader._relay(stream, handle, "A@B TICKER")
+
+        self.assertTrue(stream.closed)
+        self.assertIn("diagnostic detail", handle.getvalue())
+        output.assert_called_once_with(
+            "[A@B TICKER] TRADE BUY strategy=settlement_value side=YES",
+            flush=True,
+        )
+
     def test_live_stop_loss_allows_partial_visible_liquidity(self):
         now = pd.Timestamp("2026-07-01T12:02:00Z").to_pydatetime()
         position = PaperPosition(
@@ -534,6 +557,12 @@ class PipelineTests(unittest.TestCase):
         self.assertTrue(should_surface_worker_line("TRADER READY game_pk=1"))
         self.assertTrue(should_surface_worker_line(
             "TRADE BUY strategy=settlement_value side=NO"
+        ))
+        self.assertTrue(should_surface_worker_line(
+            "Forked worker failed: RuntimeError('boom')"
+        ))
+        self.assertTrue(should_surface_worker_line(
+            "Traceback (most recent call last):"
         ))
         self.assertFalse(should_surface_worker_line("INITIALIZE_LIVE_BASELINE"))
 

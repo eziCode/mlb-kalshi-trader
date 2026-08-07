@@ -3,6 +3,7 @@ from __future__ import annotations
 import inspect
 import unittest
 from unittest.mock import patch
+from io import StringIO
 from pathlib import Path
 import tempfile
 
@@ -20,6 +21,7 @@ from scripts.paper_trade import (
     LIVE_ORDER_BUDGET, Position, replay_candidate_entry, replay_position_exit,
     run_daily_coordinator, SharedPaperPortfolio, state_model_frame,
     main, should_surface_worker_line, ensure_decision_log_schema,
+    relay_worker_output,
     DECISION_LOG_COLUMNS,
 )
 from trade_tape_strategy.core import (
@@ -35,6 +37,28 @@ from trade_tape_strategy.reversion_value import ReversionValueModel
 
 
 class TradeTapeStrategyTests(unittest.TestCase):
+    def test_worker_relay_persists_labels_and_closes_fork_pipe(self):
+        class Stream(list):
+            closed = False
+
+            def close(self):
+                self.closed = True
+
+        stream = Stream([
+            "diagnostic detail\n",
+            "TRADE BUY strategy=hit_reversion side=YES\n",
+        ])
+        handle = StringIO()
+        with patch("builtins.print") as output:
+            relay_worker_output(stream, handle, "A@B", "TICKER")
+
+        self.assertTrue(stream.closed)
+        self.assertIn("diagnostic detail", handle.getvalue())
+        output.assert_called_once_with(
+            "[A@B TICKER] TRADE BUY strategy=hit_reversion side=YES",
+            flush=True,
+        )
+
     def test_paired_tape_uses_only_originating_market_liquidity(self):
         home = pd.DataFrame([{
             "game_pk": 1, "game_date": "2026-07-20", "home_win": 1,
@@ -726,6 +750,12 @@ class TradeTapeStrategyTests(unittest.TestCase):
         self.assertTrue(should_surface_worker_line("TRADER READY game_pk=1"))
         self.assertTrue(should_surface_worker_line(
             "TRADE SELL strategy=hit_reversion side=YES"
+        ))
+        self.assertTrue(should_surface_worker_line(
+            "Forked worker failed: RuntimeError('boom')"
+        ))
+        self.assertTrue(should_surface_worker_line(
+            "Traceback (most recent call last):"
         ))
         self.assertFalse(should_surface_worker_line("Initialized baseline"))
 

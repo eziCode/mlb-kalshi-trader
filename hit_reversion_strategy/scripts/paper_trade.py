@@ -51,6 +51,9 @@ from shared_mlb_feed import get_game as get_shared_game  # noqa: E402
 from live_trading.execution import (  # noqa: E402
     LiveExecutor, REAL_MONEY_ACK,
 )
+from live_trading.forked_worker import (  # noqa: E402
+    spawn_forked_worker, worker_lifecycle_line,
+)
 from live_trading.portfolio_reporting import format_live_portfolio_summary  # noqa: E402
 from live_trading.portfolio_paths import (  # noqa: E402
     hit_reversion_path, settlement_value_path,
@@ -574,7 +577,7 @@ class DiscoveredGame:
 
 MAIN_LOG_ACTIONS = (
     "TRADER READY", "TRADE ", "Portfolio summary:",
-    "Hit-reversion portfolio:",
+    "Hit-reversion portfolio:", "Forked worker failed:", "Traceback ",
 )
 
 
@@ -843,9 +846,15 @@ def run_daily_coordinator(game_date: date) -> int:
         if not portfolio_path.exists():
             starting_cash = live_available_cash
     portfolio = SharedPaperPortfolio(portfolio_path, starting_cash)
-    children: list[
-        tuple[DiscoveredGame, subprocess.Popen, object, threading.Thread]
-    ] = []
+    children = []
+
+    def configured_worker() -> None:
+        global GAME_PK_TEXT, GAME_PK, MARKET_TICKER, AWAY_MARKET_TICKER
+        GAME_PK_TEXT = os.environ["MLB_GAME_PK"]
+        GAME_PK = int(GAME_PK_TEXT)
+        MARKET_TICKER = os.environ["KALSHI_MARKET_TICKER"]
+        AWAY_MARKET_TICKER = os.environ["KALSHI_AWAY_MARKET_TICKER"]
+        asyncio.run(main())
     try:
         for game in games:
             console_path = log_dir / f"hit_reversion_console_{game.market_ticker}.log"
@@ -860,17 +869,14 @@ def run_daily_coordinator(game_date: date) -> int:
                 settlement_value_path(game_date, log_dir)
             )
             env["PYTHONUNBUFFERED"] = "1"
-            process = subprocess.Popen(
-                [sys.executable, "-u", str(Path(__file__).resolve())],
-                cwd=PROJECT_ROOT,
-                env=env,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                text=True,
-                bufsize=1,
-            )
-            if process.stdout is None:
-                raise RuntimeError("Failed to capture paper-trader output")
+            process = spawn_forked_worker(configured_worker, env)
+            handle.write(worker_lifecycle_line(
+                "START", strategy="hit_reversion", pid=process.pid,
+                launcher="fork_shared_imports", game_pk=game.game_pk,
+                home_ticker=game.market_ticker,
+                away_ticker=game.away_market_ticker,
+            ) + "\n")
+            handle.flush()
             relay = threading.Thread(
                 target=relay_worker_output,
                 args=(
@@ -879,14 +885,17 @@ def run_daily_coordinator(game_date: date) -> int:
                 ),
                 daemon=True,
             )
-            relay.start()
             children.append((game, process, handle, relay))
             print(
                 f"Trader started: {game.away_code}@{game.home_code} "
                 f"game_pk={game.game_pk} ticker={game.market_ticker} "
+                f"worker_pid={process.pid} launcher=fork_shared_imports "
                 f"game_log={console_path}",
                 flush=True,
             )
+        # Fork the entire slate before starting relay threads.
+        for _, _, _, relay in children:
+            relay.start()
         opening = portfolio.metrics()
         if show_slate:
             if LIVE_MODE:
@@ -903,12 +912,20 @@ def run_daily_coordinator(game_date: date) -> int:
                     f"shared cash=${opening.cash:.2f}."
                 )
         return_code = 0
-        for game, process, _, relay in children:
+        for game, process, handle, relay in children:
             code = process.wait()
             relay.join(timeout=5)
+            lifecycle = worker_lifecycle_line(
+                "EXIT", strategy="hit_reversion", pid=process.pid,
+                launcher="fork_shared_imports", status=code,
+                game_pk=game.game_pk, home_ticker=game.market_ticker,
+                away_ticker=game.away_market_ticker,
+            )
+            handle.write(lifecycle + "\n")
+            handle.flush()
+            print(lifecycle, flush=True)
             if code:
                 return_code = code
-                print(f"Game {game.game_pk} exited with status {code}")
         if show_slate:
             final = portfolio.metrics()
             print(
