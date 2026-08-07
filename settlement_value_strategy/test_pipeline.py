@@ -22,6 +22,7 @@ from settlement_value_strategy.live_paper_trader import (
     SharedPaperPortfolio, PaperPosition, MarketSnapshot, build_live_decision_row,
     conflicting_positions, consecutive_pitch, execution_within_window,
     reconcile_final_positions,
+    settle_final_game,
     pregame_probability_from_rating_state, replay_fill_from_observed_trades,
     should_surface_worker_line, stop_loss_positions, wait_for_pregame_anchor,
     discover_daily_games,
@@ -477,6 +478,37 @@ class PipelineTests(unittest.TestCase):
             metrics = portfolio.metrics()
             self.assertEqual(metrics.open_positions, 0)
             self.assertAlmostEqual(metrics.cash, 109.9)
+
+    def test_final_settlement_closes_live_entry_before_restart_recovery(self):
+        now = pd.Timestamp("2026-07-01T12:00:00Z").to_pydatetime()
+
+        class Ledger:
+            def __init__(self):
+                self.entries = [{"client_order_id": "live-entry"}]
+
+            def filled_for_game(self, game_pk):
+                return list(self.entries)
+
+            def close_entry(self, client_order_id):
+                self.entries = [
+                    entry for entry in self.entries
+                    if entry["client_order_id"] != client_order_id
+                ]
+
+        with tempfile.TemporaryDirectory() as directory:
+            portfolio = SharedPaperPortfolio(
+                Path(directory) / "paper.sqlite3", starting_cash=10,
+            )
+            position = PaperPosition(
+                "yes", 2, .50, .02, now, .60, "entry-trigger",
+            )
+            self.assertTrue(portfolio.open_position(123, "HOME", position))
+            executor = Mock(ledger=Ledger())
+
+            self.assertTrue(settle_final_game(portfolio, executor, 123, 2.0))
+            self.assertEqual(executor.ledger.filled_for_game(123), [])
+            self.assertFalse(settle_final_game(portfolio, executor, 123, 2.0))
+            self.assertAlmostEqual(portfolio.metrics().cash, 10.98)
 
     def test_sold_position_is_removed_and_net_proceeds_are_credited(self):
         now = pd.Timestamp("2026-07-01T12:00:00Z").to_pydatetime()

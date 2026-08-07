@@ -440,6 +440,19 @@ class SharedPaperPortfolio:
         )
 
 
+def settle_final_game(
+    portfolio: SharedPaperPortfolio, live_executor, game_pk: int, payout: float,
+) -> bool:
+    """Finalize a game once, including the live recovery ledger."""
+    if live_executor is not None:
+        # Close the durable live entries before deleting the shadow positions.
+        # If the worker then fails while reporting its summary, startup recovery
+        # must not recreate and settle those positions a second time.
+        for entry in live_executor.ledger.filled_for_game(game_pk):
+            live_executor.ledger.close_entry(str(entry["client_order_id"]))
+    return portfolio.settle(game_pk, payout)
+
+
 def _logit(value: float) -> float:
     value = min(max(float(value), 1e-4), 1 - 1e-4)
     return math.log(value / (1 - value))
@@ -1232,6 +1245,7 @@ async def run_worker() -> None:
         if game.status == "Final":
             if positions:
                 total_payout = 0.0
+                settlement_rows = []
                 for position in positions:
                     won = (
                         position.side == "yes"
@@ -1245,17 +1259,24 @@ async def run_worker() -> None:
                     )
                     payout = position.contracts if won else 0.0
                     total_payout += payout
-                    print(
-                        f"TRADE SETTLE strategy=settlement_value "
-                        f"side={position.side.upper()} "
-                        f"result={'WIN' if won else 'LOSS'} "
-                        f"contracts={position.contracts:.4f} "
-                        f"payout={payout:.4f} reason=GAME_FINAL "
-                        f"game_pk={GAME_PK} ticker="
-                        f"{AWAY_MARKET_TICKER if position.side == 'away_yes' else MARKET_TICKER}",
-                        flush=True,
-                    )
-                portfolio.settle(int(GAME_PK), total_payout)
+                    settlement_rows.append((position, won, payout))
+                if settle_final_game(
+                    portfolio, live_executor, int(GAME_PK), total_payout
+                ):
+                    for position, won, payout in settlement_rows:
+                        ticker = (
+                            AWAY_MARKET_TICKER
+                            if position.side == "away_yes" else MARKET_TICKER
+                        )
+                        print(
+                            f"TRADE SETTLE strategy=settlement_value "
+                            f"side={position.side.upper()} "
+                            f"result={'WIN' if won else 'LOSS'} "
+                            f"contracts={position.contracts:.4f} "
+                            f"payout={payout:.4f} reason=GAME_FINAL "
+                            f"game_pk={GAME_PK} ticker={ticker}",
+                            flush=True,
+                        )
             metrics = portfolio.metrics()
             print_portfolio_summary(live_executor, portfolio_path, metrics)
             return
