@@ -103,6 +103,11 @@ def main() -> None:
         )
         states = states.loc[~invalid_atomic].copy()
     decisions = build_mispricing_dataset(trades, states, MispricingConfig())
+    next_update = pd.to_datetime(decisions.next_update_time, utc=True)
+    signal = pd.to_datetime(decisions.signal_time, utc=True)
+    decisions = decisions[
+        next_update.isna() | signal.lt(next_update)
+    ].copy()
     compact = compact_execution_tape(decisions, trades)
     compact_away = compact_execution_tape(decisions, away_trades)
     args.output.mkdir(parents=True, exist_ok=True)

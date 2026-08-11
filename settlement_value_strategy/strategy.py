@@ -163,6 +163,7 @@ class MispricingConfig:
     execution_contract: str = "home_both"
     maximum_positions_per_game: int = 0  # Zero means unlimited.
     conditional_stacking: bool = True
+    allow_reversals: bool = False
     excluded_price_min: float = 0.0
     excluded_price_max: float = 0.0
     confirmation_taker_side: str = "compatible"
@@ -720,6 +721,8 @@ def simulate_paired_both(
                     if item["model_side"] == conflicting_side
                 ]
                 if conflicts:
+                    if not config.allow_reversals:
+                        continue
                     conflict_tape = tapes[conflicting_side]
                     if conflict_tape is None or conflict_tape.empty:
                         continue

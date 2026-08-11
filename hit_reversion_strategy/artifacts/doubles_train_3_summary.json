@@ -1,10 +1,10 @@
 {
   "evaluation_status": "reused_research_holdout_not_an_unbiased_forward_estimate",
   "holdout_start": "2026-06-28",
-  "holdout_end": "2026-08-09",
+  "holdout_end": "2026-07-23",
   "selected_config": {
     "enabled": true,
-    "minimum_edge": 0.05,
+    "minimum_edge": 0.125,
     "confirmation_seconds": 0.0,
     "maximum_pre_event_trade_age_seconds": 10.0,
     "maximum_event_to_entry_seconds": 20.0,
@@ -18,14 +18,7 @@
     "minimum_momentum_trades": 3,
     "minimum_seconds_between_entries": 60.0,
     "allowed_event_types": [
-      "single",
-      "triple",
-      "walk",
-      "intent_walk",
-      "hit_by_pitch",
-      "field_error",
-      "fielders_choice",
-      "catcher_interf"
+      "double"
     ],
     "maximum_hold_seconds": 240.0,
     "exit_target_mode": "dynamic",
@@ -47,8 +40,8 @@
     "maximum_entry_inning": 9
   },
   "deployment_config": {
-    "enabled": true,
-    "minimum_edge": 0.05,
+    "enabled": false,
+    "minimum_edge": 0.125,
     "confirmation_seconds": 0.0,
     "maximum_pre_event_trade_age_seconds": 10.0,
     "maximum_event_to_entry_seconds": 20.0,
@@ -62,14 +55,7 @@
     "minimum_momentum_trades": 3,
     "minimum_seconds_between_entries": 60.0,
     "allowed_event_types": [
-      "single",
-      "triple",
-      "walk",
-      "intent_walk",
-      "hit_by_pitch",
-      "field_error",
-      "fielders_choice",
-      "catcher_interf"
+      "double"
     ],
     "maximum_hold_seconds": 240.0,
     "exit_target_mode": "dynamic",
@@ -90,92 +76,42 @@
     "direct_value_model_enabled": false,
     "maximum_entry_inning": 9
   },
-  "games": 531,
-  "trade_tape_rows": 9935201,
-  "state_updates": 155500,
-  "observed_events": 9995,
-  "misaligned_event_updates": 315,
-  "eligible_hit_updates": 9059,
-  "rejected_fair_updates": 480,
-  "invalidated_candidates": 91,
-  "expired_candidates": 8101,
-  "fresh_hit_anchors": 8279,
-  "confirmed_signals": 438,
+  "games": 297,
+  "trade_tape_rows": 5293802,
+  "state_updates": 86977,
+  "observed_events": 888,
+  "misaligned_event_updates": 45,
+  "eligible_hit_updates": 809,
+  "rejected_fair_updates": 29,
+  "invalidated_candidates": 3,
+  "expired_candidates": 724,
+  "fresh_hit_anchors": 733,
+  "confirmed_signals": 8,
   "model_rejected_signals": 0,
-  "trades": 54,
-  "yes_trades": 31,
-  "no_trades": 23,
-  "reversion_exits": 32,
+  "trades": 5,
+  "yes_trades": 3,
+  "no_trades": 2,
+  "reversion_exits": 2,
   "momentum_exits": 0,
-  "timeout_exits": 16,
-  "settlements": 6,
-  "fees": 9.512299999999996,
-  "capital": 134.88419999999996,
-  "pnl": 13.473400000000002,
-  "net_ev_per_scheduled_game": 0.025373634651600755,
-  "roi": 0.0998886452230877,
-  "pnl_without_best_game": 9.993400000000001,
-  "pnl_without_top_four_games": 4.559300000000002,
+  "timeout_exits": 3,
+  "settlements": 0,
+  "fees": 1.058599999999998,
+  "capital": 12.4888,
+  "pnl": 0.031900000000001816,
+  "net_ev_per_scheduled_game": 0.00010740740740741352,
+  "roi": 0.0025542886426239363,
+  "pnl_without_best_game": -1.4532999999999983,
+  "pnl_without_top_four_games": -1.6005999999999991,
   "segment_results": {
-    "catcher_interf:yes": {
-      "trades": 1,
-      "pnl": 0.9939999999999991,
-      "wins": 1
-    },
-    "field_error:yes": {
-      "trades": 3,
-      "pnl": 0.8636000000000006,
-      "wins": 2
-    },
-    "fielders_choice:no": {
-      "trades": 1,
-      "pnl": 0.10749999999999948,
-      "wins": 1
-    },
-    "fielders_choice:yes": {
-      "trades": 3,
-      "pnl": 0.7577000000000003,
-      "wins": 3
-    },
-    "hit_by_pitch:no": {
-      "trades": 1,
-      "pnl": 0.23569999999999958,
-      "wins": 1
-    },
-    "hit_by_pitch:yes": {
-      "trades": 3,
-      "pnl": 0.5304999999999993,
-      "wins": 2
-    },
-    "single:no": {
-      "trades": 17,
-      "pnl": 0.2942000000000009,
-      "wins": 11
-    },
-    "single:yes": {
-      "trades": 14,
-      "pnl": 4.011500000000002,
-      "wins": 11
-    },
-    "triple:no": {
+    "double:no": {
       "trades": 2,
-      "pnl": 3.4800000000000004,
+      "pnl": 0.10490000000000088,
       "wins": 1
     },
-    "triple:yes": {
-      "trades": 2,
-      "pnl": -0.0360999999999998,
-      "wins": 1
-    },
-    "walk:no": {
-      "trades": 2,
-      "pnl": 1.0955000000000004,
+    "double:yes": {
+      "trades": 3,
+      "pnl": -0.07299999999999929,
       "wins": 2
-    },
-    "walk:yes": {
-      "trades": 5,
-      "pnl": 1.1393000000000004,
-      "wins": 3
     }
   },
   "time_based_exit": true,

@@ -1,14 +1,14 @@
 # Settlement-value strategy
 
-This strategy predicts the causal short-horizon market repricing after a safely
-observed pitch transition, anchors that residual to the current Kalshi price,
-and buys only when the resulting probability remains sufficiently far from the
-executable price after fees. The deployed policy normally holds positions to
-game settlement; early exits are currently disabled.
+This strategy estimates final game settlement probability after a safely
+observed pitch transition and buys only when that probability remains far
+enough from the executable price after fees. Positions normally remain open to
+game settlement; early exits are disabled.
 
-The folder was formerly named `mispricing_strategy`. The current deployed model
-is a latency-residual regressor rather than the legacy unrestricted binary
-winner classifier retained for research compatibility.
+The folder was formerly named `mispricing_strategy`. The deployed probability
+is the local state model's final-outcome estimate. The former latency-residual
+regressor remains available for research but is not deployed because most of
+its target horizon elapsed before executable entry.
 
 ## Strategy thesis
 
@@ -68,29 +68,23 @@ Event names such as single, walk, strikeout, or home run are deliberately not
 features. The contract is event-agnostic and represents the observable state
 transition instead.
 
-The deployed CatBoost regressor predicts the home market's causal 3-10 second
-log-odds move. That bounded residual is added to the signal-time market logit;
-the legacy settlement classifier and its probability calibration are not used
-by the live policy.
+The deployed policy compares the local state model's home-win probability
+directly with executable contract prices, matching the prediction target to
+the settlement holding period.
 
 ## Entry, fill, and settlement
 
-The paper deployment uses the market-anchored latency model in
-`model/live_config.json`.  It predicts the causal 3-10 second post-pitch market
-log-odds move and adds that bounded residual to the observed market logit.  It
-does not use the legacy unrestricted winner classifier as an absolute fair
-probability.  Retrain it with:
+The paper deployment uses `local_state_probability` in
+`model/live_config.json`. It requires at least a ten-point executable edge and
+rejects fills below 50 cents. Retrain the local state model with:
 
 ```bash
-python -m settlement_value_strategy.train_latency
+python -m settlement_value_strategy.train_local_state_model --train-end YYYY-MM-DD
 ```
 
 The walk-forward research harness is
-`python -m settlement_value_strategy.research_latency`. The checked-in latency
-configuration is enabled and records `tuning_passed` and `validation_passed`
-as true. Executions from 45 through 55 cents are excluded because this
-maximum-fee/maximum-uncertainty band was negative in pre-final walk-forward
-results. Real-money execution still requires the independent
+`python -m settlement_value_strategy.research_latency`. The latency model is
+retained only as a comparison baseline. Real-money execution still requires the independent
 `LIVE_TRADING_ENABLED` acknowledgement and account-level capital limits.
 
 For a fixed dollar stake, the strategy computes expected PnL after Kalshi’s
@@ -262,12 +256,8 @@ docker build -t mlb-kalshi-trader .
 docker run --rm mlb-kalshi-trader mispricing backtest
 ```
 
-The deployed policy is now the market-anchored latency-residual model in
-`model/live_config.json`, not the legacy settlement classifier in
-`model/config.json`. The saved expanding-window replay contains 1,071 fills
-across 1,440 games, producing $201.83 net PnL and 8.74% ROI at the live $2.50
-budget. Its July 18-22 final fold has 41 fills, $25.12 net PnL, and 27.62% ROI;
-removing its four best games leaves $2.80. This short final period is promising
-but not sufficient by itself to establish durable profitability. Additional
-same-side positions are allowed only when both probability and expected return
-improve.
+The deployed policy is `local_state_probability` in `model/live_config.json`.
+Its post-training June 18-August 9 causal replay contains 571 fills and produces
+$44.65 net PnL on $1,319.01 deployed capital (3.39% ROI); removing its four best
+games leaves $26.11. Additional same-side positions are allowed only when both
+probability and expected return improve.

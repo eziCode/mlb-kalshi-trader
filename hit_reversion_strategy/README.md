@@ -32,15 +32,14 @@ candidate or position is active.
 
 1. Observe a newly completed plate appearance from the authoritative MLB feed.
 2. Continue only for an event type listed in the loaded configuration. The
-   checked-in policy includes singles, doubles, triples, walks, intentional
+   checked-in policy includes singles, triples, walks, intentional
    walks, hit-by-pitches, field errors, fielder's choices, and catcher
    interference; home runs are excluded.
 3. Compute the directional fair-value move for the batting team.
 4. Anchor to a fresh Kalshi execution observed before the event.
 5. Compare the anchored target with exact subsequent Kalshi executions.
-6. Start watching the side whose residual exceeds the configured edge and
-   require the direct realized-value model to accept every entry. Large raw
-   residuals never bypass the learned value gate.
+6. Start watching the side whose fee-adjusted residual exceeds the configured
+   edge. The stale direct realized-value model is disabled.
 7. Require that side to persist through the confirmation interval.
 8. Expire the candidate after the entry deadline or invalidate it on the next
    pitch/material state transition.
@@ -66,18 +65,17 @@ incremental fair move; it is not itself the trading policy.
 ## Entry and execution assumptions
 
 The backtest uses executed trades, not reconstructed quotes. Its fill contract
-is configurable: stricter policies can require a later execution on the
-compatible taker side with enough reported size, while the checked-in policy
-allows the latest observable trade and does not require compatible taker
-direction. The simulator remains a fill proxy rather than a historical
-order-book reconstruction.
+requires a later execution on the compatible taker side after the measured
+0.68-second submission latency, with enough reported size. The simulator
+remains a fill proxy rather than a historical order-book reconstruction.
 
 The checked-in deployment policy currently uses:
 
 - the configured event types listed above;
 - both YES- and NO-side residuals, with paired away-YES execution for NO;
-- a direct reversion-value model in addition to the target residual;
-- a one-point minimum edge with no confirmation delay;
+- no direct reversion-value model; its causal retraining failed the forward
+  deployment gate;
+- a five-point minimum fee-adjusted edge with no confirmation delay;
 - fixed-budget sizing of $2.50 per entry;
 - unlimited positions per game, with at least 60 seconds between entries;
 - ten-second maximum pre-event anchor age;

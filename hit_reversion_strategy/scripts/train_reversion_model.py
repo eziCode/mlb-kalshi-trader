@@ -27,7 +27,6 @@ if str(PROJECT) not in sys.path:
 
 from scripts.backtest import (  # noqa: E402
     AWAY_TRADE_COLUMNS,
-    OUTER_HOLDOUT_START,
     STATE_COLUMNS,
     TRADE_COLUMNS,
     apply_live_paired_execution_prices,
@@ -49,6 +48,9 @@ METADATA_PATH = PROJECT / "models/reversion_value.metadata.json"
 LATENCY_PROFILE_PATH = PROJECT / "models/event_observation_latency.json"
 OPPORTUNITY_EDGE = 0.01
 MINIMUM_DEPLOYMENT_ROI = 0.015
+FORWARD_START = pd.Timestamp("2026-07-24").date()
+ENTRY_SUBMISSION_LATENCY_SECONDS = 0.68
+EXIT_SUBMISSION_LATENCY_SECONDS = 0.68
 
 CATEGORICAL_FEATURES = ("event_type", "side")
 NUMERIC_FEATURES = (
@@ -86,6 +88,10 @@ def build_opportunities(
         minimum_edge=OPPORTUNITY_EDGE,
         minimum_seconds_between_entries=0.0,
         direct_value_model_enabled=False,
+        require_compatible_taker=True,
+        require_post_signal_trade=True,
+        entry_submission_latency_seconds=ENTRY_SUBMISSION_LATENCY_SECONDS,
+        exit_submission_latency_seconds=EXIT_SUBMISSION_LATENCY_SECONDS,
     )
     result = simulate_trade_tape(paired, delayed_updates, permissive)
     records = pd.DataFrame(asdict(record) for record in result.records)
@@ -170,7 +176,9 @@ def pool(frame: pd.DataFrame, label: bool = True) -> Pool:
 
 
 def metrics(frame: pd.DataFrame) -> dict:
-    capital = float((frame.contracts * frame.entry_price).sum())
+    capital = float((
+        frame.contracts * frame.entry_price + frame.fees
+    ).sum())
     game_pnl = frame.groupby("game_pk").pnl.sum()
     return {
         "games": int(frame.game_pk.nunique()),
@@ -198,8 +206,11 @@ def main() -> None:
     for frame in (trades, away, updates):
         frame["game_date"] = pd.to_datetime(frame.game_date).dt.date
 
-    pre = trades[trades.game_date < OUTER_HOLDOUT_START].copy()
-    holdout = trades[trades.game_date >= OUTER_HOLDOUT_START].copy()
+    # July 24 onward was never used by the original model and is retained as
+    # the final forward gate.  Model fitting and threshold selection happen
+    # strictly before it.
+    pre = trades[trades.game_date < FORWARD_START].copy()
+    holdout = trades[trades.game_date >= FORWARD_START].copy()
     pre_game_dates = pre[["game_pk", "game_date"]].drop_duplicates()
     holdout_games = int(holdout.game_pk.nunique())
     pre_rows = build_opportunities(pre, away, updates, config)
@@ -228,18 +239,28 @@ def main() -> None:
         .game_pk.nunique()
     )
     for threshold in thresholds:
-        selected = validation[
-            validation.prediction >= threshold
-        ]
-        item = metrics(selected)
-        item["threshold"] = float(threshold)
-        item["trades_per_game"] = item["trades"] / validation_games
-        if (
-            item["trades"] >= 30
-            and item["roi"] >= MINIMUM_DEPLOYMENT_ROI
-            and item["pnl_without_best_game"] > 0
-        ):
-            candidates.append(item)
+        for minimum_entry_net_edge in (0.01, 0.03, 0.05, 0.075):
+            for exclude_doubles in (False, True):
+                mask = (
+                    (validation.prediction >= threshold)
+                    & (validation.entry_net_edge >= minimum_entry_net_edge)
+                )
+                if exclude_doubles:
+                    mask &= validation.event_type.ne("double")
+                chosen = validation[mask]
+                item = metrics(chosen)
+                item.update({
+                    "threshold": float(threshold),
+                    "minimum_entry_net_edge": minimum_entry_net_edge,
+                    "excluded_event_types": ["double"] if exclude_doubles else [],
+                    "trades_per_game": len(chosen) / validation_games,
+                })
+                if (
+                    item["trades"] >= 30
+                    and item["roi"] >= MINIMUM_DEPLOYMENT_ROI
+                    and item["pnl_without_best_game"] > 0
+                ):
+                    candidates.append(item)
     if not candidates:
         raise RuntimeError("No direct-model threshold passed validation gates")
     # The production objective is dollars per scheduled game, not activity.
@@ -249,9 +270,12 @@ def main() -> None:
     selected = max(candidates, key=lambda row: (row["pnl"], row["roi"]))
 
     holdout_rows["prediction"] = model.predict(pool(holdout_rows, label=False))
-    holdout_selected = holdout_rows[
-        holdout_rows.prediction >= selected["threshold"]
-    ]
+    holdout_mask = (
+        (holdout_rows.prediction >= selected["threshold"])
+        & (holdout_rows.entry_net_edge >= selected["minimum_entry_net_edge"])
+        & ~holdout_rows.event_type.isin(selected["excluded_event_types"])
+    )
+    holdout_selected = holdout_rows[holdout_mask]
     holdout_metrics = metrics(holdout_selected)
     holdout_metrics["trades_per_game"] = (
         holdout_metrics["trades"] / holdout_games
@@ -262,12 +286,13 @@ def main() -> None:
         and holdout_metrics["pnl_without_best_game"] > 0
     )
     metadata = {
-        "evaluation_status": (
-            "reused_research_holdout_not_an_unbiased_forward_estimate"
-        ),
+        "evaluation_status": "chronological_recent_forward_gate",
         "model_features": list(MODEL_FEATURES),
         "categorical_features": list(CATEGORICAL_FEATURES),
         "opportunity_edge": OPPORTUNITY_EDGE,
+        "entry_submission_latency_seconds": ENTRY_SUBMISSION_LATENCY_SECONDS,
+        "exit_submission_latency_seconds": EXIT_SUBMISSION_LATENCY_SECONDS,
+        "forward_start": str(FORWARD_START),
         "entry_gate": "direct_value_model_required_for_every_entry",
         "policy_config_sha256": hashlib.sha256(
             CONFIG_PATH.read_bytes()
@@ -282,6 +307,8 @@ def main() -> None:
         "validation_rows": len(validation),
         "holdout_rows": len(holdout_rows),
         "prediction_threshold": selected["threshold"],
+        "minimum_entry_net_edge": selected["minimum_entry_net_edge"],
+        "excluded_event_types": selected["excluded_event_types"],
         "validation": selected,
         "holdout": holdout_metrics,
         "deployable": deployable,
@@ -296,8 +323,14 @@ def main() -> None:
         temporary_model.read_bytes()
     ).hexdigest()
     temporary_metadata.write_text(json.dumps(metadata, indent=2))
-    temporary_model.replace(MODEL_PATH)
-    temporary_metadata.replace(METADATA_PATH)
+    if deployable:
+        temporary_model.replace(MODEL_PATH)
+        temporary_metadata.replace(METADATA_PATH)
+    else:
+        temporary_model.replace(MODEL_PATH.with_name("reversion_value.candidate.cbm"))
+        temporary_metadata.replace(METADATA_PATH.with_name(
+            "reversion_value.candidate.metadata.json"
+        ))
     print(json.dumps(metadata, indent=2))
 
 

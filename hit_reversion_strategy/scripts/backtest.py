@@ -87,6 +87,19 @@ def parse_args() -> argparse.Namespace:
         "--exit-submission-latency", type=float, default=0.68,
         help="Modeled live exit submission latency in seconds (default: 0.68).",
     )
+    parser.add_argument("--minimum-edge", type=float)
+    parser.add_argument(
+        "--exclude-event-type", action="append", default=[],
+        help="Event type to exclude; may be repeated.",
+    )
+    parser.add_argument(
+        "--only-event-type", action="append", default=[],
+        help="Restrict replay to these event types; may be repeated.",
+    )
+    parser.add_argument(
+        "--direct-value-model", action=argparse.BooleanOptionalAction,
+        default=None,
+    )
     args = parser.parse_args()
     args.start_date = args.start_date.date()
     if args.end_date is not None:
@@ -97,6 +110,8 @@ def parse_args() -> argparse.Namespace:
         parser.error("--output-prefix must be a filename prefix, not a path")
     if args.entry_submission_latency < 0 or args.exit_submission_latency < 0:
         parser.error("submission latencies must be nonnegative")
+    if args.minimum_edge is not None and args.minimum_edge < 0:
+        parser.error("--minimum-edge must be nonnegative")
     return args
 
 
@@ -224,6 +239,26 @@ def main() -> None:
             require_post_signal_trade=True,
             entry_submission_latency_seconds=args.entry_submission_latency,
             exit_submission_latency_seconds=args.exit_submission_latency,
+        )
+    if args.minimum_edge is not None:
+        config = replace(config, minimum_edge=args.minimum_edge)
+    if args.exclude_event_type:
+        excluded = set(args.exclude_event_type)
+        config = replace(
+            config,
+            allowed_event_types=[
+                event for event in config.allowed_event_types
+                if event not in excluded
+            ],
+        )
+    if args.only_event_type:
+        config = replace(
+            config,
+            allowed_event_types=list(dict.fromkeys(args.only_event_type)),
+        )
+    if args.direct_value_model is not None:
+        config = replace(
+            config, direct_value_model_enabled=args.direct_value_model
         )
     trades = pd.read_parquet(
         DATA_DIR / "home_market_trades.parquet", columns=TRADE_COLUMNS
