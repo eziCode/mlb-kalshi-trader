@@ -31,6 +31,7 @@ class TradeTapeConfig:
     allowed_event_types: tuple[str, ...] = ("single", "double", "triple")
     maximum_hold_seconds: float = 0.0
     exit_target_mode: str = "dynamic"
+    reversion_capture_fraction: float = 1.0
     latch_reversion_exit: bool = False
     minimum_reversion_move: float = 0.0
     side_filter: str = "both"
@@ -267,14 +268,26 @@ def event_target(
     return float(1.0 / (1.0 + np.exp(-(market_logit + move))))
 
 
-def _position_exit_target(
+def position_exit_target(
     position: TapePosition, current_fair: float, config: TradeTapeConfig,
 ) -> float:
     if config.exit_target_mode == "frozen":
-        return float(position.anchor_target)
-    if config.exit_target_mode == "dynamic":
-        return _dynamic_target(position, current_fair)
-    raise ValueError(f"Unknown exit_target_mode: {config.exit_target_mode}")
+        full_target = float(position.anchor_target)
+    elif config.exit_target_mode == "dynamic":
+        full_target = _dynamic_target(position, current_fair)
+    else:
+        raise ValueError(f"Unknown exit_target_mode: {config.exit_target_mode}")
+    fraction = float(config.reversion_capture_fraction)
+    if not 0 < fraction <= 1:
+        raise ValueError("reversion_capture_fraction must be in (0, 1]")
+    if position.side == "yes":
+        return float(position.entry_price + fraction * (
+            full_target - position.entry_price
+        ))
+    full_no_target = 1.0 - full_target
+    return float(1.0 - (
+        position.entry_price + fraction * (full_no_target - position.entry_price)
+    ))
 
 
 def _ns_to_timestamp(value: int | None) -> pd.Timestamp | None:
@@ -567,7 +580,7 @@ def simulate_trade_tape(
 
             closed_positions: list[TapePosition] = []
             for position in positions:
-                target = _position_exit_target(position, current_fair, config)
+                target = position_exit_target(position, current_fair, config)
                 held_price = yes_price if position.side == "yes" else no_price
                 if not np.isfinite(held_price):
                     if (

@@ -57,6 +57,7 @@ LATENCY_PROFILE_PATH = MODEL_DIR / "event_observation_latency.json"
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--data-dir", type=Path, default=DATA_DIR)
     parser.add_argument(
         "--start-date", type=pd.Timestamp,
         default=pd.Timestamp(OUTER_HOLDOUT_START),
@@ -88,6 +89,9 @@ def parse_args() -> argparse.Namespace:
         help="Modeled live exit submission latency in seconds (default: 0.68).",
     )
     parser.add_argument("--minimum-edge", type=float)
+    parser.add_argument("--maximum-event-to-entry-seconds", type=float)
+    parser.add_argument("--minimum-seconds-between-entries", type=float)
+    parser.add_argument("--reversion-capture-fraction", type=float)
     parser.add_argument(
         "--exclude-event-type", action="append", default=[],
         help="Event type to exclude; may be repeated.",
@@ -112,6 +116,21 @@ def parse_args() -> argparse.Namespace:
         parser.error("submission latencies must be nonnegative")
     if args.minimum_edge is not None and args.minimum_edge < 0:
         parser.error("--minimum-edge must be nonnegative")
+    if (
+        args.maximum_event_to_entry_seconds is not None
+        and args.maximum_event_to_entry_seconds <= 0
+    ):
+        parser.error("--maximum-event-to-entry-seconds must be positive")
+    if (
+        args.minimum_seconds_between_entries is not None
+        and args.minimum_seconds_between_entries < 0
+    ):
+        parser.error("--minimum-seconds-between-entries must be nonnegative")
+    if (
+        args.reversion_capture_fraction is not None
+        and not 0 < args.reversion_capture_fraction <= 1
+    ):
+        parser.error("--reversion-capture-fraction must be in (0, 1]")
     return args
 
 
@@ -242,6 +261,23 @@ def main() -> None:
         )
     if args.minimum_edge is not None:
         config = replace(config, minimum_edge=args.minimum_edge)
+    if args.maximum_event_to_entry_seconds is not None:
+        config = replace(
+            config,
+            maximum_event_to_entry_seconds=args.maximum_event_to_entry_seconds,
+        )
+    if args.minimum_seconds_between_entries is not None:
+        config = replace(
+            config,
+            minimum_seconds_between_entries=(
+                args.minimum_seconds_between_entries
+            ),
+        )
+    if args.reversion_capture_fraction is not None:
+        config = replace(
+            config,
+            reversion_capture_fraction=args.reversion_capture_fraction,
+        )
     if args.exclude_event_type:
         excluded = set(args.exclude_event_type)
         config = replace(
@@ -261,12 +297,14 @@ def main() -> None:
             config, direct_value_model_enabled=args.direct_value_model
         )
     trades = pd.read_parquet(
-        DATA_DIR / "home_market_trades.parquet", columns=TRADE_COLUMNS
+        args.data_dir / "home_market_trades.parquet", columns=TRADE_COLUMNS
     )
     away_trades = pd.read_parquet(
-        DATA_DIR / "away_market_trades.parquet", columns=AWAY_TRADE_COLUMNS
+        args.data_dir / "away_market_trades.parquet", columns=AWAY_TRADE_COLUMNS
     )
-    updates = pd.read_parquet(STATE_UPDATES_PATH, columns=STATE_COLUMNS)
+    updates = pd.read_parquet(
+        args.data_dir / "state_updates.parquet", columns=STATE_COLUMNS
+    )
     trades["game_date"] = pd.to_datetime(trades["game_date"]).dt.date
     away_trades["game_date"] = pd.to_datetime(away_trades["game_date"]).dt.date
     updates["game_date"] = pd.to_datetime(updates["game_date"]).dt.date

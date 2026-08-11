@@ -36,7 +36,7 @@ if str(REPOSITORY_ROOT) not in sys.path:
 from trade_tape_strategy.hybrid import anchored_event_target  # noqa: E402
 from trade_tape_strategy.core import (  # noqa: E402
     TradeTapeConfig, position_contracts, segmented_trade_signal,
-    segment_value, event_target,
+    segment_value, event_target, position_exit_target,
 )
 from trade_tape_strategy.strategy import (  # noqa: E402
     CONFIG,
@@ -113,6 +113,7 @@ DECISION_LOG_COLUMNS = [
     "continuation_value", "exit_advantage", "action", "portfolio_cash",
     "portfolio_equity", "portfolio_pnl", "portfolio_open_positions",
     "predicted_pnl_per_contract", "model_prediction_threshold",
+    "away_bid", "away_ask",
 ]
 
 
@@ -1368,13 +1369,7 @@ def replay_position_exit(
     config = config or TradeTapeConfig()
     if trades.empty:
         return None, pending_exit, scanned_after or position.entry_time
-    target = (
-        float(position.anchor_target)
-        if config.exit_target_mode == "frozen"
-        else float(anchored_event_target(
-            position.anchor_target, position.anchor_fair, current_fair
-        ))
-    )
+    target = position_exit_target(position, current_fair, config)
     paired_away_yes = bool(
         position.side == "no"
         and position.market_ticker
@@ -2289,9 +2284,11 @@ async def main() -> None:
                 metrics.open_positions,
                 predicted_pnl_per_contract,
                 value_model.threshold if value_model is not None else None,
+                away_market.bid, away_market.ask,
             ])
         print(
             f"{now.time()} {market.bid:.2f}/{market.ask:.2f} "
+            f"away={away_market.bid:.2f}/{away_market.ask:.2f} "
             f"fair={fair_prob:.1%} target={target:.1%} "
             f"edge={edge:+.1%} {action} "
             f"portfolio=${metrics.equity:.2f} pnl=${metrics.pnl:+.2f}"
