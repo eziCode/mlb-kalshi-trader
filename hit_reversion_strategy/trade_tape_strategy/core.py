@@ -51,6 +51,7 @@ class TradeTapeConfig:
     fair_log_odds_shrinkage: float = 1.0
     maximum_event_log_odds_move: float = 100.0
     direct_value_model_enabled: bool = False
+    competing_risks_enabled: bool = False
     maximum_entry_inning: int | None = None
     maximum_outs_after_by_event: dict[str, int] = field(default_factory=dict)
 
@@ -798,8 +799,10 @@ def simulate_trade_tape(
                         trade_ns, entry_scorer,
                     ):
                         result.model_rejected_signals += 1
+                        candidate = pending_entry.candidate
+                        candidate.watch_side = None
+                        candidate.watch_started_ns = None
                         pending_entry = None
-                        candidate = None
                         continue
                     contracts = position_contracts(entry_price, config)
                     available_size = (
@@ -913,6 +916,15 @@ def simulate_trade_tape(
                         config.confirmation_seconds,
                     )
                     if confirmation_seconds <= 0:
+                        entry_price = yes_price if side == "yes" else no_price
+                        if not _direct_model_accepts(
+                            candidate, side, entry_price, trade_ns,
+                            entry_scorer,
+                        ):
+                            result.model_rejected_signals += 1
+                            candidate.watch_side = None
+                            candidate.watch_started_ns = None
+                            continue
                         result.confirmed_signals += 1
                         pending_entry = PendingEntry(
                             candidate, side, trade_ns, yes_price

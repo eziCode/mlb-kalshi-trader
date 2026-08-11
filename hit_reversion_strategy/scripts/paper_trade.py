@@ -45,7 +45,7 @@ from trade_tape_strategy.strategy import (  # noqa: E402
     taker_fee,
 )
 from trade_tape_strategy.reversion_value import (  # noqa: E402
-    ReversionValueModel, reversion_feature_row,
+    CompetingRisksModel, ReversionValueModel, reversion_feature_row,
 )
 from shared_kalshi_feed import get_market as get_shared_market  # noqa: E402
 from shared_mlb_feed import get_game as get_shared_game  # noqa: E402
@@ -1689,6 +1689,11 @@ async def main() -> None:
     state_model.load_model(STATE_MODEL_PATH)
     hybrid_config = TradeTapeConfig(**json.loads(HYBRID_CONFIG_PATH.read_text()))
     value_model = (
+        CompetingRisksModel(
+            REVERSION_MODEL_PATH.parent,
+            REVERSION_MODEL_PATH.parent / "competing_risks.metadata.json",
+        )
+        if hybrid_config.competing_risks_enabled else
         ReversionValueModel(
             REVERSION_MODEL_PATH, REVERSION_METADATA_PATH,
             HYBRID_CONFIG_PATH, LATENCY_PROFILE_PATH,
@@ -2117,7 +2122,8 @@ async def main() -> None:
                                 f"net_edge={features['entry_net_edge']:.6f}",
                                 flush=True,
                             )
-                            proposed_candidate = None
+                            # Keep the causal event alive: a later executable
+                            # price can pass the model inside the same window.
                     candidate = proposed_candidate
                     if candidate is not None:
                         action = (
@@ -2178,7 +2184,6 @@ async def main() -> None:
                             predicted_pnl_per_contract = prediction
                             if not accepted:
                                 action = "LIVE_SKIP_DIRECT_VALUE_MODEL"
-                                candidate = None
                                 continue
                         contract_target = (
                             target if candidate.side == "yes" else 1.0 - target

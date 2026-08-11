@@ -1,0 +1,163 @@
+{
+  "method": "competing-risks ensemble lower-bound expansion sleeve",
+  "fit_end_exclusive": "2026-06-01",
+  "validation_end_exclusive": "2026-06-28",
+  "development_end_exclusive": "2026-07-24",
+  "features": [
+    "event_type",
+    "inning",
+    "outs",
+    "contract_score_diff",
+    "batting_is_contract_side",
+    "runner_on_first",
+    "runner_on_second",
+    "runner_on_third",
+    "contract_fair_before",
+    "contract_fair_after",
+    "batting_fair_move",
+    "side_fair_move",
+    "entry_price",
+    "target_price",
+    "entry_net_edge",
+    "market_move_since_pitch",
+    "event_detection_latency_seconds",
+    "entry_lag_seconds"
+  ],
+  "outcomes": [
+    "fast_reversion",
+    "slow_reversion",
+    "timeout",
+    "settlement"
+  ],
+  "fit_rows": 1409,
+  "fit_outcomes": {
+    "slow_reversion": 657,
+    "timeout": 567,
+    "fast_reversion": 130,
+    "settlement": 55
+  },
+  "periods": {
+    "validation": {
+      "baseline": {
+        "trades": 99,
+        "trades_per_game": 0.28285714285714286,
+        "pnl": 8.42980000000001,
+        "capital": 225.9983,
+        "roi": 0.037300280577331826,
+        "pnl_without_top_four_games": -0.15479999999998917
+      },
+      "sleeve": {
+        "trades": 235,
+        "trades_per_game": 0.6714285714285714,
+        "pnl": 12.414900000000026,
+        "capital": 531.9113,
+        "roi": 0.02334016968618645,
+        "pnl_without_top_four_games": 0.7975000000000243
+      }
+    },
+    "development": {
+      "baseline": {
+        "trades": 47,
+        "trades_per_game": 0.15824915824915825,
+        "pnl": 15.746000000000004,
+        "capital": 100.42449999999998,
+        "roi": 0.15679440773914738,
+        "pnl_without_top_four_games": 6.563400000000003
+      },
+      "sleeve": {
+        "trades": 144,
+        "trades_per_game": 0.48484848484848486,
+        "pnl": 26.498700000000014,
+        "capital": 312.2288,
+        "roi": 0.08486949314092747,
+        "pnl_without_top_four_games": 13.656400000000014
+      }
+    },
+    "forward": {
+      "baseline": {
+        "trades": 34,
+        "trades_per_game": 0.1452991452991453,
+        "pnl": 3.119500000000004,
+        "capital": 79.11309999999999,
+        "roi": 0.03943089071215771,
+        "pnl_without_top_four_games": -3.9378999999999946
+      },
+      "sleeve": {
+        "trades": 117,
+        "trades_per_game": 0.5,
+        "pnl": 3.868900000000012,
+        "capital": 263.0014,
+        "roi": 0.014710568080626233,
+        "pnl_without_top_four_games": -4.405999999999988
+      }
+    }
+  },
+  "combined_evaluation": {
+    "baseline": {
+      "trades": 81,
+      "trades_per_game": 0.15254237288135594,
+      "pnl": 18.865500000000008,
+      "capital": 179.5376,
+      "roi": 0.10507826772776292,
+      "pnl_without_top_four_games": 7.901800000000007
+    },
+    "sleeve": {
+      "trades": 261,
+      "trades_per_game": 0.4915254237288136,
+      "pnl": 30.36760000000003,
+      "capital": 575.2302,
+      "roi": 0.052792082195962646,
+      "pnl_without_top_four_games": 16.33270000000003
+    }
+  },
+  "gates": {
+    "adds_trades": true,
+    "adds_pnl": true,
+    "roi_at_least_five_percent": true,
+    "validation_positive": true,
+    "both_evaluation_periods_positive": true,
+    "concentration_positive": true
+  },
+  "integrated_replay": {
+    "development": {
+      "trades": 152,
+      "trades_per_game": 0.5117845117845118,
+      "pnl": 24.341500000000014,
+      "capital": 330.419,
+      "roi": 0.07366858443370392,
+      "pnl_without_top_four_games": 11.499200000000014,
+      "confirmed_signals": 761,
+      "model_rejected_signals": 7987
+    },
+    "forward": {
+      "trades": 123,
+      "trades_per_game": 0.5256410256410257,
+      "pnl": 6.232100000000015,
+      "capital": 275.5075,
+      "roi": 0.02262043683021339,
+      "pnl_without_top_four_games": -2.0427999999999855,
+      "confirmed_signals": 582,
+      "model_rejected_signals": 6383
+    },
+    "combined": {
+      "trades": 275,
+      "games": 531,
+      "pnl": 30.573600000000027,
+      "capital": 605.9265,
+      "trades_per_game": 0.5178907721280602,
+      "roi": 0.05045760500654787
+    }
+  },
+  "exact_baseline_reference": {
+    "trades": 105,
+    "pnl": 22.75,
+    "trades_per_game": 0.1977401129943503
+  },
+  "integrated_gates": {
+    "adds_trades_vs_exact_baseline": true,
+    "adds_pnl_vs_exact_baseline": true,
+    "roi_at_least_five_percent": true,
+    "both_periods_positive": true
+  },
+  "deployable": true
+}

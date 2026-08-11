@@ -22,7 +22,9 @@ from trade_tape_strategy.core import (  # noqa: E402
     TradeTapeConfig,
     simulate_trade_tape,
 )
-from trade_tape_strategy.reversion_value import ReversionValueModel  # noqa: E402
+from trade_tape_strategy.reversion_value import (  # noqa: E402
+    CompetingRisksModel, ReversionValueModel,
+)
 
 
 DATA_DIR = REPOSITORY_ROOT / "data/shared"
@@ -31,6 +33,7 @@ MODEL_DIR = PROJECT_ROOT / "models"
 CONFIG_PATH = MODEL_DIR / "trade_tape_config.json"
 REVERSION_MODEL_PATH = MODEL_DIR / "reversion_value.cbm"
 REVERSION_METADATA_PATH = MODEL_DIR / "reversion_value.metadata.json"
+COMPETING_METADATA_PATH = MODEL_DIR / "competing_risks.metadata.json"
 STUDY_DIR = PROJECT_ROOT / "artifacts"
 OUTER_HOLDOUT_START = pd.Timestamp("2026-06-28").date()
 TRADE_COLUMNS = [
@@ -385,6 +388,8 @@ def main() -> None:
     )
 
     entry_scorer = (
+        CompetingRisksModel(MODEL_DIR, COMPETING_METADATA_PATH)
+        if config.competing_risks_enabled else
         ReversionValueModel(
             REVERSION_MODEL_PATH, REVERSION_METADATA_PATH,
             CONFIG_PATH, LATENCY_PROFILE_PATH,

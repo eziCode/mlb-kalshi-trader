@@ -1,6 +1,6 @@
 {
   "enabled": true,
-  "minimum_edge": 0.04,
+  "minimum_edge": 0.01,
   "confirmation_seconds": 0.0,
   "maximum_pre_event_trade_age_seconds": 10.0,
   "maximum_event_to_entry_seconds": 20.0,
@@ -41,6 +41,7 @@
   "fair_log_odds_shrinkage": 1.0,
   "maximum_event_log_odds_move": 1.0,
   "direct_value_model_enabled": false,
+  "competing_risks_enabled": true,
   "maximum_entry_inning": 9,
   "maximum_outs_after_by_event": {
     "double": 0
