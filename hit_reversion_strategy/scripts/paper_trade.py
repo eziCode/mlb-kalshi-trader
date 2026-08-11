@@ -40,6 +40,7 @@ from trade_tape_strategy.core import (  # noqa: E402
 )
 from trade_tape_strategy.strategy import (  # noqa: E402
     CONFIG,
+    edge_capped_ioc_price,
     estimated_round_trip_fee_per_contract,
     taker_fee,
 )
@@ -2124,7 +2125,11 @@ async def main() -> None:
                 target = float(anchored_event_target(
                     candidate.target, candidate.post_fair, fair_prob
                 ))
-                if hybrid_config.require_post_signal_trade:
+                # In paper/replay mode a compatible post-signal print remains
+                # the conservative fill proxy. In live mode the exchange book
+                # is executable now; waiting for a print consumes the offer we
+                # intend to take and creates avoidable adverse latency.
+                if hybrid_config.require_post_signal_trade and live_executor is None:
                     fill = replay_candidate_entry(
                         recent_trades, candidate, float(fair_prob), positions,
                         hybrid_config,
@@ -2189,14 +2194,22 @@ async def main() -> None:
                             action = "LIVE_SKIP_ACTUAL_EDGE_CHECK"
                             candidate = None
                             continue
+                        limit_price = edge_capped_ioc_price(
+                            contract_target, float(executable.ask), minimum_edge,
+                        )
+                        if limit_price is None:
+                            action = "LIVE_SKIP_NO_EDGE_SAFE_IOC_PRICE"
+                            candidate = None
+                            continue
                         live_fill = await asyncio.to_thread(
                             live_executor.execute,
                             trigger_key=(
                                 f"hr-entry:{GAME_PK}:{candidate.event_id}:"
-                                f"{candidate.side}"
+                                f"{candidate.side}:"
+                                f"{pd.Timestamp(executable.received_at).value}"
                             ),
                             game_pk=int(GAME_PK), ticker=actual_ticker,
-                            price=executable.ask,
+                            price=limit_price,
                             settlement_probability=contract_target,
                             original_bet_size=10.0,
                             original_minimum_expected_pnl=minimum_edge * 10.0,
@@ -2212,7 +2225,13 @@ async def main() -> None:
                         )
                         if not live_fill.filled:
                             action = f"LIVE_SKIP_{live_fill.reason.upper()}"
-                            candidate = None
+                            # An empty IOC changes no position and reserves no
+                            # capital. Keep the still-causal candidate alive so
+                            # a fresh book snapshot can be retried inside the
+                            # original event window. All other failures remain
+                            # fail-closed.
+                            if live_fill.reason != "ioc_not_filled":
+                                candidate = None
                             continue
                         price = live_fill.price
                         contracts = live_fill.contracts

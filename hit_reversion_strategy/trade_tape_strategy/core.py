@@ -893,8 +893,21 @@ def simulate_trade_tape(
                             candidate = None
                             continue
                 elif candidate.watch_side != side:
-                    candidate.watch_side = side
-                    candidate.watch_started_ns = trade_ns
+                    confirmation_seconds = segment_value(
+                        config.confirmation_seconds_by_segment,
+                        candidate.event_type,
+                        side,
+                        config.confirmation_seconds,
+                    )
+                    if confirmation_seconds <= 0:
+                        result.confirmed_signals += 1
+                        pending_entry = PendingEntry(
+                            candidate, side, trade_ns, yes_price
+                        )
+                        candidate = None
+                    else:
+                        candidate.watch_side = side
+                        candidate.watch_started_ns = trade_ns
                 elif (
                     candidate.watch_started_ns is not None
                     and trade_ns - candidate.watch_started_ns >= int(

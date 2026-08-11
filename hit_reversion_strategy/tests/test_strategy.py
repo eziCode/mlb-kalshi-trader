@@ -32,7 +32,9 @@ from trade_tape_strategy.core import (
     trade_signal,
     position_contracts,
 )
-from trade_tape_strategy.strategy import taker_fee
+from trade_tape_strategy.strategy import (
+    edge_capped_ioc_price, estimated_round_trip_fee_per_contract, taker_fee,
+)
 from trade_tape_strategy.reversion_value import ReversionValueModel
 
 
@@ -347,11 +349,32 @@ class TradeTapeStrategyTests(unittest.TestCase):
     def test_live_orders_use_two_fifty_budget(self):
         self.assertEqual(LIVE_ORDER_BUDGET, 2.5)
 
+    def test_ioc_limit_tolerates_quote_motion_without_sacrificing_edge(self):
+        price = edge_capped_ioc_price(.70, .60, .04)
+        self.assertIsNotNone(price)
+        self.assertGreater(price, .60)
+        self.assertGreaterEqual(
+            .70 - price - estimated_round_trip_fee_per_contract(price), .04,
+        )
+        next_cent = price + .01
+        self.assertLess(
+            .70 - next_cent - estimated_round_trip_fee_per_contract(next_cent),
+            .04,
+        )
+
+    def test_ioc_limit_rejects_ask_that_already_lacks_net_edge(self):
+        self.assertIsNone(edge_capped_ioc_price(.70, .68, .04))
+
     def test_live_worker_initializes_executor_before_candidate_loop(self):
         source = inspect.getsource(main)
         initialization = source.index("live_executor = (")
         candidate_loop = source.index("while True:")
         self.assertLess(initialization, candidate_loop)
+
+    def test_live_worker_retries_only_empty_ioc_entries(self):
+        source = inspect.getsource(main)
+        self.assertIn('live_fill.reason != "ioc_not_filled"', source)
+        self.assertIn("pd.Timestamp(executable.received_at).value", source)
 
     def test_segmented_policy_supports_yes_and_no_for_every_hit_type(self):
         segments = {
@@ -986,6 +1009,21 @@ class TradeTapeStrategyTests(unittest.TestCase):
         self.assertEqual(result.reversion_exits, 1)
         self.assertEqual(result.settlements, 0)
         self.assertEqual(result.records[0].exit_reason, "reversion")
+
+    def test_zero_confirmation_submits_on_first_executable_signal(self):
+        trades, updates = self._frames(include_reversion=False)
+        result = simulate_trade_tape(
+            trades, updates, TradeTapeConfig(
+                minimum_edge=0.05,
+                confirmation_seconds=0.0,
+                entry_submission_latency_seconds=0.68,
+            ),
+        )
+        self.assertEqual(result.trades, 1)
+        self.assertEqual(
+            result.records[0].entry_time,
+            pd.Timestamp("2026-07-01T12:00:03.200Z"),
+        )
 
     def test_backtest_accumulates_partial_exit_liquidity_like_live(self):
         trades, updates = self._frames(include_reversion=True)

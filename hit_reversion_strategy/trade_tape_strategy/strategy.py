@@ -128,6 +128,29 @@ def estimated_round_trip_fee_per_contract(price: float) -> float:
     return 2.0 * taker_fee(contracts, price) / contracts
 
 
+def edge_capped_ioc_price(
+    target_probability: float, current_ask: float, minimum_net_edge: float,
+) -> float | None:
+    """Highest cent-price an IOC may pay without violating net edge.
+
+    A marketable limit at this price can survive a small quote change between
+    snapshot and exchange arrival. Price improvement still applies when the
+    resting offer remains below the cap.
+    """
+    target = float(target_probability)
+    ask = float(current_ask)
+    minimum = float(minimum_net_edge)
+    if not (0 < target < 1 and 0 < ask < 1 and minimum >= 0):
+        return None
+    acceptable = []
+    for cents in range(max(1, math.ceil(ask * 100 - 1e-9)), 100):
+        price = cents / 100.0
+        net_edge = target - price - estimated_round_trip_fee_per_contract(price)
+        if net_edge + 1e-12 >= minimum:
+            acceptable.append(price)
+    return max(acceptable) if acceptable else None
+
+
 def fee_aware_signal_side(
     final_probability: float,
     bid: float,
