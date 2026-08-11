@@ -1,0 +1,199 @@
+{
+  "evaluation_status": "reused_research_holdout_not_an_unbiased_forward_estimate",
+  "holdout_start": "2026-07-24",
+  "holdout_end": "2026-08-09",
+  "selected_config": {
+    "enabled": true,
+    "minimum_edge": 0.04,
+    "confirmation_seconds": 0.0,
+    "maximum_pre_event_trade_age_seconds": 10.0,
+    "maximum_event_to_entry_seconds": 40.0,
+    "invalidate_on_next_pitch": true,
+    "minimum_fair_move": 0.0,
+    "momentum_exit_enabled": false,
+    "momentum_window_seconds": 2.0,
+    "minimum_favorable_velocity": 0.01,
+    "momentum_trailing_giveback": 0.01,
+    "momentum_max_hold_seconds": 2.0,
+    "minimum_momentum_trades": 3,
+    "minimum_seconds_between_entries": 60.0,
+    "allowed_event_types": [
+      "single",
+      "triple",
+      "walk",
+      "intent_walk",
+      "hit_by_pitch",
+      "field_error",
+      "fielders_choice",
+      "catcher_interf"
+    ],
+    "maximum_hold_seconds": 240.0,
+    "exit_target_mode": "dynamic",
+    "latch_reversion_exit": false,
+    "minimum_reversion_move": 0.0,
+    "side_filter": "both",
+    "position_sizing": "fixed_budget",
+    "order_budget": 2.5,
+    "require_compatible_taker": true,
+    "require_post_signal_trade": true,
+    "entry_submission_latency_seconds": 0.68,
+    "exit_submission_latency_seconds": 0.68,
+    "minimum_edges_by_segment": {},
+    "confirmation_seconds_by_segment": {},
+    "minimum_reversion_moves_by_segment": {},
+    "fair_log_odds_shrinkage": 1.0,
+    "maximum_event_log_odds_move": 1.0,
+    "direct_value_model_enabled": false,
+    "maximum_entry_inning": 9
+  },
+  "deployment_config": {
+    "enabled": false,
+    "minimum_edge": 0.04,
+    "confirmation_seconds": 0.0,
+    "maximum_pre_event_trade_age_seconds": 10.0,
+    "maximum_event_to_entry_seconds": 40.0,
+    "invalidate_on_next_pitch": true,
+    "minimum_fair_move": 0.0,
+    "momentum_exit_enabled": false,
+    "momentum_window_seconds": 2.0,
+    "minimum_favorable_velocity": 0.01,
+    "momentum_trailing_giveback": 0.01,
+    "momentum_max_hold_seconds": 2.0,
+    "minimum_momentum_trades": 3,
+    "minimum_seconds_between_entries": 60.0,
+    "allowed_event_types": [
+      "single",
+      "triple",
+      "walk",
+      "intent_walk",
+      "hit_by_pitch",
+      "field_error",
+      "fielders_choice",
+      "catcher_interf"
+    ],
+    "maximum_hold_seconds": 240.0,
+    "exit_target_mode": "dynamic",
+    "latch_reversion_exit": false,
+    "minimum_reversion_move": 0.0,
+    "side_filter": "both",
+    "position_sizing": "fixed_budget",
+    "order_budget": 2.5,
+    "require_compatible_taker": true,
+    "require_post_signal_trade": true,
+    "entry_submission_latency_seconds": 0.68,
+    "exit_submission_latency_seconds": 0.68,
+    "minimum_edges_by_segment": {},
+    "confirmation_seconds_by_segment": {},
+    "minimum_reversion_moves_by_segment": {},
+    "fair_log_odds_shrinkage": 1.0,
+    "maximum_event_log_odds_move": 1.0,
+    "direct_value_model_enabled": false,
+    "maximum_entry_inning": 9
+  },
+  "games": 234,
+  "trade_tape_rows": 4641399,
+  "state_updates": 68523,
+  "observed_events": 4439,
+  "misaligned_event_updates": 122,
+  "eligible_hit_updates": 4039,
+  "rejected_fair_updates": 196,
+  "invalidated_candidates": 1660,
+  "expired_candidates": 1974,
+  "fresh_hit_anchors": 3710,
+  "confirmed_signals": 397,
+  "model_rejected_signals": 0,
+  "trades": 61,
+  "yes_trades": 39,
+  "no_trades": 22,
+  "reversion_exits": 31,
+  "momentum_exits": 0,
+  "timeout_exits": 24,
+  "settlements": 6,
+  "fees": 11.636499999999998,
+  "capital": 152.38099999999997,
+  "pnl": -1.8210999999999973,
+  "net_ev_per_scheduled_game": -0.0077824786324786205,
+  "roi": -0.011950965015323417,
+  "pnl_without_best_game": -5.301099999999998,
+  "pnl_without_top_four_games": -10.231399999999997,
+  "segment_results": {
+    "catcher_interf:yes": {
+      "trades": 1,
+      "pnl": 0.9939999999999991,
+      "wins": 1
+    },
+    "field_error:yes": {
+      "trades": 3,
+      "pnl": 0.49609999999999954,
+      "wins": 2
+    },
+    "fielders_choice:no": {
+      "trades": 1,
+      "pnl": 0.22960000000000003,
+      "wins": 1
+    },
+    "fielders_choice:yes": {
+      "trades": 1,
+      "pnl": -0.1968999999999994,
+      "wins": 0
+    },
+    "hit_by_pitch:yes": {
+      "trades": 4,
+      "pnl": -1.5222,
+      "wins": 1
+    },
+    "single:no": {
+      "trades": 14,
+      "pnl": -3.160299999999997,
+      "wins": 6
+    },
+    "single:yes": {
+      "trades": 22,
+      "pnl": 2.994100000000002,
+      "wins": 11
+    },
+    "triple:no": {
+      "trades": 4,
+      "pnl": 1.7386000000000008,
+      "wins": 1
+    },
+    "triple:yes": {
+      "trades": 2,
+      "pnl": 0.3357999999999998,
+      "wins": 2
+    },
+    "walk:no": {
+      "trades": 3,
+      "pnl": -2.2259999999999995,
+      "wins": 0
+    },
+    "walk:yes": {
+      "trades": 6,
+      "pnl": -1.5039000000000002,
+      "wins": 2
+    }
+  },
+  "time_based_exit": true,
+  "exit_target_mode": "dynamic",
+  "latch_reversion_exit": false,
+  "state_model": "MLB-only batting-perspective local win expectancy",
+  "event_availability": {
+    "profile": "shared_mlb_websocket",
+    "sample_date": "2026-07-26",
+    "sample_events": 276,
+    "eligible_within_20_seconds": 209,
+    "event_types": [
+      "single",
+      "double",
+      "triple",
+      "walk",
+      "intent_walk",
+      "hit_by_pitch",
+      "field_error",
+      "fielders_choice",
+      "catcher_interf"
+    ]
+  },
+  "no_execution_contract": "paired_away_yes_independent_trade_liquidity",
+  "live_fill_proxy": true
+}

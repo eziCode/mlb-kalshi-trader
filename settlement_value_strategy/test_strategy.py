@@ -170,6 +170,7 @@ class MispricingTests(unittest.TestCase):
                 side_filter="both", execution_contract="paired_both",
                 maximum_positions_per_game=0,
                 minimum_seconds_between_entries=200,
+                allow_reversals=True,
             ),
         )
         self.assertEqual(result.trades, 2)

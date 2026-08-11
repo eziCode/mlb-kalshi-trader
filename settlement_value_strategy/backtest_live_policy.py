@@ -130,16 +130,21 @@ def main() -> None:
     forward = period(
         labeled, forward_start.strftime("%Y-%m-%d"), "2100-01-01"
     )
-    deployed_model = CatBoostRegressor()
-    deployed_model.load_model(ROOT / "model" / live_raw["model_file"])
-    forward_probability = _expit(
-        _logit(forward.market_home_price)
-        + np.clip(
-            deployed_model.predict(mispricing_feature_frame(forward)),
-            -float(live_raw["maximum_logit_move"]),
-            float(live_raw["maximum_logit_move"]),
+    if live_raw.get("model_kind") == "local_state_probability":
+        forward_probability = np.clip(
+            forward.local_fair_after.to_numpy(float), 1e-6, 1 - 1e-6
         )
-    )
+    else:
+        deployed_model = CatBoostRegressor()
+        deployed_model.load_model(ROOT / "model" / live_raw["model_file"])
+        forward_probability = _expit(
+            _logit(forward.market_home_price)
+            + np.clip(
+                deployed_model.predict(mispricing_feature_frame(forward)),
+                -float(live_raw["maximum_logit_move"]),
+                float(live_raw["maximum_logit_move"]),
+            )
+        )
     forward_games = set(forward.game_pk)
     forward_result = simulate_paired_both(
         forward, forward_probability,
@@ -172,6 +177,14 @@ def main() -> None:
         "folds": fold_results,
         "deployed_forward": forward_metrics,
     }
+    if live_raw.get("model_kind") == "local_state_probability":
+        summary["method"] = (
+            "frozen local-state model evaluated strictly after model training; "
+            "policy thresholds were selected retrospectively"
+        )
+        summary["aggregate"] = forward_metrics
+        summary.pop("folds")
+        all_records = [forward_records] if not forward_records.empty else []
     RESULTS.mkdir(exist_ok=True)
     (RESULTS / "live_policy_backtest_summary.json").write_text(
         json.dumps(summary, indent=2)

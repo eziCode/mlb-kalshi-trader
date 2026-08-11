@@ -36,10 +36,11 @@ if str(REPOSITORY_ROOT) not in sys.path:
 from trade_tape_strategy.hybrid import anchored_event_target  # noqa: E402
 from trade_tape_strategy.core import (  # noqa: E402
     TradeTapeConfig, position_contracts, segmented_trade_signal,
-    segment_value, event_target,
+    segment_value, event_target, position_exit_target,
 )
 from trade_tape_strategy.strategy import (  # noqa: E402
     CONFIG,
+    edge_capped_ioc_price,
     estimated_round_trip_fee_per_contract,
     taker_fee,
 )
@@ -113,6 +114,7 @@ DECISION_LOG_COLUMNS = [
     "continuation_value", "exit_advantage", "action", "portfolio_cash",
     "portfolio_equity", "portfolio_pnl", "portfolio_open_positions",
     "predicted_pnl_per_contract", "model_prediction_threshold",
+    "away_bid", "away_ask",
 ]
 
 
@@ -1368,13 +1370,7 @@ def replay_position_exit(
     config = config or TradeTapeConfig()
     if trades.empty:
         return None, pending_exit, scanned_after or position.entry_time
-    target = (
-        float(position.anchor_target)
-        if config.exit_target_mode == "frozen"
-        else float(anchored_event_target(
-            position.anchor_target, position.anchor_fair, current_fair
-        ))
-    )
+    target = position_exit_target(position, current_fair, config)
     paired_away_yes = bool(
         position.side == "no"
         and position.market_ticker
@@ -2129,7 +2125,11 @@ async def main() -> None:
                 target = float(anchored_event_target(
                     candidate.target, candidate.post_fair, fair_prob
                 ))
-                if hybrid_config.require_post_signal_trade:
+                # In paper/replay mode a compatible post-signal print remains
+                # the conservative fill proxy. In live mode the exchange book
+                # is executable now; waiting for a print consumes the offer we
+                # intend to take and creates avoidable adverse latency.
+                if hybrid_config.require_post_signal_trade and live_executor is None:
                     fill = replay_candidate_entry(
                         recent_trades, candidate, float(fair_prob), positions,
                         hybrid_config,
@@ -2194,14 +2194,22 @@ async def main() -> None:
                             action = "LIVE_SKIP_ACTUAL_EDGE_CHECK"
                             candidate = None
                             continue
+                        limit_price = edge_capped_ioc_price(
+                            contract_target, float(executable.ask), minimum_edge,
+                        )
+                        if limit_price is None:
+                            action = "LIVE_SKIP_NO_EDGE_SAFE_IOC_PRICE"
+                            candidate = None
+                            continue
                         live_fill = await asyncio.to_thread(
                             live_executor.execute,
                             trigger_key=(
                                 f"hr-entry:{GAME_PK}:{candidate.event_id}:"
-                                f"{candidate.side}"
+                                f"{candidate.side}:"
+                                f"{pd.Timestamp(executable.received_at).value}"
                             ),
                             game_pk=int(GAME_PK), ticker=actual_ticker,
-                            price=executable.ask,
+                            price=limit_price,
                             settlement_probability=contract_target,
                             original_bet_size=10.0,
                             original_minimum_expected_pnl=minimum_edge * 10.0,
@@ -2217,7 +2225,13 @@ async def main() -> None:
                         )
                         if not live_fill.filled:
                             action = f"LIVE_SKIP_{live_fill.reason.upper()}"
-                            candidate = None
+                            # An empty IOC changes no position and reserves no
+                            # capital. Keep the still-causal candidate alive so
+                            # a fresh book snapshot can be retried inside the
+                            # original event window. All other failures remain
+                            # fail-closed.
+                            if live_fill.reason != "ioc_not_filled":
+                                candidate = None
                             continue
                         price = live_fill.price
                         contracts = live_fill.contracts
@@ -2289,9 +2303,11 @@ async def main() -> None:
                 metrics.open_positions,
                 predicted_pnl_per_contract,
                 value_model.threshold if value_model is not None else None,
+                away_market.bid, away_market.ask,
             ])
         print(
             f"{now.time()} {market.bid:.2f}/{market.ask:.2f} "
+            f"away={away_market.bid:.2f}/{away_market.ask:.2f} "
             f"fair={fair_prob:.1%} target={target:.1%} "
             f"edge={edge:+.1%} {action} "
             f"portfolio=${metrics.equity:.2f} pnl=${metrics.pnl:+.2f}"

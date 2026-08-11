@@ -35,7 +35,9 @@ class DeployedPolicyParityTests(unittest.TestCase):
     def test_frozen_policy_matches_selected_research_constraints(self):
         config = deployed_config()
         self.assertEqual(config.bet_size, 2.5)
-        self.assertEqual(config.minimum_probability_edge, .02)
+        self.assertEqual(config.minimum_probability_edge, .10)
+        self.assertEqual(config.submission_latency_seconds, 4.72)
+        self.assertEqual(config.excluded_price_max, .499999)
         self.assertEqual(config.minimum_entry_inning, 2)
         self.assertEqual(config.minimum_seconds_between_entries, 120.0)
         self.assertEqual(config.maximum_positions_per_game, 2)
@@ -435,7 +437,7 @@ class PipelineTests(unittest.TestCase):
                 signal, signal + pd.Timedelta(seconds=1),
                 signal + pd.Timedelta(seconds=2),
             ],
-            "yes_price_dollars": [.40, .41, .42],
+            "yes_price_dollars": [.60, .61, .62],
             "count_fp": [100, 100, 100],
             "taker_outcome_side": ["yes", "no", "yes"],
         })
@@ -444,7 +446,7 @@ class PipelineTests(unittest.TestCase):
             trades, signal, .80, [], "yes", config,
         )
         self.assertIsNotNone(fill)
-        self.assertEqual(fill["price"], .42)
+        self.assertEqual(fill["price"], .62)
         self.assertEqual(
             pd.Timestamp(fill["time"]), signal + pd.Timedelta(seconds=2)
         )
@@ -454,13 +456,13 @@ class PipelineTests(unittest.TestCase):
         trades = pd.DataFrame({
             "trade_id": [1],
             "created_time": [signal + pd.Timedelta(seconds=1)],
-            "yes_price_dollars": [.40],
+            "yes_price_dollars": [.60],
             "count_fp": [10.0],
             "taker_outcome_side": ["yes"],
         })
         config = MispricingPredictor().config
         fill = replay_fill_from_observed_trades(
-            trades, signal, .45, [], "yes", config,
+            trades, signal, .75, [], "yes", config,
             confirmation_budget=2.5,
         )
         self.assertIsNotNone(fill)
@@ -468,10 +470,10 @@ class PipelineTests(unittest.TestCase):
         self.assertLessEqual(
             fill["contracts"] * fill["price"] + fill["fee"], 2.5
         )
-        self.assertGreaterEqual(fill["edge"], .02)
+        self.assertGreaterEqual(fill["edge"], .10)
         self.assertGreaterEqual(fill["expected_pnl"], 0.0)
         self.assertIsNone(replay_fill_from_observed_trades(
-            trades, signal, .41, [], "yes", config,
+            trades, signal, .69, [], "yes", config,
             confirmation_budget=2.5,
         ))
 

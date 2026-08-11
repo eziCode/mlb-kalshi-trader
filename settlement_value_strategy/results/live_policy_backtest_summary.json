@@ -1,5 +1,5 @@
 {
-  "method": "expanding-window; every model trained before its test fold",
+  "method": "frozen local-state model evaluated strictly after model training; policy thresholds were selected retrospectively",
   "config": {
     "enabled": true,
     "observation_delay_seconds": 1.0,
@@ -7,15 +7,16 @@
     "maximum_anchor_age_seconds": 5.0,
     "maximum_fill_delay_seconds": 5.0,
     "minimum_expected_pnl": 0.0,
-    "minimum_probability_edge": 0.02,
+    "minimum_probability_edge": 0.1,
     "bet_size": 2.5,
     "side_filter": "both",
     "minimum_seconds_between_entries": 120.0,
     "execution_contract": "paired_both",
     "maximum_positions_per_game": 2,
     "conditional_stacking": true,
-    "excluded_price_min": 0.45,
-    "excluded_price_max": 0.55,
+    "allow_reversals": false,
+    "excluded_price_min": 0.0,
+    "excluded_price_max": 0.499999,
     "confirmation_taker_side": "compatible",
     "require_post_signal_trade": true,
     "submission_latency_seconds": 4.72,
@@ -26,98 +27,29 @@
     "early_exit_minimum_inning": 1
   },
   "aggregate": {
-    "games": 1440,
-    "orders": 4766,
-    "trades": 220,
-    "trades_per_game": 0.1527777777777778,
-    "pnl": -1.6045999999999925,
-    "capital": 478.18730000000005,
-    "roi": -0.0033555889083628785,
-    "positive_folds": 2
-  },
-  "folds": {
-    "april": {
-      "games": 386,
-      "orders": 1645,
-      "trades": 53,
-      "trades_per_game": 0.13730569948186527,
-      "pnl": -0.5918999999999959,
-      "capital": 116.09740000000001,
-      "roi": -0.005098305388406595,
-      "pnl_without_top_four_games": -16.960099999999997
-    },
-    "may": {
-      "games": 415,
-      "orders": 1327,
-      "trades": 68,
-      "trades_per_game": 0.163855421686747,
-      "pnl": -3.852399999999995,
-      "capital": 145.7983,
-      "roi": -0.026422804655472625,
-      "pnl_without_top_four_games": -22.873499999999996
-    },
-    "early_june": {
-      "games": 206,
-      "orders": 646,
-      "trades": 31,
-      "trades_per_game": 0.15048543689320387,
-      "pnl": 13.105099999999997,
-      "capital": 70.2334,
-      "roi": 0.18659355805072794,
-      "pnl_without_top_four_games": -5.339700000000004
-    },
-    "late_june": {
-      "games": 143,
-      "orders": 427,
-      "trades": 20,
-      "trades_per_game": 0.13986013986013987,
-      "pnl": -0.3012999999999999,
-      "capital": 43.2313,
-      "roi": -0.006969487385297225,
-      "pnl_without_top_four_games": -12.318900000000001
-    },
-    "early_july": {
-      "games": 175,
-      "orders": 456,
-      "trades": 25,
-      "trades_per_game": 0.14285714285714285,
-      "pnl": -2.3103999999999987,
-      "capital": 56.2804,
-      "roi": -0.04105159167312241,
-      "pnl_without_top_four_games": -9.828999999999999
-    },
-    "mid_july": {
-      "games": 45,
-      "orders": 112,
-      "trades": 10,
-      "trades_per_game": 0.2222222222222222,
-      "pnl": 4.917599999999999,
-      "capital": 18.6568,
-      "roi": 0.26358217915183735,
-      "pnl_without_top_four_games": -4.001400000000001
-    },
-    "final_holdout": {
-      "games": 70,
-      "orders": 153,
-      "trades": 13,
-      "trades_per_game": 0.18571428571428572,
-      "pnl": -12.571299999999999,
-      "capital": 27.8897,
-      "roi": -0.45075063553928507,
-      "pnl_without_top_four_games": -17.955399999999997
-    }
+    "games": 658,
+    "orders": 32252,
+    "trades": 570,
+    "trades_per_game": 0.8662613981762918,
+    "pnl": 49.823399999999914,
+    "capital": 1316.5166000000017,
+    "roi": 0.0378448703191436,
+    "pnl_without_top_four_games": 31.275699999999915,
+    "start": "2026-06-18",
+    "end": "2026-08-09",
+    "model_training_end": "2026-06-17"
   },
   "deployed_forward": {
-    "games": 239,
-    "orders": 528,
-    "trades": 45,
-    "trades_per_game": 0.18828451882845187,
-    "pnl": -6.142400000000001,
-    "capital": 106.93960000000001,
-    "roi": -0.057438030439612646,
-    "pnl_without_top_four_games": -20.3884,
-    "start": "2026-07-23",
+    "games": 658,
+    "orders": 32252,
+    "trades": 570,
+    "trades_per_game": 0.8662613981762918,
+    "pnl": 49.823399999999914,
+    "capital": 1316.5166000000017,
+    "roi": 0.0378448703191436,
+    "pnl_without_top_four_games": 31.275699999999915,
+    "start": "2026-06-18",
     "end": "2026-08-09",
-    "model_training_end": "2026-07-22"
+    "model_training_end": "2026-06-17"
   }
 }

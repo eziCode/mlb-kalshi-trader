@@ -57,6 +57,7 @@ LATENCY_PROFILE_PATH = MODEL_DIR / "event_observation_latency.json"
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--data-dir", type=Path, default=DATA_DIR)
     parser.add_argument(
         "--start-date", type=pd.Timestamp,
         default=pd.Timestamp(OUTER_HOLDOUT_START),
@@ -87,6 +88,30 @@ def parse_args() -> argparse.Namespace:
         "--exit-submission-latency", type=float, default=0.68,
         help="Modeled live exit submission latency in seconds (default: 0.68).",
     )
+    parser.add_argument("--minimum-edge", type=float)
+    parser.add_argument("--maximum-event-to-entry-seconds", type=float)
+    parser.add_argument("--minimum-seconds-between-entries", type=float)
+    parser.add_argument("--reversion-capture-fraction", type=float)
+    parser.add_argument(
+        "--segment-minimum-edge", action="append", default=[],
+        metavar="EVENT:SIDE=EDGE",
+    )
+    parser.add_argument(
+        "--exclude-event-type", action="append", default=[],
+        help="Event type to exclude; may be repeated.",
+    )
+    parser.add_argument(
+        "--only-event-type", action="append", default=[],
+        help="Restrict replay to these event types; may be repeated.",
+    )
+    parser.add_argument(
+        "--include-event-type", action="append", default=[],
+        help="Add event types to the configured policy; may be repeated.",
+    )
+    parser.add_argument(
+        "--direct-value-model", action=argparse.BooleanOptionalAction,
+        default=None,
+    )
     args = parser.parse_args()
     args.start_date = args.start_date.date()
     if args.end_date is not None:
@@ -97,6 +122,35 @@ def parse_args() -> argparse.Namespace:
         parser.error("--output-prefix must be a filename prefix, not a path")
     if args.entry_submission_latency < 0 or args.exit_submission_latency < 0:
         parser.error("submission latencies must be nonnegative")
+    if args.minimum_edge is not None and args.minimum_edge < 0:
+        parser.error("--minimum-edge must be nonnegative")
+    if (
+        args.maximum_event_to_entry_seconds is not None
+        and args.maximum_event_to_entry_seconds <= 0
+    ):
+        parser.error("--maximum-event-to-entry-seconds must be positive")
+    if (
+        args.minimum_seconds_between_entries is not None
+        and args.minimum_seconds_between_entries < 0
+    ):
+        parser.error("--minimum-seconds-between-entries must be nonnegative")
+    if (
+        args.reversion_capture_fraction is not None
+        and not 0 < args.reversion_capture_fraction <= 1
+    ):
+        parser.error("--reversion-capture-fraction must be in (0, 1]")
+    parsed_segment_edges = {}
+    for value in args.segment_minimum_edge:
+        try:
+            segment, edge_text = value.rsplit("=", 1)
+            event, side = segment.rsplit(":", 1)
+            edge = float(edge_text)
+        except ValueError:
+            parser.error("--segment-minimum-edge must be EVENT:SIDE=EDGE")
+        if side not in {"yes", "no"} or edge < 0:
+            parser.error("segment side must be yes/no and edge nonnegative")
+        parsed_segment_edges[f"{event}:{side}"] = edge
+    args.parsed_segment_edges = parsed_segment_edges
     return args
 
 
@@ -225,13 +279,67 @@ def main() -> None:
             entry_submission_latency_seconds=args.entry_submission_latency,
             exit_submission_latency_seconds=args.exit_submission_latency,
         )
+    if args.minimum_edge is not None:
+        config = replace(config, minimum_edge=args.minimum_edge)
+    if args.maximum_event_to_entry_seconds is not None:
+        config = replace(
+            config,
+            maximum_event_to_entry_seconds=args.maximum_event_to_entry_seconds,
+        )
+    if args.minimum_seconds_between_entries is not None:
+        config = replace(
+            config,
+            minimum_seconds_between_entries=(
+                args.minimum_seconds_between_entries
+            ),
+        )
+    if args.reversion_capture_fraction is not None:
+        config = replace(
+            config,
+            reversion_capture_fraction=args.reversion_capture_fraction,
+        )
+    if args.parsed_segment_edges:
+        config = replace(
+            config,
+            minimum_edges_by_segment={
+                **config.minimum_edges_by_segment,
+                **args.parsed_segment_edges,
+            },
+        )
+    if args.exclude_event_type:
+        excluded = set(args.exclude_event_type)
+        config = replace(
+            config,
+            allowed_event_types=[
+                event for event in config.allowed_event_types
+                if event not in excluded
+            ],
+        )
+    if args.only_event_type:
+        config = replace(
+            config,
+            allowed_event_types=list(dict.fromkeys(args.only_event_type)),
+        )
+    if args.include_event_type:
+        config = replace(
+            config,
+            allowed_event_types=list(dict.fromkeys([
+                *config.allowed_event_types, *args.include_event_type,
+            ])),
+        )
+    if args.direct_value_model is not None:
+        config = replace(
+            config, direct_value_model_enabled=args.direct_value_model
+        )
     trades = pd.read_parquet(
-        DATA_DIR / "home_market_trades.parquet", columns=TRADE_COLUMNS
+        args.data_dir / "home_market_trades.parquet", columns=TRADE_COLUMNS
     )
     away_trades = pd.read_parquet(
-        DATA_DIR / "away_market_trades.parquet", columns=AWAY_TRADE_COLUMNS
+        args.data_dir / "away_market_trades.parquet", columns=AWAY_TRADE_COLUMNS
     )
-    updates = pd.read_parquet(STATE_UPDATES_PATH, columns=STATE_COLUMNS)
+    updates = pd.read_parquet(
+        args.data_dir / "state_updates.parquet", columns=STATE_COLUMNS
+    )
     trades["game_date"] = pd.to_datetime(trades["game_date"]).dt.date
     away_trades["game_date"] = pd.to_datetime(away_trades["game_date"]).dt.date
     updates["game_date"] = pd.to_datetime(updates["game_date"]).dt.date

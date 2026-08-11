@@ -1,0 +1,120 @@
+{
+  "method": "fixed two-stage causal EV rule; no threshold search",
+  "fit_end_exclusive": "2026-06-28",
+  "forward_start": "2026-07-24",
+  "fit_rows": 1377,
+  "fit_reversions": 727,
+  "development": {
+    "trades": 131,
+    "trades_per_game": 0.44107744107744107,
+    "pnl": 18.162600000000005,
+    "capital": 335.61850000000004,
+    "roi": 0.054116802262092235,
+    "pnl_without_top_four_games": 7.021700000000001
+  },
+  "forward": {
+    "trades": 106,
+    "trades_per_game": 0.452991452991453,
+    "pnl": -4.435899999999995,
+    "capital": 271.2109,
+    "roi": -0.01635590604949873,
+    "pnl_without_top_four_games": -10.589199999999995
+  },
+  "combined": {
+    "trades": 237,
+    "trades_per_game": 0.4463276836158192,
+    "pnl": 13.726700000000013,
+    "capital": 606.8294000000001,
+    "roi": 0.02262036084606318,
+    "pnl_without_top_four_games": 2.5858000000000096
+  },
+  "downside_rule": {
+    "method": "predicted 25th-percentile PnL per contract > 0",
+    "development": {
+      "trades": 22,
+      "trades_per_game": 0.07407407407407407,
+      "pnl": 8.228,
+      "capital": 56.731500000000004,
+      "roi": 0.14503406396798954,
+      "pnl_without_top_four_games": 1.4487999999999994
+    },
+    "forward": {
+      "trades": 12,
+      "trades_per_game": 0.05128205128205128,
+      "pnl": 1.5592000000000001,
+      "capital": 31.2048,
+      "roi": 0.04996667179408297,
+      "pnl_without_top_four_games": -0.7656999999999985
+    },
+    "combined": {
+      "trades": 34,
+      "trades_per_game": 0.064030131826742,
+      "pnl": 9.7872,
+      "capital": 87.93630000000002,
+      "roi": 0.11129874693386006,
+      "pnl_without_top_four_games": 2.918000000000001
+    }
+  },
+  "baseline_plus_downside_overlay": {
+    "method": "5% baseline OR positive predicted 25th-percentile PnL",
+    "development": {
+      "trades": 34,
+      "trades_per_game": 0.11447811447811448,
+      "pnl": 11.427800000000001,
+      "capital": 87.6363,
+      "roi": 0.13040030215789578,
+      "pnl_without_top_four_games": 3.567400000000001
+    },
+    "forward": {
+      "trades": 28,
+      "trades_per_game": 0.11965811965811966,
+      "pnl": 0.9988000000000019,
+      "capital": 72.6047,
+      "roi": 0.013756685173273935,
+      "pnl_without_top_four_games": -5.7106999999999974
+    },
+    "combined": {
+      "trades": 62,
+      "trades_per_game": 0.1167608286252354,
+      "pnl": 12.426600000000004,
+      "capital": 160.24099999999993,
+      "roi": 0.07754944115426145,
+      "pnl_without_top_four_games": 2.1522000000000023
+    }
+  },
+  "priority_overlay": {
+    "method": "baseline-priority sleeve plus downside-positive additions",
+    "development": {
+      "trades": 34,
+      "trades_per_game": 0.11447811447811448,
+      "pnl": 11.427800000000001,
+      "capital": 87.6363,
+      "roi": 0.13040030215789578,
+      "pnl_without_top_four_games": 3.567400000000001
+    },
+    "forward": {
+      "trades": 28,
+      "trades_per_game": 0.11965811965811966,
+      "pnl": 0.9988000000000019,
+      "capital": 72.6047,
+      "roi": 0.013756685173273935,
+      "pnl_without_top_four_games": -5.7106999999999974
+    },
+    "combined": {
+      "trades": 62,
+      "trades_per_game": 0.1167608286252354,
+      "pnl": 12.426600000000004,
+      "capital": 160.24099999999993,
+      "roi": 0.07754944115426145,
+      "pnl_without_top_four_games": 2.1522000000000023
+    }
+  },
+  "gates": {
+    "trades_per_game_above_baseline": true,
+    "pnl_above_baseline": false,
+    "roi_at_least_five_percent": true,
+    "both_periods_positive": true,
+    "concentration_positive": true
+  },
+  "deployable": false
+}

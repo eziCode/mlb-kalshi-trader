@@ -95,4 +95,12 @@ class ReversionValueModel:
 
     def accepts(self, features: dict[str, object]) -> tuple[bool, float]:
         prediction = self.predict(features)
-        return prediction >= self.threshold, prediction
+        metadata = getattr(self, "metadata", {})
+        minimum_edge = float(metadata.get("minimum_entry_net_edge", -1.0))
+        excluded = set(metadata.get("excluded_event_types", []))
+        accepted = (
+            prediction >= self.threshold
+            and float(features["entry_net_edge"]) >= minimum_edge
+            and str(features["event_type"]) not in excluded
+        )
+        return accepted, prediction

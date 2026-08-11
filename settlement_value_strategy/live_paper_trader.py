@@ -629,6 +629,9 @@ def replay_fill_from_observed_trades(
         return None
     signal = pd.Timestamp(signal_time)
     deadline = signal + pd.Timedelta(seconds=config.maximum_fill_delay_seconds)
+    # submission_latency_seconds is an empirical end-to-end replay proxy. Live
+    # submission starts immediately; deliberately waiting here would count the
+    # observed latency twice.
     earliest = signal
     if positions:
         latest = max(pd.Timestamp(position.entry_time) for position in positions)
@@ -1554,6 +1557,12 @@ async def run_worker() -> None:
                             positions, execution_side
                         )
                         if conflicts:
+                            if not predictor.config.allow_reversals:
+                                action = "LIVE_SKIP_REVERSAL_DISABLED"
+                                handled_tokens.add(token)
+                                previous_game = game
+                                await asyncio.sleep(POLL_SECONDS)
+                                continue
                             conflict_market = (
                                 away_market
                                 if conflicts[0].side == "away_yes"
