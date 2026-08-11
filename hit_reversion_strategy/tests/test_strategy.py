@@ -1006,6 +1006,38 @@ class TradeTapeStrategyTests(unittest.TestCase):
         self.assertEqual(result.records[0].contracts, 10.0)
         self.assertAlmostEqual(result.records[0].exit_price, 0.51)
 
+    def test_backtest_waits_for_submission_latency_before_entry_and_exit(self):
+        trades, updates = self._frames(include_reversion=True)
+        delayed_entry = trades.iloc[3].copy()
+        delayed_entry["trade_id"] = "latency-entry"
+        delayed_entry["created_time"] = pd.Timestamp(
+            "2026-07-01T12:00:03.500Z"
+        )
+        delayed_exit = trades.iloc[-1].copy()
+        delayed_exit["trade_id"] = "latency-exit"
+        delayed_exit["created_time"] = pd.Timestamp(
+            "2026-07-01T12:05:02.500Z"
+        )
+        trades = pd.concat([
+            trades, pd.DataFrame([delayed_entry, delayed_exit])
+        ], ignore_index=True)
+        result = simulate_trade_tape(
+            trades, updates, TradeTapeConfig(
+                minimum_edge=0.05,
+                entry_submission_latency_seconds=0.2,
+                exit_submission_latency_seconds=1.2,
+            ),
+        )
+        self.assertEqual(result.trades, 1)
+        self.assertEqual(
+            result.records[0].entry_time,
+            pd.Timestamp("2026-07-01T12:00:03.500Z"),
+        )
+        self.assertEqual(
+            result.records[0].exit_time,
+            pd.Timestamp("2026-07-01T12:05:02.500Z"),
+        )
+
     def test_taker_direction_filter_can_be_disabled(self):
         trades, updates = self._frames(include_reversion=True)
         # Every prospective entry and exit fill has the opposite taker side.

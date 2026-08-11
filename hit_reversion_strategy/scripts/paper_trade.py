@@ -1308,7 +1308,9 @@ def replay_candidate_entry(
             if side != candidate.side:
                 return None
             if (
-                when > pending_created
+                when > pending_created + timedelta(
+                    seconds=config.entry_submission_latency_seconds
+                )
                 and (
                     not config.require_compatible_taker
                     or str(trade.taker_outcome_side) == candidate.side
@@ -1415,7 +1417,9 @@ def replay_position_exit(
             pending_exit = None
             continue
         if (
-            when > pending_exit.triggered_at
+            when > pending_exit.triggered_at + timedelta(
+                seconds=config.exit_submission_latency_seconds
+            )
             and (
                 not config.require_compatible_taker
                 or str(trade.taker_outcome_side) == exit_taker_side

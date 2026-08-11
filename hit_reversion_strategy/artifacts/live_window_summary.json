@@ -1,7 +1,7 @@
 {
   "evaluation_status": "reused_research_holdout_not_an_unbiased_forward_estimate",
-  "holdout_start": "2026-06-28",
-  "holdout_end": "2026-08-09",
+  "holdout_start": "2026-07-24",
+  "holdout_end": "2026-08-10",
   "selected_config": {
     "enabled": true,
     "minimum_edge": 0.01,
@@ -35,10 +35,8 @@
     "side_filter": "both",
     "position_sizing": "fixed_budget",
     "order_budget": 2.5,
-    "require_compatible_taker": true,
-    "require_post_signal_trade": true,
-    "entry_submission_latency_seconds": 0.68,
-    "exit_submission_latency_seconds": 0.68,
+    "require_compatible_taker": false,
+    "require_post_signal_trade": false,
     "minimum_edges_by_segment": {},
     "confirmation_seconds_by_segment": {},
     "minimum_reversion_moves_by_segment": {},
@@ -80,10 +78,8 @@
     "side_filter": "both",
     "position_sizing": "fixed_budget",
     "order_budget": 2.5,
-    "require_compatible_taker": true,
-    "require_post_signal_trade": true,
-    "entry_submission_latency_seconds": 0.68,
-    "exit_submission_latency_seconds": 0.68,
+    "require_compatible_taker": false,
+    "require_post_signal_trade": false,
     "minimum_edges_by_segment": {},
     "confirmation_seconds_by_segment": {},
     "minimum_reversion_moves_by_segment": {},
@@ -92,112 +88,107 @@
     "direct_value_model_enabled": true,
     "maximum_entry_inning": 9
   },
-  "games": 531,
-  "trade_tape_rows": 9935201,
-  "state_updates": 155500,
-  "observed_events": 11588,
-  "misaligned_event_updates": 378,
-  "eligible_hit_updates": 10529,
-  "rejected_fair_updates": 529,
-  "invalidated_candidates": 99,
-  "expired_candidates": 8929,
-  "fresh_hit_anchors": 9605,
-  "confirmed_signals": 2378,
-  "model_rejected_signals": 115,
-  "trades": 422,
-  "yes_trades": 255,
-  "no_trades": 167,
-  "reversion_exits": 240,
+  "games": 234,
+  "trade_tape_rows": 4641399,
+  "state_updates": 68523,
+  "observed_events": 5144,
+  "misaligned_event_updates": 140,
+  "eligible_hit_updates": 4700,
+  "rejected_fair_updates": 216,
+  "invalidated_candidates": 35,
+  "expired_candidates": 3682,
+  "fresh_hit_anchors": 4303,
+  "confirmed_signals": 454,
+  "model_rejected_signals": 123,
+  "trades": 454,
+  "yes_trades": 275,
+  "no_trades": 179,
+  "reversion_exits": 320,
   "momentum_exits": 0,
-  "timeout_exits": 148,
-  "settlements": 34,
-  "fees": 70.33219999999997,
-  "capital": 1053.9591,
-  "pnl": 9.643500000000039,
-  "net_ev_per_scheduled_game": 0.018161016949152616,
-  "roi": 0.009149785793395624,
-  "pnl_without_best_game": 4.316100000000038,
-  "pnl_without_top_four_games": -6.806199999999961,
+  "timeout_exits": 95,
+  "settlements": 39,
+  "fees": 82.16250000000005,
+  "capital": 1133.8291000000002,
+  "pnl": 83.66860000000005,
+  "net_ev_per_scheduled_game": 0.3575581196581199,
+  "roi": 0.07379295521697234,
+  "pnl_without_best_game": 78.72430000000006,
+  "pnl_without_top_four_games": 65.37330000000006,
   "segment_results": {
-    "catcher_interf:no": {
+    "catcher_interf:yes": {
       "trades": 1,
-      "pnl": 0.25400000000000045,
+      "pnl": 1.099099999999999,
       "wins": 1
     },
-    "catcher_interf:yes": {
-      "trades": 2,
-      "pnl": 1.1083999999999994,
-      "wins": 2
-    },
     "double:no": {
-      "trades": 47,
-      "pnl": -4.518099999999997,
-      "wins": 21
+      "trades": 43,
+      "pnl": 5.687800000000006,
+      "wins": 33
     },
     "double:yes": {
-      "trades": 64,
-      "pnl": -5.918499999999992,
-      "wins": 39
+      "trades": 62,
+      "pnl": 0.29580000000000184,
+      "wins": 37
     },
     "field_error:no": {
       "trades": 5,
-      "pnl": 1.1023,
-      "wins": 4
+      "pnl": 1.0841000000000003,
+      "wins": 5
     },
     "field_error:yes": {
-      "trades": 10,
-      "pnl": 0.695500000000002,
+      "trades": 9,
+      "pnl": 1.287000000000001,
       "wins": 6
     },
     "fielders_choice:no": {
-      "trades": 7,
-      "pnl": 1.0814000000000021,
+      "trades": 6,
+      "pnl": 1.3936999999999995,
       "wins": 6
     },
     "fielders_choice:yes": {
-      "trades": 9,
-      "pnl": 0.19860000000000122,
-      "wins": 5
+      "trades": 6,
+      "pnl": 0.12840000000000024,
+      "wins": 4
     },
     "hit_by_pitch:no": {
-      "trades": 10,
-      "pnl": 1.4842,
-      "wins": 8
+      "trades": 16,
+      "pnl": 7.656100000000003,
+      "wins": 13
     },
     "hit_by_pitch:yes": {
-      "trades": 19,
-      "pnl": 1.7210000000000032,
+      "trades": 14,
+      "pnl": 5.609700000000002,
       "wins": 11
     },
     "single:no": {
-      "trades": 77,
-      "pnl": 0.3298999999999994,
-      "wins": 43
+      "trades": 83,
+      "pnl": 20.729900000000004,
+      "wins": 58
     },
     "single:yes": {
-      "trades": 112,
-      "pnl": 3.2122000000000184,
-      "wins": 59
+      "trades": 125,
+      "pnl": 19.543800000000015,
+      "wins": 82
     },
     "triple:no": {
-      "trades": 9,
-      "pnl": 5.5013,
+      "trades": 10,
+      "pnl": 5.512500000000005,
       "wins": 6
     },
     "triple:yes": {
       "trades": 12,
-      "pnl": -0.9208999999999996,
-      "wins": 6
+      "pnl": 0.14730000000000018,
+      "wins": 7
     },
     "walk:no": {
-      "trades": 11,
-      "pnl": -1.9981999999999989,
-      "wins": 5
+      "trades": 16,
+      "pnl": 3.0689,
+      "wins": 10
     },
     "walk:yes": {
-      "trades": 27,
-      "pnl": 6.310400000000004,
-      "wins": 18
+      "trades": 46,
+      "pnl": 10.424500000000009,
+      "wins": 33
     }
   },
   "time_based_exit": true,
@@ -221,6 +212,5 @@
       "catcher_interf"
     ]
   },
-  "no_execution_contract": "paired_away_yes_independent_trade_liquidity",
-  "live_fill_proxy": true
+  "no_execution_contract": "paired_away_yes_independent_trade_liquidity"
 }

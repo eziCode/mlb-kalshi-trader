@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from dataclasses import replace
 import json
 from pathlib import Path
 import sys
@@ -34,6 +35,10 @@ def main() -> None:
         key: value for key, value in raw_config.items()
         if key in MispricingConfig.__dataclass_fields__
     })
+    config = replace(
+        config, bet_size=2.5, require_post_signal_trade=True,
+        confirmation_taker_side="compatible", submission_latency_seconds=4.72,
+    )
     calibration = json.loads((MODEL_DIR / "calibration.json").read_text())
     frame = pd.read_parquet(DATA_DIR / "decision_rows.parquet")
     tape_name = (
@@ -101,7 +106,7 @@ def main() -> None:
     if len(game_pnl):
         game_capital = records.groupby("game_pk").apply(
             lambda group: float(
-                config.bet_size * len(group) + group.entry_fee.sum()
+                (group.contracts * group.fill_price + group.entry_fee).sum()
             ),
             include_groups=False,
         )
@@ -152,7 +157,12 @@ def main() -> None:
             trades=("pnl", "size"), pnl=("pnl", "sum"),
             mean_pnl=("pnl", "mean"), win_rate=("pnl", lambda x: x.gt(0).mean()),
         )
-        segments["roi"] = segments.pnl / (segments.trades * 10.0)
+        side_capital = records.assign(
+            deployed_capital=(
+                records.contracts * records.fill_price + records.entry_fee
+            )
+        ).groupby("side").deployed_capital.sum()
+        segments["roi"] = segments.pnl / side_capital
         segments.to_csv(STUDY_DIR / "holdout_side_summary.csv")
         daily.to_csv(STUDY_DIR / "holdout_daily_summary.csv")
     print(json.dumps(summary, indent=2))

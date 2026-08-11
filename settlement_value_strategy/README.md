@@ -44,6 +44,10 @@ For every completed pitch:
 6. Score settlement probability and evaluate fee-aware YES and NO value.
 7. Search only strictly later executions inside the causal fill window.
 
+The deployment backtest advances the effective order time by 4.72 seconds,
+the measured median settlement-value submission latency in the live risk
+ledger. A print observed before that effective time cannot fill the order.
+
 The next pitch invalidates the fill window. Same-timestamp and pre-signal
 executions cannot fill an order.
 

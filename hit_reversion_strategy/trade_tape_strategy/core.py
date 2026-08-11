@@ -38,6 +38,8 @@ class TradeTapeConfig:
     order_budget: float = 2.5
     require_compatible_taker: bool = True
     require_post_signal_trade: bool = True
+    entry_submission_latency_seconds: float = 0.0
+    exit_submission_latency_seconds: float = 0.0
     minimum_edges_by_segment: dict[str, float] = field(default_factory=dict)
     confirmation_seconds_by_segment: dict[str, float] = field(
         default_factory=dict
@@ -384,6 +386,12 @@ def simulate_trade_tape(
         config.maximum_event_to_entry_seconds * 1_000_000_000
     )
     maximum_hold_ns = int(config.maximum_hold_seconds * 1_000_000_000)
+    entry_submission_latency_ns = int(
+        config.entry_submission_latency_seconds * 1_000_000_000
+    )
+    exit_submission_latency_ns = int(
+        config.exit_submission_latency_seconds * 1_000_000_000
+    )
     allowed_events = frozenset(config.allowed_event_types)
 
     for game_pk, game_trades in trades.groupby("game_pk", sort=False):
@@ -604,7 +612,9 @@ def simulate_trade_tape(
                         position.pending_exit_ns = None
                         position.pending_exit_reason = None
                     elif (
-                        trade_ns > position.pending_exit_ns
+                        trade_ns > (
+                            position.pending_exit_ns + exit_submission_latency_ns
+                        )
                         and (
                             not config.require_compatible_taker
                             or compatible_taker(
@@ -733,7 +743,9 @@ def simulate_trade_tape(
                     candidate.watch_started_ns = None
                     pending_entry = None
                 elif (
-                    trade_ns > pending_entry.created_ns
+                    trade_ns > (
+                        pending_entry.created_ns + entry_submission_latency_ns
+                    )
                     and (
                         not config.require_compatible_taker
                         or compatible_taker(

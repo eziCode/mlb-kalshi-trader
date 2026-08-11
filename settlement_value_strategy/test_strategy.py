@@ -16,6 +16,36 @@ from settlement_value_strategy.early_exit import EarlyExitConfig, apply_early_ex
 
 
 class MispricingTests(unittest.TestCase):
+    def test_submission_latency_skips_already_consumed_trade(self):
+        start = pd.Timestamp("2026-06-01T12:00:00Z")
+        frame = pd.DataFrame({
+            "game_pk": [1], "signal_time": [start],
+            "next_update_time": [start + pd.Timedelta(seconds=5)],
+            "market_home_price": [.40], "home_win": [1],
+        })
+        home = pd.DataFrame({
+            "game_pk": [1, 1], "trade_id": [1, 2],
+            "created_time": [
+                start + pd.Timedelta(seconds=.5),
+                start + pd.Timedelta(seconds=1.5),
+            ],
+            "yes_price_dollars": [.41, .42], "count_fp": [100, 100],
+            "taker_outcome_side": ["yes", "yes"],
+        })
+        result = simulate_paired_both(
+            frame, [.80], home, home.iloc[:0],
+            MispricingConfig(
+                bet_size=2.5, minimum_expected_pnl=0,
+                minimum_probability_edge=0, execution_contract="paired_both",
+                submission_latency_seconds=1.0,
+            ),
+        )
+        self.assertEqual(result.trades, 1)
+        self.assertEqual(
+            result.records[0]["fill_time"],
+            start + pd.Timedelta(seconds=1.5),
+        )
+
     def test_minimum_entry_inning_is_shared_policy(self):
         config = MispricingConfig(minimum_entry_inning=2)
         self.assertFalse(entry_state_allowed({"inning_after": 1}, config))

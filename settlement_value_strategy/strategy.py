@@ -167,6 +167,7 @@ class MispricingConfig:
     excluded_price_max: float = 0.0
     confirmation_taker_side: str = "compatible"
     require_post_signal_trade: bool = True
+    submission_latency_seconds: float = 0.0
     minimum_entry_inning: int = 1
     early_exit_enabled: bool = False
     early_exit_minimum_hold_seconds: float = 60.0
@@ -189,7 +190,10 @@ def execution_indexes(
     config: MispricingConfig,
 ) -> range:
     if config.require_post_signal_trade:
-        start = int(np.searchsorted(times, signal_ns, side="right"))
+        effective_ns = signal_ns + int(
+            config.submission_latency_seconds * 1e9
+        )
+        start = int(np.searchsorted(times, effective_ns, side="right"))
         stop = int(np.searchsorted(times, deadline, side="left"))
         return range(start, stop)
     index = int(np.searchsorted(times, signal_ns, side="right") - 1)

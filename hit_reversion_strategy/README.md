@@ -142,6 +142,24 @@ Tune on pre-holdout dates, then evaluate the fixed outer holdout. The worker pro
 (cd hit_reversion_strategy && ../.venv/bin/python scripts/backtest.py)
 ```
 
+To audit a specific live window without overwriting the standard holdout
+artifacts, provide inclusive game dates and a separate output prefix. The
+default live fill proxy only counts a fill after a compatible post-signal
+execution, avoiding the optimistic assumption that every observed trade was
+buyable at its printed price. Pass `--no-live-fill-proxy` only to reproduce
+the older optimistic research assumption:
+
+The deployment replay also waits 0.68 seconds after both entry and exit
+decisions before searching for fill evidence. This is the median submission
+latency measured from the live risk ledger; it can be overridden with the
+backtest latency flags.
+
+```bash
+(cd hit_reversion_strategy && ../.venv/bin/python scripts/backtest.py \
+  --start-date 2026-07-24 --end-date 2026-08-09 \
+  --output-prefix live_window_conservative)
+```
+
 The tuner rewrites `models/trade_tape_config.json`. The backtest rewrites the
 holdout artifacts and refuses to enable deployment unless the loaded policy
 was already enabled and remains profitable.

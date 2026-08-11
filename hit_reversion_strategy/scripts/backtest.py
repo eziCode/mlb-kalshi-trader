@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import argparse
 from dataclasses import asdict, replace
 import hashlib
 import json
@@ -52,6 +53,51 @@ STATE_COLUMNS = [
 ]
 
 LATENCY_PROFILE_PATH = MODEL_DIR / "event_observation_latency.json"
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument(
+        "--start-date", type=pd.Timestamp,
+        default=pd.Timestamp(OUTER_HOLDOUT_START),
+        help="First game date to replay (default: outer holdout start).",
+    )
+    parser.add_argument(
+        "--end-date", type=pd.Timestamp,
+        help="Last game date to replay, inclusive (default: latest data).",
+    )
+    parser.add_argument(
+        "--output-prefix", default="holdout",
+        help="Artifact filename prefix under artifacts/ (default: holdout).",
+    )
+    parser.add_argument(
+        "--live-fill-proxy", action=argparse.BooleanOptionalAction,
+        default=True,
+        help=(
+            "Use the conservative trade-tape proxy for live IOC fills: "
+            "require compatible taker direction and a post-signal trade "
+            "(default: enabled)."
+        ),
+    )
+    parser.add_argument(
+        "--entry-submission-latency", type=float, default=0.68,
+        help="Modeled live entry submission latency in seconds (default: 0.68).",
+    )
+    parser.add_argument(
+        "--exit-submission-latency", type=float, default=0.68,
+        help="Modeled live exit submission latency in seconds (default: 0.68).",
+    )
+    args = parser.parse_args()
+    args.start_date = args.start_date.date()
+    if args.end_date is not None:
+        args.end_date = args.end_date.date()
+        if args.end_date < args.start_date:
+            parser.error("--end-date must not precede --start-date")
+    if not args.output_prefix or Path(args.output_prefix).name != args.output_prefix:
+        parser.error("--output-prefix must be a filename prefix, not a path")
+    if args.entry_submission_latency < 0 or args.exit_submission_latency < 0:
+        parser.error("submission latencies must be nonnegative")
+    return args
 
 
 def load_latency_profile() -> dict:
@@ -170,7 +216,15 @@ def apply_live_paired_execution_prices(
 
 
 def main() -> None:
+    args = parse_args()
     config = TradeTapeConfig(**json.loads(CONFIG_PATH.read_text()))
+    if args.live_fill_proxy:
+        config = replace(
+            config, require_compatible_taker=True,
+            require_post_signal_trade=True,
+            entry_submission_latency_seconds=args.entry_submission_latency,
+            exit_submission_latency_seconds=args.exit_submission_latency,
+        )
     trades = pd.read_parquet(
         DATA_DIR / "home_market_trades.parquet", columns=TRADE_COLUMNS
     )
@@ -181,7 +235,15 @@ def main() -> None:
     trades["game_date"] = pd.to_datetime(trades["game_date"]).dt.date
     away_trades["game_date"] = pd.to_datetime(away_trades["game_date"]).dt.date
     updates["game_date"] = pd.to_datetime(updates["game_date"]).dt.date
-    test_trades = trades[trades["game_date"] >= OUTER_HOLDOUT_START].copy()
+    date_mask = trades["game_date"] >= args.start_date
+    if args.end_date is not None:
+        date_mask &= trades["game_date"] <= args.end_date
+    test_trades = trades[date_mask].copy()
+    if test_trades.empty:
+        raise RuntimeError(
+            f"No home-market trades from {args.start_date} through "
+            f"{args.end_date or 'latest data'}"
+        )
     test_games = set(test_trades["game_pk"].unique())
     test_trades = apply_live_paired_execution_prices(
         test_trades,
@@ -226,7 +288,8 @@ def main() -> None:
         "evaluation_status": (
             "reused_research_holdout_not_an_unbiased_forward_estimate"
         ),
-        "holdout_start": str(OUTER_HOLDOUT_START),
+        "holdout_start": str(args.start_date),
+        "holdout_end": str(args.end_date or max(test_trades["game_date"])),
         "selected_config": asdict(config),
         "deployment_config": asdict(deployment_config),
         "games": len(test_games),
@@ -265,15 +328,22 @@ def main() -> None:
             if key != "quantiles_seconds"
         },
         "no_execution_contract": "paired_away_yes_independent_trade_liquidity",
+        "live_fill_proxy": args.live_fill_proxy,
     }
     STUDY_DIR.mkdir(parents=True, exist_ok=True)
-    (STUDY_DIR / "holdout_summary.json").write_text(
+    (STUDY_DIR / f"{args.output_prefix}_summary.json").write_text(
         json.dumps(summary, indent=2)
     )
-    records.to_csv(STUDY_DIR / "holdout_trades.csv", index=False)
+    records.to_csv(
+        STUDY_DIR / f"{args.output_prefix}_trades.csv", index=False
+    )
 
     print("EXACT-TIMESTAMP TRADE-TAPE HYBRID")
     print(f"Live enabled:          {deployment_enabled}")
+    print(
+        f"Replay dates:          {args.start_date} through "
+        f"{args.end_date or max(test_trades['game_date'])}"
+    )
     print(f"Minimum edge:          {config.minimum_edge:.1%}")
     print(f"Confirmation:          {config.confirmation_seconds:g} seconds")
     print(
@@ -288,6 +358,13 @@ def main() -> None:
     print(f"Observed events:       {result.observed_hits:,}")
     print("Event availability:    empirical live publication latency")
     print("NO execution:          paired away-team YES trade")
+    print(
+        "Fill proxy:            "
+        + (
+            "compatible post-signal execution"
+            if args.live_fill_proxy else "latest observable execution"
+        )
+    )
     print(f"Misaligned hit state:  {result.misaligned_event_updates:,}")
     print(f"Eligible fair moves:   {result.eligible_hit_updates:,}")
     print(f"Rejected fair moves:   {result.rejected_fair_updates:,}")

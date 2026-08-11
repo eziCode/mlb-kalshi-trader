@@ -52,7 +52,7 @@ import gzip
 import json
 import sys
 import time
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 from pathlib import Path
 
 import pandas as pd
@@ -131,7 +131,10 @@ def api_get(url: str, params: dict | None = None, verbose: bool = False) -> dict
 # Game PK discovery from Statcast parquets
 # ---------------------------------------------------------------------------
 
-def discover_game_pks(seasons: list[int]) -> dict[int, list[int]]:
+def discover_game_pks(
+    seasons: list[int], start_date: date | None = None,
+    end_date: date | None = None,
+) -> dict[int, list[int]]:
     """
     Read game_pk values directly out of the existing Statcast parquet files.
     Returns {season: sorted list of unique game_pk ints}.
@@ -143,8 +146,14 @@ def discover_game_pks(seasons: list[int]) -> dict[int, list[int]]:
             print(f"  [warn] Statcast file not found, skipping: {path}", file=sys.stderr)
             result[season] = []
             continue
-        # Only read the game_pk column — these files can be ~100 MB+.
-        df = pd.read_parquet(path, columns=["game_pk"])
+        columns = ["game_pk"]
+        if start_date is not None or end_date is not None:
+            columns.append("game_date")
+        df = pd.read_parquet(path, columns=columns)
+        if start_date is not None:
+            df = df[pd.to_datetime(df["game_date"]).dt.date >= start_date]
+        if end_date is not None:
+            df = df[pd.to_datetime(df["game_date"]).dt.date <= end_date]
         pks = sorted(df["game_pk"].dropna().astype(int).unique().tolist())
         print(f"  {season}: found {len(pks):,} unique game_pk values in {path.name}")
         result[season] = pks
@@ -411,6 +420,14 @@ def main() -> None:
         help="Process at most N games per season (smoke testing).",
     )
     parser.add_argument(
+        "--start-date", type=date.fromisoformat,
+        help="Process games on or after this game date.",
+    )
+    parser.add_argument(
+        "--end-date", type=date.fromisoformat,
+        help="Process games on or before this game date.",
+    )
+    parser.add_argument(
         "--refresh",
         action="store_true",
         help="Ignore all cached game feeds and re-fetch from the MLB API.",
@@ -421,6 +438,11 @@ def main() -> None:
         help="Print every HTTP request URL.",
     )
     args = parser.parse_args()
+    if (
+        args.start_date is not None and args.end_date is not None
+        and args.end_date < args.start_date
+    ):
+        parser.error("--end-date must not precede --start-date")
 
     output_dir: Path = args.output_dir
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -430,7 +452,9 @@ def main() -> None:
     # 1. Discover game_pk values from existing Statcast parquets
     # ------------------------------------------------------------------
     print("Discovering game_pk values from Statcast parquets...")
-    season_pks = discover_game_pks(args.seasons)
+    season_pks = discover_game_pks(
+        args.seasons, args.start_date, args.end_date
+    )
 
     # ------------------------------------------------------------------
     # 2. Process each season
@@ -454,6 +478,14 @@ def main() -> None:
         )
 
         out_path = output_dir / f"pitch_timestamps_{season}.parquet"
+        date_filtered = args.start_date is not None or args.end_date is not None
+        if date_filtered and out_path.exists():
+            existing = pd.read_parquet(out_path)
+            existing = existing[~existing["game_pk"].isin(game_pks)]
+            df = pd.concat([existing, df], ignore_index=True)
+            df = df.sort_values(
+                ["game_pk", "at_bat_number", "pitch_number"]
+            ).reset_index(drop=True)
         df.to_parquet(out_path, index=False)
         print(f"  Wrote {len(df):,} rows -> {out_path}")
 

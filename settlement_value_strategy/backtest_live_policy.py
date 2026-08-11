@@ -45,7 +45,7 @@ def deployed_config() -> MispricingConfig:
     })
     # Live execution is capped at $2.50 even though older research artifacts retained
     # its original $10 notional. Both liquidity and fees must use real sizing.
-    return replace(config, bet_size=2.5)
+    return replace(config, bet_size=2.5, submission_latency_seconds=4.72)
 
 
 def metrics(result, total_games: int) -> dict:
@@ -79,6 +79,7 @@ def main() -> None:
     home = pd.read_parquet(DATA / "execution_trades.parquet")
     away = pd.read_parquet(DATA / "away_execution_trades.parquet")
     labeled = add_future_market_target(frame, home)
+    live_raw = json.loads((ROOT / "model/live_config.json").read_text())
     config = deployed_config()
     fold_results: dict[str, dict] = {}
     all_records: list[pd.DataFrame] = []
@@ -125,6 +126,36 @@ def main() -> None:
     total_pnl = sum(item["pnl"] for item in fold_results.values())
     total_games = sum(item["games"] for item in fold_results.values())
     total_trades = sum(item["trades"] for item in fold_results.values())
+    forward_start = pd.Timestamp(live_raw["training_end"]) + pd.Timedelta(days=1)
+    forward = period(
+        labeled, forward_start.strftime("%Y-%m-%d"), "2100-01-01"
+    )
+    deployed_model = CatBoostRegressor()
+    deployed_model.load_model(ROOT / "model" / live_raw["model_file"])
+    forward_probability = _expit(
+        _logit(forward.market_home_price)
+        + np.clip(
+            deployed_model.predict(mispricing_feature_frame(forward)),
+            -float(live_raw["maximum_logit_move"]),
+            float(live_raw["maximum_logit_move"]),
+        )
+    )
+    forward_games = set(forward.game_pk)
+    forward_result = simulate_paired_both(
+        forward, forward_probability,
+        home[home.game_pk.isin(forward_games)],
+        away[away.game_pk.isin(forward_games)], config,
+    )
+    forward_metrics = metrics(forward_result, len(forward_games))
+    forward_metrics.update({
+        "start": forward_start.date().isoformat(),
+        "end": str(max(forward.game_date)) if len(forward) else None,
+        "model_training_end": live_raw["training_end"],
+    })
+    forward_records = pd.DataFrame(forward_result.records)
+    if not forward_records.empty:
+        forward_records["evaluation_fold"] = "deployed_forward"
+        all_records.append(forward_records)
     summary = {
         "method": "expanding-window; every model trained before its test fold",
         "config": asdict(config),
@@ -139,6 +170,7 @@ def main() -> None:
             "positive_folds": sum(item["pnl"] > 0 for item in fold_results.values()),
         },
         "folds": fold_results,
+        "deployed_forward": forward_metrics,
     }
     RESULTS.mkdir(exist_ok=True)
     (RESULTS / "live_policy_backtest_summary.json").write_text(
