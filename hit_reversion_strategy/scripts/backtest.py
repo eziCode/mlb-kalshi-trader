@@ -93,12 +93,20 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--minimum-seconds-between-entries", type=float)
     parser.add_argument("--reversion-capture-fraction", type=float)
     parser.add_argument(
+        "--segment-minimum-edge", action="append", default=[],
+        metavar="EVENT:SIDE=EDGE",
+    )
+    parser.add_argument(
         "--exclude-event-type", action="append", default=[],
         help="Event type to exclude; may be repeated.",
     )
     parser.add_argument(
         "--only-event-type", action="append", default=[],
         help="Restrict replay to these event types; may be repeated.",
+    )
+    parser.add_argument(
+        "--include-event-type", action="append", default=[],
+        help="Add event types to the configured policy; may be repeated.",
     )
     parser.add_argument(
         "--direct-value-model", action=argparse.BooleanOptionalAction,
@@ -131,6 +139,18 @@ def parse_args() -> argparse.Namespace:
         and not 0 < args.reversion_capture_fraction <= 1
     ):
         parser.error("--reversion-capture-fraction must be in (0, 1]")
+    parsed_segment_edges = {}
+    for value in args.segment_minimum_edge:
+        try:
+            segment, edge_text = value.rsplit("=", 1)
+            event, side = segment.rsplit(":", 1)
+            edge = float(edge_text)
+        except ValueError:
+            parser.error("--segment-minimum-edge must be EVENT:SIDE=EDGE")
+        if side not in {"yes", "no"} or edge < 0:
+            parser.error("segment side must be yes/no and edge nonnegative")
+        parsed_segment_edges[f"{event}:{side}"] = edge
+    args.parsed_segment_edges = parsed_segment_edges
     return args
 
 
@@ -278,6 +298,14 @@ def main() -> None:
             config,
             reversion_capture_fraction=args.reversion_capture_fraction,
         )
+    if args.parsed_segment_edges:
+        config = replace(
+            config,
+            minimum_edges_by_segment={
+                **config.minimum_edges_by_segment,
+                **args.parsed_segment_edges,
+            },
+        )
     if args.exclude_event_type:
         excluded = set(args.exclude_event_type)
         config = replace(
@@ -291,6 +319,13 @@ def main() -> None:
         config = replace(
             config,
             allowed_event_types=list(dict.fromkeys(args.only_event_type)),
+        )
+    if args.include_event_type:
+        config = replace(
+            config,
+            allowed_event_types=list(dict.fromkeys([
+                *config.allowed_event_types, *args.include_event_type,
+            ])),
         )
     if args.direct_value_model is not None:
         config = replace(
