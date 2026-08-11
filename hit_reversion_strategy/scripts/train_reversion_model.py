@@ -52,11 +52,12 @@ FORWARD_START = pd.Timestamp("2026-07-24").date()
 ENTRY_SUBMISSION_LATENCY_SECONDS = 0.68
 EXIT_SUBMISSION_LATENCY_SECONDS = 0.68
 
-CATEGORICAL_FEATURES = ("event_type", "side")
+CATEGORICAL_FEATURES = ("event_type",)
 NUMERIC_FEATURES = (
-    "inning", "inning_topbot", "outs", "score_diff",
+    "inning", "outs", "contract_score_diff", "batting_is_contract_side",
     "runner_on_first", "runner_on_second", "runner_on_third",
-    "fair_before", "fair_after", "batting_fair_move", "side_fair_move",
+    "contract_fair_before", "contract_fair_after",
+    "batting_fair_move", "side_fair_move",
     "entry_price", "target_price", "entry_net_edge",
     "market_move_since_pitch", "event_detection_latency_seconds",
     "entry_lag_seconds",
@@ -135,14 +136,20 @@ def build_opportunities(
         event_type=frame.event_type.astype(str),
         side=frame.side.astype(str),
         inning=frame.inning_after.astype(float),
-        inning_topbot=frame.inning_topbot_after.astype(float),
         outs=frame.outs_when_up_after.astype(float),
-        score_diff=frame.score_diff_after.astype(float),
+        contract_score_diff=frame.score_diff_after.astype(float) * side_sign,
+        batting_is_contract_side=(batting_sign == side_sign).astype(float),
         runner_on_first=frame.runner_on_first_after.astype(float),
         runner_on_second=frame.runner_on_second_after.astype(float),
         runner_on_third=frame.runner_on_third_after.astype(float),
         batting_fair_move=fair_move * batting_sign,
         side_fair_move=fair_move * side_sign,
+        contract_fair_before=np.where(
+            frame.side == "yes", frame.fair_before, 1.0 - frame.fair_before
+        ),
+        contract_fair_after=np.where(
+            frame.side == "yes", frame.fair_after, 1.0 - frame.fair_after
+        ),
         target_price=target_contract,
         entry_net_edge=(
             target_contract - frame.entry_price.astype(float)

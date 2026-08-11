@@ -1025,6 +1025,31 @@ class TradeTapeStrategyTests(unittest.TestCase):
             pd.Timestamp("2026-07-01T12:00:03.200Z"),
         )
 
+    def test_backtest_accepts_partial_ioc_entry_like_live(self):
+        trades, updates = self._frames(include_reversion=False)
+        trades.loc[2, "count_fp"] = 2.0
+        result = simulate_trade_tape(
+            trades, updates, TradeTapeConfig(
+                minimum_edge=0.05,
+                confirmation_seconds=0.0,
+                entry_submission_latency_seconds=0.68,
+            ),
+        )
+        self.assertEqual(result.trades, 1)
+        self.assertEqual(result.records[0].contracts, 2.0)
+
+    def test_event_specific_outs_filter_is_causal(self):
+        trades, updates = self._frames(include_reversion=False)
+        updates["outs_when_up_after"] = 1
+        result = simulate_trade_tape(
+            trades, updates, TradeTapeConfig(
+                minimum_edge=0.05,
+                maximum_outs_after_by_event={"single": 0},
+            ),
+        )
+        self.assertEqual(result.trades, 0)
+        self.assertEqual(result.eligible_hit_updates, 0)
+
     def test_backtest_accumulates_partial_exit_liquidity_like_live(self):
         trades, updates = self._frames(include_reversion=True)
         final = trades.iloc[-1].copy()

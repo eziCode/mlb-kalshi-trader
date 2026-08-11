@@ -1,0 +1,62 @@
+{
+  "entry_gate": "core_bypass_then_competing_risks",
+  "model_features": [
+    "event_type",
+    "inning",
+    "outs",
+    "contract_score_diff",
+    "batting_is_contract_side",
+    "runner_on_first",
+    "runner_on_second",
+    "runner_on_third",
+    "contract_fair_before",
+    "contract_fair_after",
+    "batting_fair_move",
+    "side_fair_move",
+    "entry_price",
+    "target_price",
+    "entry_net_edge",
+    "market_move_since_pitch",
+    "event_detection_latency_seconds",
+    "entry_lag_seconds"
+  ],
+  "seeds": [
+    3101,
+    3102,
+    3103
+  ],
+  "core_edge": 0.04,
+  "fit_end_exclusive": "2026-06-01",
+  "model_sha256": {
+    "3101": {
+      "risk": "1dcb10cebc9974249e5609daba4e3549834abbf658bee000c76b473a6f5fad66",
+      "profit": "a1d0e115250c64254c5fba98e7d96e90d292ebaac718f2b7482e683c5815a059",
+      "downside": "c54bb0dd650e27940c1d69bb7772266b0b30c7424b2cb0f6b8eae3ce8110e8bb",
+      "severe_loss": "abc04adc6bd8ff737cda307468442ecddb890e3185ff72673a67750f0df8ffec",
+      "fast_reversion": "144a31c6f5f5a3ab5718dd1cb2d20c1817efa1af32eee27062f16695d818bf40",
+      "slow_reversion": "7b5e2513f45afaab40bfd9c75426d2aa3f5b6f33d21e9585549afd2c58134eec",
+      "timeout": "6836e69bd29f23207d85d8d4a8c998be76dda4110f5535b975df9dd1ae82dc71",
+      "settlement": "dee5619cd31f25f5f2c27592f45f6e48237e36c35cfd848aecdffcbcf7a60744"
+    },
+    "3102": {
+      "risk": "cf9e1a2489f87427e0930e80c1ad42c89b7ab6c452cdf6a4d1a9644810ee9e7c",
+      "profit": "152568efd7981af46d9503f1b3e4379a0d4035de6601f33195977ee8eba981c3",
+      "downside": "46f48411dc3623393fb34cc04cec3c45b8fd414364e5ac5e9ec36edfaa39dc71",
+      "severe_loss": "31ca2435ac0f75cd6adda8a2a3882c19616e015d6184f9a02530ba3f720b7f34",
+      "fast_reversion": "f137d0a025f35283d3129fe391e57c731d81fd78a5774a43c59d540dc520ce3e",
+      "slow_reversion": "c2c4b5dd6bf897ea8047f0a88e1ca30f61d900ce96f7b7053f1ab7dea8ea6920",
+      "timeout": "e4e9f176b9bdfa6a9f34cae33585d31cf489c488495b483ef310aca3a1af1819",
+      "settlement": "ad81f14f7d8a128ea5165471a0d292261352b567cd64fdf252718678df190bd1"
+    },
+    "3103": {
+      "risk": "9512228c907fef586aebd59e468de408168a069ae9b33d816a6f3d69a44905e2",
+      "profit": "ced56674c35213162dc97a94be5ef72dc676d5be8c2f80bd48e23b705c30b746",
+      "downside": "364e3b46c401c7c879214f728c223893b820b9550fe01892c3c4395eb2002e35",
+      "severe_loss": "b686147f03c274dc2c83ed9d66d81328627cb87cb1a8a572dfad3dd37ee4e51d",
+      "fast_reversion": "26d0637f16f03e1e84138167486b1cbea2a52254b000b022c0e25a7c1cb6faa7",
+      "slow_reversion": "484c4a6134e2db185e6b0c534795d9f0e9843af2acdbe6c3a56535ff0b73f645",
+      "timeout": "db204629bc64ba58ce0854b32b3136cd14e69e79a6a5896c993e0680534a36a1",
+      "settlement": "406e733e44f442adb2ef444e3d0cfaf1996ba5575cb847c2955dc1143c70d568"
+    }
+  }
+}

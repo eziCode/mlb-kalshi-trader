@@ -22,7 +22,9 @@ from trade_tape_strategy.core import (  # noqa: E402
     TradeTapeConfig,
     simulate_trade_tape,
 )
-from trade_tape_strategy.reversion_value import ReversionValueModel  # noqa: E402
+from trade_tape_strategy.reversion_value import (  # noqa: E402
+    CompetingRisksModel, ReversionValueModel,
+)
 
 
 DATA_DIR = REPOSITORY_ROOT / "data/shared"
@@ -31,6 +33,7 @@ MODEL_DIR = PROJECT_ROOT / "models"
 CONFIG_PATH = MODEL_DIR / "trade_tape_config.json"
 REVERSION_MODEL_PATH = MODEL_DIR / "reversion_value.cbm"
 REVERSION_METADATA_PATH = MODEL_DIR / "reversion_value.metadata.json"
+COMPETING_METADATA_PATH = MODEL_DIR / "competing_risks.metadata.json"
 STUDY_DIR = PROJECT_ROOT / "artifacts"
 OUTER_HOLDOUT_START = pd.Timestamp("2026-06-28").date()
 TRADE_COLUMNS = [
@@ -97,6 +100,10 @@ def parse_args() -> argparse.Namespace:
         metavar="EVENT:SIDE=EDGE",
     )
     parser.add_argument(
+        "--event-maximum-outs", action="append", default=[],
+        metavar="EVENT=OUTS",
+    )
+    parser.add_argument(
         "--exclude-event-type", action="append", default=[],
         help="Event type to exclude; may be repeated.",
     )
@@ -151,6 +158,17 @@ def parse_args() -> argparse.Namespace:
             parser.error("segment side must be yes/no and edge nonnegative")
         parsed_segment_edges[f"{event}:{side}"] = edge
     args.parsed_segment_edges = parsed_segment_edges
+    parsed_event_maximum_outs = {}
+    for value in args.event_maximum_outs:
+        try:
+            event, outs_text = value.rsplit("=", 1)
+            outs = int(outs_text)
+        except ValueError:
+            parser.error("--event-maximum-outs must be EVENT=OUTS")
+        if not event or outs not in {0, 1, 2}:
+            parser.error("event maximum outs must be 0, 1, or 2")
+        parsed_event_maximum_outs[event] = outs
+    args.parsed_event_maximum_outs = parsed_event_maximum_outs
     return args
 
 
@@ -306,6 +324,14 @@ def main() -> None:
                 **args.parsed_segment_edges,
             },
         )
+    if args.parsed_event_maximum_outs:
+        config = replace(
+            config,
+            maximum_outs_after_by_event={
+                **config.maximum_outs_after_by_event,
+                **args.parsed_event_maximum_outs,
+            },
+        )
     if args.exclude_event_type:
         excluded = set(args.exclude_event_type)
         config = replace(
@@ -362,6 +388,8 @@ def main() -> None:
     )
 
     entry_scorer = (
+        CompetingRisksModel(MODEL_DIR, COMPETING_METADATA_PATH)
+        if config.competing_risks_enabled else
         ReversionValueModel(
             REVERSION_MODEL_PATH, REVERSION_METADATA_PATH,
             CONFIG_PATH, LATENCY_PROFILE_PATH,
