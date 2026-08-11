@@ -97,6 +97,10 @@ def parse_args() -> argparse.Namespace:
         metavar="EVENT:SIDE=EDGE",
     )
     parser.add_argument(
+        "--event-maximum-outs", action="append", default=[],
+        metavar="EVENT=OUTS",
+    )
+    parser.add_argument(
         "--exclude-event-type", action="append", default=[],
         help="Event type to exclude; may be repeated.",
     )
@@ -151,6 +155,17 @@ def parse_args() -> argparse.Namespace:
             parser.error("segment side must be yes/no and edge nonnegative")
         parsed_segment_edges[f"{event}:{side}"] = edge
     args.parsed_segment_edges = parsed_segment_edges
+    parsed_event_maximum_outs = {}
+    for value in args.event_maximum_outs:
+        try:
+            event, outs_text = value.rsplit("=", 1)
+            outs = int(outs_text)
+        except ValueError:
+            parser.error("--event-maximum-outs must be EVENT=OUTS")
+        if not event or outs not in {0, 1, 2}:
+            parser.error("event maximum outs must be 0, 1, or 2")
+        parsed_event_maximum_outs[event] = outs
+    args.parsed_event_maximum_outs = parsed_event_maximum_outs
     return args
 
 
@@ -304,6 +319,14 @@ def main() -> None:
             minimum_edges_by_segment={
                 **config.minimum_edges_by_segment,
                 **args.parsed_segment_edges,
+            },
+        )
+    if args.parsed_event_maximum_outs:
+        config = replace(
+            config,
+            maximum_outs_after_by_event={
+                **config.maximum_outs_after_by_event,
+                **args.parsed_event_maximum_outs,
             },
         )
     if args.exclude_event_type:

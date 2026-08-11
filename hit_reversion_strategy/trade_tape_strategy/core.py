@@ -52,6 +52,7 @@ class TradeTapeConfig:
     maximum_event_log_odds_move: float = 100.0
     direct_value_model_enabled: bool = False
     maximum_entry_inning: int | None = None
+    maximum_outs_after_by_event: dict[str, int] = field(default_factory=dict)
 
 
 @dataclass
@@ -495,6 +496,10 @@ def simulate_trade_tape(
                         result.misaligned_event_updates += 1
                     elif (
                         pd.notna(update.completed_event)
+                        and int(getattr(update, "outs_when_up_after", 0))
+                        <= config.maximum_outs_after_by_event.get(
+                            str(update.completed_event), 2
+                        )
                         and (
                             config.maximum_entry_inning is None
                             or int(getattr(update, "inning_after", 1))
@@ -800,7 +805,11 @@ def simulate_trade_tape(
                     available_size = (
                         remaining_yes_size if side == "yes" else remaining_no_size
                     )
-                    if available_size >= contracts:
+                    filled_contracts = np.floor(
+                        min(float(contracts), float(available_size)) * 100.0
+                    ) / 100.0
+                    if filled_contracts > 0:
+                        contracts = filled_contracts
                         entry_fee = taker_fee(contracts, entry_price)
                         position = TapePosition(
                             side=side,
@@ -864,7 +873,11 @@ def simulate_trade_tape(
                             remaining_yes_size
                             if side == "yes" else remaining_no_size
                         )
-                        if available_size >= contracts:
+                        filled_contracts = np.floor(
+                            min(float(contracts), float(available_size)) * 100.0
+                        ) / 100.0
+                        if filled_contracts > 0:
+                            contracts = filled_contracts
                             entry_fee = taker_fee(contracts, entry_price)
                             positions.append(TapePosition(
                                 side=side, contracts=contracts,

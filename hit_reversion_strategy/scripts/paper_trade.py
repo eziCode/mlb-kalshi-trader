@@ -1995,6 +1995,10 @@ async def main() -> None:
                 and event_inputs_aligned(game)
                 and game.completed_event in hybrid_config.allowed_event_types
                 and game.event_state is not None
+                and int(game.event_state["outs_when_up"])
+                <= hybrid_config.maximum_outs_after_by_event.get(
+                    str(game.completed_event), 2
+                )
                 and (
                     hybrid_config.maximum_entry_inning is None
                     or int(game.event_state["inning"])
