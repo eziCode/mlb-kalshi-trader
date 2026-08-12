@@ -29,7 +29,9 @@ class MispricingPredictor:
         self.model_kind = raw.get("model_kind", "settlement_classifier")
         self.residual_shrinkage = float(raw.get("residual_shrinkage", 1.0))
         self.maximum_logit_move = float(raw.get("maximum_logit_move", .5))
-        if self.model_kind == "local_state_probability":
+        if self.model_kind in {
+            "local_state_probability", "anchored_state_probability",
+        }:
             self.model = None
             model_name = None
         elif self.model_kind == "latency_residual":
@@ -56,6 +58,11 @@ class MispricingPredictor:
         })
 
     def probability(self, rows: pd.DataFrame) -> np.ndarray:
+        if self.model_kind == "anchored_state_probability":
+            return np.clip(
+                rows["anchored_state_target"].to_numpy(float),
+                1e-6, 1 - 1e-6,
+            )
         if self.model_kind == "local_state_probability":
             return np.clip(
                 rows["local_fair_after"].to_numpy(float), 1e-6, 1 - 1e-6

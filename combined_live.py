@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from datetime import date
+import json
 import os
 from pathlib import Path
 import signal
@@ -17,6 +18,11 @@ import requests
 ROOT = Path(__file__).resolve().parent
 FEED_URL = "http://127.0.0.1:8765"
 MLB_FEED_URL = "http://127.0.0.1:8766"
+
+
+def settlement_enabled() -> bool:
+    config = ROOT / "settlement_value_strategy/model/live_config.json"
+    return bool(json.loads(config.read_text()).get("enabled", False))
 
 
 def stop(processes: list[subprocess.Popen]) -> None:
@@ -80,27 +86,40 @@ def run(selected: date | None) -> int:
         processes.append(mlb)
         wait_ready(mlb, MLB_FEED_URL, "MLB feed")
         date_args = [] if selected is None else ["--date", selected.isoformat()]
-        settlement_worker = subprocess.Popen(
-            [sys.executable, "-u", "-m",
-             "settlement_value_strategy.live_paper_trader", "--continuous",
-             *date_args], cwd=ROOT, env=settlement,
-        )
+        settlement_worker = None
+        if settlement_enabled():
+            settlement_worker = subprocess.Popen(
+                [sys.executable, "-u", "-m",
+                 "settlement_value_strategy.live_paper_trader", "--continuous",
+                 *date_args], cwd=ROOT, env=settlement,
+            )
+            processes.append(settlement_worker)
+        else:
+            print(
+                "Settlement-value disabled by validated live_config.json; "
+                "no settlement worker started",
+                flush=True,
+            )
         hit_worker = subprocess.Popen(
             [sys.executable, "-u", "scripts/paper_trade.py", "--continuous",
              *date_args], cwd=ROOT / "hit_reversion_strategy", env=hit,
         )
-        processes.extend([settlement_worker, hit_worker])
+        processes.append(hit_worker)
         print(
             "Combined LIVE runtime started: one Kalshi WebSocket, one "
-            "adaptive MLB feed, settlement-value + hit-reversion",
+            "adaptive MLB feed, "
+            + ("settlement-value + " if settlement_worker else "")
+            + "hit-reversion",
             flush=True,
         )
         while True:
-            for name, process in (
+            workers = [
                 ("Kalshi feed", kalshi), ("MLB feed", mlb),
-                ("settlement-value", settlement_worker),
                 ("hit-reversion", hit_worker),
-            ):
+            ]
+            if settlement_worker is not None:
+                workers.append(("settlement-value", settlement_worker))
+            for name, process in workers:
                 code = process.poll()
                 if code is not None:
                     print(f"{name} exited with status {code}", flush=True)

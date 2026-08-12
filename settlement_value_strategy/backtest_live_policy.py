@@ -130,7 +130,11 @@ def main() -> None:
     forward = period(
         labeled, forward_start.strftime("%Y-%m-%d"), "2100-01-01"
     )
-    if live_raw.get("model_kind") == "local_state_probability":
+    if live_raw.get("model_kind") == "anchored_state_probability":
+        forward_probability = np.clip(
+            forward.anchored_state_target.to_numpy(float), 1e-6, 1 - 1e-6
+        )
+    elif live_raw.get("model_kind") == "local_state_probability":
         forward_probability = np.clip(
             forward.local_fair_after.to_numpy(float), 1e-6, 1 - 1e-6
         )
@@ -177,9 +181,11 @@ def main() -> None:
         "folds": fold_results,
         "deployed_forward": forward_metrics,
     }
-    if live_raw.get("model_kind") == "local_state_probability":
+    if live_raw.get("model_kind") in {
+        "local_state_probability", "anchored_state_probability",
+    }:
         summary["method"] = (
-            "frozen local-state model evaluated strictly after model training; "
+            f"frozen {live_raw['model_kind']} evaluated strictly after model training; "
             "policy thresholds were selected retrospectively"
         )
         summary["aggregate"] = forward_metrics

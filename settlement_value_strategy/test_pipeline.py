@@ -8,6 +8,7 @@ from pathlib import Path
 import tempfile
 import json
 
+import numpy as np
 import pandas as pd
 import settlement_value_strategy.live_paper_trader as live_paper_trader
 from catboost import CatBoostClassifier
@@ -35,9 +36,10 @@ class DeployedPolicyParityTests(unittest.TestCase):
     def test_frozen_policy_matches_selected_research_constraints(self):
         config = deployed_config()
         self.assertEqual(config.bet_size, 2.5)
-        self.assertEqual(config.minimum_probability_edge, .10)
+        self.assertEqual(config.minimum_probability_edge, .02)
         self.assertEqual(config.submission_latency_seconds, 4.72)
-        self.assertEqual(config.excluded_price_max, .499999)
+        self.assertEqual(config.excluded_price_min, .45)
+        self.assertEqual(config.excluded_price_max, .55)
         self.assertEqual(config.minimum_entry_inning, 2)
         self.assertEqual(config.minimum_seconds_between_entries, 120.0)
         self.assertEqual(config.maximum_positions_per_game, 2)
@@ -73,6 +75,22 @@ class DeployedPolicyTests(unittest.TestCase):
         config = deployed_config()
         self.assertTrue(config.require_post_signal_trade)
         self.assertEqual(config.maximum_fill_delay_seconds, 5.0)
+
+    def test_deployed_probability_is_bounded_market_residual(self):
+        predictor = MispricingPredictor()
+        self.assertEqual(predictor.model_kind, "latency_residual")
+        row = pd.read_parquet(
+            predictor.root.parent / "data/settlement_value/decision_rows.parquet"
+        ).iloc[[0]]
+        probability = float(predictor.probability(row)[0])
+        market_logit = float(np.log(
+            row.market_home_price.iloc[0] / (1 - row.market_home_price.iloc[0])
+        ))
+        predicted_logit = float(np.log(probability / (1 - probability)))
+        self.assertLessEqual(abs(predicted_logit - market_logit), .500001)
+
+    def test_unprofitable_corrected_settlement_policy_is_disabled(self):
+        self.assertFalse(MispricingPredictor().config.enabled)
 
 
 class PipelineTests(unittest.TestCase):
@@ -470,10 +488,10 @@ class PipelineTests(unittest.TestCase):
         self.assertLessEqual(
             fill["contracts"] * fill["price"] + fill["fee"], 2.5
         )
-        self.assertGreaterEqual(fill["edge"], .10)
+        self.assertGreaterEqual(fill["edge"], .02)
         self.assertGreaterEqual(fill["expected_pnl"], 0.0)
         self.assertIsNone(replay_fill_from_observed_trades(
-            trades, signal, .69, [], "yes", config,
+            trades, signal, .61, [], "yes", config,
             confirmation_budget=2.5,
         ))
 

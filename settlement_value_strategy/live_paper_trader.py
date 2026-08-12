@@ -1482,6 +1482,15 @@ async def run_worker() -> None:
                         seconds=predictor.config.maximum_fill_delay_seconds
                     )
                 )
+                if not execution_within_window(
+                    row["signal_time"], decision_time,
+                    predictor.config.maximum_fill_delay_seconds,
+                ):
+                    action = "SKIP_STALE_SIGNAL"
+                    handled_tokens.add(token)
+                    previous_game = game
+                    await asyncio.sleep(POLL_SECONDS)
+                    continue
                 if fill is None and pd.Timestamp.now(tz="UTC") < deadline:
                     await asyncio.sleep(POLL_SECONDS)
                     continue
