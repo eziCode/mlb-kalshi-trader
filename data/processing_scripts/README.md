@@ -24,8 +24,14 @@ writes:
 
 ```text
 data/shared/home_market_trades.parquet
+data/shared/away_market_trades.parquet
 data/shared/state_updates.parquet
 ```
+
+In the final snapshot those outputs contain 12,984,711 home executions,
+15,554,123 paired away executions, and 1,149,706 causal state updates. The
+independent away tape is required for realistic home-NO execution; the
+backtests never borrow home-market liquidity for that side.
 
 Run processors directly only when debugging:
 
@@ -33,4 +39,3 @@ Run processors directly only when debugging:
 .venv/bin/python data/processing_scripts/build_event_state_features.py
 .venv/bin/python data/processing_scripts/build_shared_data.py
 ```
-

@@ -32,8 +32,8 @@ candidate or position is active.
 
 1. Observe a newly completed plate appearance from the authoritative MLB feed.
 2. Continue only for an event type listed in the loaded configuration. The
-   checked-in policy includes singles, triples, walks, intentional
-   walks, hit-by-pitches, field errors, fielder's choices, and catcher
+   checked-in policy includes singles, zero-out doubles, triples, walks,
+   intentional walks, hit-by-pitches, field errors, fielder's choices, and catcher
    interference; home runs are excluded.
 3. Compute the directional fair-value move for the batting team.
 4. Anchor to a fresh Kalshi execution observed before the event.
@@ -75,7 +75,8 @@ The checked-in deployment policy currently uses:
 - both YES- and NO-side residuals, with paired away-YES execution for NO;
 - no direct reversion-value model; its causal retraining failed the forward
   deployment gate;
-- a five-point minimum fee-adjusted edge with no confirmation delay;
+- a one-point minimum fee-adjusted edge with no confirmation delay, followed
+  by the checked-in competing-risks gate;
 - fixed-budget sizing of $2.50 per entry;
 - unlimited positions per game, with at least 60 seconds between entries;
 - ten-second maximum pre-event anchor age;
@@ -200,7 +201,33 @@ cash and positions. The trader polls public MLB and Kalshi endpoints, validates
 quote/feed freshness, recovers positions after restart, and never submits real
 orders.
 
-## Docker and reference result
+## Final reference result
+
+The selected competing-risks policy was replayed from June 28 through August
+9, 2026:
+
+| Metric | Result |
+| --- | ---: |
+| Scheduled games | 531 |
+| Fills | 119 (71 YES, 48 NO) |
+| Net PnL | +$24.68 |
+| Capital deployed | $248.02 |
+| ROI | 9.95% |
+| PnL without best game | +$21.14 |
+| PnL without best four games | +$13.49 |
+
+The replay produced 75 target-reversion exits, 39 timeout exits, and five
+settlements. Three seeded CatBoost ensembles estimate profit, downside,
+severe-loss, fast/slow-reversion, timeout, and settlement outcomes. The model
+was fit only on data before June 1, then used as a gate on causal event signals.
+
+This window was reused during development, so 9.95% is a research diagnostic,
+not an unbiased forward-return estimate. Exact executions provide a more
+conservative fill proxy than candles, but they do not reconstruct full book
+depth or queue priority. Results are in
+[`artifacts/competing_risks_production_summary.json`](artifacts/competing_risks_production_summary.json).
+
+## Docker
 
 The external strategy selector remains `trade-tape` for command compatibility:
 
@@ -210,18 +237,14 @@ docker run --rm mlb-kalshi-trader trade-tape tune
 docker run --rm mlb-kalshi-trader trade-tape backtest
 ```
 
-The current exact-policy research holdout contains 581 fills across 297 games,
-$112.94 net PnL, and 7.78% ROI at the live $2.50 budget. Removing the best game
-leaves $100.19 and removing the best four leaves $82.26. The replay uses the checked-in
+The replay uses the checked-in
 shared-WebSocket observation-latency profile, paired away-team YES execution
 using only actual away-market trade size and aggressor direction,
 dynamic targets, partial exits, the 60-second entry cooldown, and the same
-direct-value gate loaded by live trading.
+competing-risks gate loaded by live trading.
 
 The value-model metadata hashes the model binary, deployment configuration,
 and latency profile. Both replay and live startup fail closed if those files do
 not match, preventing a model trained under one policy from silently running
-under another. This holdout has been reused during strategy development, so
-its 7.78% ROI is a research diagnostic rather than an unbiased forward-return
-estimate. Historical executions remain a fill proxy rather than a full
+under another. Historical executions remain a fill proxy rather than a full
 order-book reconstruction.

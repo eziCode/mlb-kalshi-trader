@@ -1,45 +1,52 @@
-# Settlement-value study results
+# Settlement-value research results
 
-The strategy predicts calibrated home-team settlement probability without
-using event-name labels. Signals must retain their expected value at a
-strictly later, compatible execution with sufficient reported size. Positions
-are $10 and are held to settlement.
+This directory preserves the settlement-value research trail. The final
+corrected result is negative, and the checked-in live policy is disabled.
 
-## Chronology
+## Final decision
 
-- Model fit: before June 17, 2026
-- First policy-validation period: June 17-21
-- Second policy-validation period: June 22-27
-- Outer development holdout: June 28 onward
+| Evaluation | Games | Fills | Net PnL | Capital | ROI |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Seven-fold expanding-window replay | 1,440 | 213 | -$15.70 | $466.78 | -3.36% |
+| Post-training slice, 2026-07-24 to 2026-08-09 | 234 | 41 | -$4.23 | $97.77 | -4.32% |
 
-## Reproduce results
+Only two of seven chronological folds were profitable. Removing the best four
+games from the post-training slice produces -$16.95. The authoritative policy
+file therefore records `enabled: false`, `tuning_passed: false`, and
+`validation_passed: false`.
+
+This corrected replay includes the measured 4.72-second submission latency,
+requires a strictly later compatible execution within five seconds, caps a
+fill by printed size, routes away exposure through the independent paired
+away-YES market, charges Kalshi fees, and uses a $2.50 order budget. Execution
+prints are still a fill proxy rather than a complete reconstruction of book
+depth and queue position.
+
+## Artifact guide
+
+- `live_policy_backtest_summary.json` and
+  `live_policy_backtest_trades.csv`: authoritative corrected replay.
+- `latency_research_summary.json`: model and policy search results before the
+  exact frozen-policy correction.
+- `early_exit_research_summary.json`: research-only stop-loss overlay; early
+  exits remain disabled.
+- `holdout_summary.json` and related CSVs: earlier $10 settlement study,
+  retained for reproducibility but superseded as a deployment claim.
+- `training_summary.json` and `tuning_grid.csv`: earlier model-training audit
+  trail.
+
+## Reproduce
 
 From the repository root:
 
 ```bash
 .venv/bin/python setup_data.py mispricing
 .venv/bin/python -m settlement_value_strategy.prepare_data
-.venv/bin/python -m settlement_value_strategy.train
-.venv/bin/python -m settlement_value_strategy.backtest
+.venv/bin/python -m settlement_value_strategy.train_latency
+.venv/bin/python -m settlement_value_strategy.research_latency
+.venv/bin/python -m settlement_value_strategy.backtest_live_policy
 ```
 
-`train` rewrites the model, calibration, policy configuration, tuning grid,
-and training summary. `backtest` rewrites holdout summaries and trade logs.
-
-## Frozen reference
-
-The frozen policy trades both settlement directions: home signals buy home
-YES, while away signals buy the independently traded paired away-YES contract.
-It does not cap the number of $10 positions per game and requires at least 200
-seconds between fills. Candidate thresholds must trade both directions, be profitable in both
-chronological policy periods, and remain profitable after removing their best
-game.
-
-The selected development policy produced 30 fills, $48.44 net PnL, and 15.68%
-ROI across its two policy-validation periods. The later development holdout
-produced 53 fills, $66.66 net PnL, and 12.19% ROI. Removing the four best games
-leaves a small positive result, but statistical uncertainty remains high, so
-validation and deployment remain disabled.
-
-This is development validation rather than a pristine final test. Deployment
-remains disabled pending forward paper performance on newly collected games.
+These commands rewrite their corresponding model, configuration, summary, and
+trade artifacts. Retrain after regenerating shared data because the frozen
+model is tied to its causal feature and anchor contract.

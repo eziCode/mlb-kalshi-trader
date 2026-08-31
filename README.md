@@ -1,6 +1,11 @@
-# MLB Kalshi trader
+# MLB Kalshi Trader
 
-This repository contains two MLB Kalshi paper-trading strategies:
+An end-to-end research and execution system for MLB prediction markets on
+Kalshi. It combines pitch-level baseball state, exact market executions,
+chronological model validation, realistic latency and fill constraints, and a
+shared paper/live runtime.
+
+The repository contains two strategies:
 
 - **Settlement value** (`mispricing` selector): predicts causal 3-10 second
   post-pitch repricing, enters fee-adjusted residual value, and normally holds
@@ -9,7 +14,41 @@ This repository contains two MLB Kalshi paper-trading strategies:
   trades delayed market reactions after selected completed events and exits at
   a configured target or hold limit.
 
-Neither paper trader submits real orders.
+Paper mode never submits orders. Real execution is separately guarded by an
+explicit acknowledgement, account-level capital limits, and a durable SQLite
+risk ledger.
+
+## Final research results
+
+| Strategy | Evaluation window | Games | Fills | Net PnL | ROI | Status |
+| --- | ---: | ---: | ---: | ---: | ---: | --- |
+| Event reversion + competing risks | 2026-06-28 to 2026-08-09 | 531 | 119 | +$24.68 | 9.95% | Enabled |
+| Settlement-value latency residual | 2026-07-24 to 2026-08-09 forward slice | 234 | 41 | -$4.23 | -4.32% | Disabled |
+
+Both figures use a $2.50 order budget, Kalshi fees, measured submission
+latency, exact later-trade evidence, independent paired away-market liquidity,
+and partial-fill handling. The event-reversion period was reused during
+strategy development and is therefore a research diagnostic, not an unbiased
+forward-return estimate. Its result remains +$21.14 after removing the best
+game and +$13.49 after removing the best four. The negative settlement result
+is equally important: its model and policy fail closed in the checked-in live
+configuration.
+
+The checked-in dataset contains 12,984,711 home-market executions, 15,554,123
+paired away-market executions, 1,149,706 causal state updates, and 377,762
+settlement decision rows. See each strategy README for its thesis, causal
+contract, and detailed limitations.
+
+## Engineering highlights
+
+- One authenticated Kalshi WebSocket and one adaptive MLB feed serve isolated
+  per-game workers for both strategies.
+- Backtests reject same-timestamp information, apply observed submission
+  latency, require compatible later executions, and cap fills by printed size.
+- Home-NO signals execute through the independently traded away-team YES
+  market rather than assuming synthetic liquidity.
+- Model binaries, policies, and latency profiles are hash-verified at startup;
+  shared cash, positions, cooldowns, and pending reservations survive restarts.
 
 ## Quick start
 
@@ -38,12 +77,13 @@ data/shared/home_market_trades.parquet
 data/shared/state_updates.parquet
 ```
 
-Then prepare, train, and evaluate the settlement-value strategy:
+Then prepare, train, and evaluate the settlement-value research strategy:
 
 ```bash
 .venv/bin/python -m settlement_value_strategy.prepare_data
-.venv/bin/python -m settlement_value_strategy.train
-.venv/bin/python -m settlement_value_strategy.backtest
+.venv/bin/python -m settlement_value_strategy.train_latency
+.venv/bin/python -m settlement_value_strategy.research_latency
+.venv/bin/python -m settlement_value_strategy.backtest_live_policy
 ```
 
 Tune and evaluate the hit-reversion strategy from the same shared data:
@@ -106,6 +146,9 @@ ends today. Override this with `--start-date` and `--end-date`.
 (cd hit_reversion_strategy && \
   ../.venv/bin/python -m unittest discover -s tests -v)
 ```
+
+The shared-feed, execution, portfolio, and settlement suites currently run 100
+tests; hit reversion has its own additional strategy suite.
 
 ## Docker
 
@@ -213,9 +256,9 @@ remainder remains durably tracked.
 Set `LIVE_MAX_TOTAL_CAPITAL=ALL_LIQUID_CASH` to make all currently available
 Kalshi cash eligible while atomically reserving concurrent pending orders. A
 numeric value retains a fixed total allocation cap.
-`LIVE_TRADING_ENABLED` is always required. `ALLOW_UNVALIDATED_LIVE` is required
-only when the loaded settlement policy is disabled; the checked-in latency
-policy is currently enabled and marked validated in `model/live_config.json`.
+`LIVE_TRADING_ENABLED` is always required. The checked-in settlement policy is
+disabled after failing corrected validation, so `ALLOW_UNVALIDATED_LIVE` is
+also required to override that fail-closed state. Hit reversion remains enabled.
 
 ```bash
 docker network create mlb-trading

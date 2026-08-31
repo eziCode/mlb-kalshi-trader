@@ -70,6 +70,22 @@ execution tape with:
 .venv/bin/python -m settlement_value_strategy.prepare_data
 ```
 
+## Checked-in dataset snapshot
+
+| File | Rows |
+| --- | ---: |
+| `shared/home_market_trades.parquet` | 12,984,711 |
+| `shared/away_market_trades.parquet` | 15,554,123 |
+| `shared/state_updates.parquet` | 1,149,706 |
+| `settlement_value/decision_rows.parquet` | 377,762 |
+| `settlement_value/execution_trades.parquet` | 1,525,795 |
+| `settlement_value/away_execution_trades.parquet` | 1,788,061 |
+
+These are exact execution tapes and causal state transitions, not one-minute
+candles or reconstructed order books. Historical fills still remain a proxy:
+a compatible later execution demonstrates tradable activity but cannot fully
+reconstruct queue position or depth.
+
 ## Reruns and smoke tests
 
 Downloads and per-market/per-game caches are reusable. Common commands:
