@@ -1,5 +1,10 @@
 # Research reboot
 
+The [September 27 external evidence review](EXTERNAL_RESEARCH_20260927.md)
+compares published live results, MLB bot backtests, and market-making studies.
+It prioritizes fill-quality diagnostics, an independent sportsbook reference,
+and paired-contract consistency without changing the frozen experiments.
+
 ## Current candidate and prospective test
 
 The [frozen market correction](results/market_correction/REPORT.md) produces
