@@ -1,0 +1,31 @@
+{
+  "purpose": "20-second pregame integration check, not a strategy evaluation",
+  "games": 15,
+  "capture_sha256": "3f720a5d2657fab29d446fe057aa558b12a558852f2af65e8ce4fabdbe245458",
+  "record_counts": {
+    "capture_start": 1,
+    "connection_start": 1,
+    "mlb_observation": 60,
+    "kalshi_message": 174,
+    "connection_end": 1,
+    "capture_end": 1
+  },
+  "kalshi_messages": {
+    "subscribed": 2,
+    "orderbook_snapshot": 30,
+    "orderbook_delta": 123,
+    "trade": 19
+  },
+  "valid_replays": 15,
+  "shadow_submissions": 4,
+  "shadow_fill_events": 0,
+  "errors": [],
+  "orders_submitted_to_exchange": 0,
+  "deployment_ready": false,
+  "source_hashes": {
+    "research/passive.py": "34a08e378e8b6f3bb72e258ac8d85e24003241d508fa57d6f208118f4e41d740",
+    "research/forward.py": "0dc9bc6a3623e85aff9996900483e6ae34072269900b123a921f7985089fa05a",
+    "research/record.py": "d17be86aa2b6d2e27bd31e8ad7232decdbd0aad37fb0f645cdb2ea0281442a0e"
+  },
+  "maker_fee_rate": 0.0175
+}

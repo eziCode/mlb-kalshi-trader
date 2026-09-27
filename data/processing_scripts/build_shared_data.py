@@ -16,12 +16,14 @@ import pandas as pd
 
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+if str(REPOSITORY_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPOSITORY_ROOT))
 if str(REPOSITORY_ROOT / "hit_reversion_strategy") not in sys.path:
     sys.path.insert(0, str(REPOSITORY_ROOT / "hit_reversion_strategy"))
 
 from trade_tape_strategy.strategy import state_feature_frame  # noqa: E402
 from settlement_value_strategy.play_eligibility import (  # noqa: E402
-    incomplete_ball_in_play_reason,
+    incomplete_ball_in_play_reason, state_from_play, pregame_probability_from_rating_state,
 )
 
 
@@ -42,6 +44,41 @@ SETTLEMENT_STATE_FEATURES = (
     "outs_when_up", "batting_score_diff", "balls", "strikes",
     "runner_on_first", "runner_on_second", "runner_on_third",
 )
+POST_STATE_COLUMNS = (
+    "inning", "inning_topbot", "outs_when_up", "score_diff", "balls",
+    "strikes", "runner_on_first", "runner_on_second", "runner_on_third",
+)
+
+
+def score_causal_updates(work: pd.DataFrame, pitch_times: pd.DataFrame, model) -> pd.DataFrame:
+    """Score the current pitch/play, without inspecting any subsequent row."""
+    work = work.drop(columns=[
+        "pitch_start_time", "pitch_end_time", "completed_event",
+        "completed_event_batting_home", "atomic_play_input",
+    ], errors="ignore").merge(
+        pitch_times, on=["game_pk", "at_bat_number", "pitch_number"],
+        how="inner", validate="one_to_one",
+    )
+    work = work[work.pitch_end_time > work.pitch_start_time].copy()
+    # Incomplete states still invalidate older candidates, but cannot trigger
+    # new entries. Their post-state is not invented from a future pitch.
+    work.loc[~work.atomic_play_input, "completed_event"] = None
+    after = work.copy()
+    for column in POST_STATE_COLUMNS:
+        observed = work.get(f"observed_{column}", pd.Series(index=work.index, dtype=float))
+        after[column] = observed.where(work.atomic_play_input).fillna(work[column])
+        work[f"{column}_after"] = after[column]
+    for name, frame in (("fair_before", work), ("fair_after", after)):
+        probability = model.predict_proba(settlement_state_frame(frame), thread_count=-1)[:, 1]
+        work[name] = np.where(frame.inning_topbot.astype(int).eq(1), probability, 1 - probability)
+    work["is_hit"] = work.completed_event.isin(["single", "double", "triple", "home_run"])
+    columns = [
+        "game_pk", "game_date", "market_ticker", "home_win", "at_bat_number",
+        "pitch_number", "pitch_start_time", "pitch_end_time", "completed_event",
+        "completed_event_batting_home", "is_hit", "atomic_play_input",
+        "fair_before", "fair_after", *[f"{column}_after" for column in POST_STATE_COLUMNS],
+    ]
+    return work[columns].sort_values(["game_pk", "pitch_end_time", "at_bat_number", "pitch_number"])
 
 
 def settlement_state_frame(frame: pd.DataFrame) -> pd.DataFrame:
@@ -76,10 +113,12 @@ def load_feed(path: Path) -> dict:
     return json.loads(path.read_text())
 
 
-def feed_rows(cache_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
+def feed_rows(cache_dir: Path, game_pks: set[int] | None = None) -> tuple[pd.DataFrame, pd.DataFrame]:
     pitch_rows: list[dict] = []
     game_rows: list[dict] = []
     paths = sorted({*cache_dir.rglob("*.json"), *cache_dir.rglob("*.json.gz")})
+    if game_pks is not None:
+        paths = [path for path in paths if int(path.name.split(".")[0]) in game_pks]
     if not paths:
         raise FileNotFoundError(f"No MLB live-feed cache files under {cache_dir}")
     print(f"Reading {len(paths):,} cached MLB game feeds...", flush=True)
@@ -117,19 +156,42 @@ def feed_rows(cache_dir: Path) -> tuple[pd.DataFrame, pd.DataFrame]:
             batting_home = not bool(play.get("about", {}).get("isTopInning"))
             for event in pitches:
                 number = int(event["pitchNumber"])
+                is_terminal = number == terminal
+                atomic = incomplete_ball_in_play_reason(play, number) is None
+                post_state = {}
+                if is_terminal and atomic:
+                    try:
+                        post_state = state_from_play(play)
+                    except ValueError:
+                        atomic = False
+                elif not is_terminal:
+                    count = event.get("count") or {}
+                    post_state = {
+                        "balls": count.get("balls"), "strikes": count.get("strikes"),
+                        "outs_when_up": count.get("outs"),
+                    }
+                    # A nonterminal runner/scoring action needs its own complete
+                    # event-state reconstruction. Do not borrow the next pitch.
+                    atomic = not any(
+                        (runner.get("details") or {}).get("playIndex") == event.get("index")
+                        for runner in play.get("runners") or []
+                    )
+                end_time = event.get("endTime")
+                if is_terminal:
+                    # A hit is not known merely because the pitch has ended.
+                    end_time = max(filter(None, [end_time, (play.get("about") or {}).get("endTime")]), default=None)
                 pitch_rows.append({
                     "game_pk": game_pk,
                     "at_bat_number": int(at_bat_index) + 1,
                     "pitch_number": number,
                     "pitch_start_time": event.get("startTime"),
-                    "pitch_end_time": event.get("endTime"),
+                    "pitch_end_time": end_time,
                     "completed_event": event_type if number == terminal else None,
                     "completed_event_batting_home": (
                         batting_home if number == terminal else None
                     ),
-                    "atomic_play_input": (
-                        incomplete_ball_in_play_reason(play, number) is None
-                    ),
+                    "atomic_play_input": atomic,
+                    **{f"observed_{key}": value for key, value in post_state.items()},
                 })
         if index % 250 == 0:
             print(f"  parsed {index:,}/{len(paths):,} feeds", flush=True)
@@ -177,12 +239,19 @@ def load_pitch_states(path: Path) -> pd.DataFrame:
     return states
 
 
-def load_downloaded_trades(directory: Path) -> pd.DataFrame:
+def load_downloaded_trades(directory: Path, start_date=None, end_date=None) -> pd.DataFrame:
     files = sorted(directory.glob("*.parquet"))
     if not files:
         raise FileNotFoundError(f"No downloaded Kalshi Parquet files in {directory}")
     print(f"Loading {len(files)} Kalshi trade file(s)...", flush=True)
-    trades = pd.concat((pd.read_parquet(path) for path in files), ignore_index=True)
+    filters = []
+    if start_date is not None:
+        filters.append(("game_date", ">=", str(start_date)))
+    if end_date is not None:
+        filters.append(("game_date", "<=", str(end_date)))
+    columns = ["event_ticker", "market_ticker", "game_date", "market_result", "trade_id", "created_time",
+               "yes_price_dollars", "no_price_dollars", "count_fp", "taker_outcome_side", "taker_book_side"]
+    trades = pd.concat((pd.read_parquet(path, columns=columns, filters=filters or None) for path in files), ignore_index=True)
     required = {
         "market_ticker", "game_date", "trade_id", "created_time",
         "yes_price_dollars", "no_price_dollars", "count_fp",
@@ -192,6 +261,14 @@ def load_downloaded_trades(directory: Path) -> pd.DataFrame:
         raise ValueError(f"Downloaded trades missing columns: {sorted(missing)}")
     trades["created_time"] = pd.to_datetime(trades.created_time, utc=True)
     trades["game_date"] = pd.to_datetime(trades.game_date).dt.date
+    valid = (
+        trades.created_time.notna() & trades.trade_id.notna()
+        & trades.yes_price_dollars.between(0, 1) & trades.no_price_dollars.between(0, 1)
+        & np.isfinite(trades.count_fp) & trades.count_fp.gt(0)
+        & trades.taker_outcome_side.isin(["yes", "no"])
+    )
+    if not valid.all():
+        raise ValueError(f"Downloaded execution tape has {int((~valid).sum())} invalid rows")
     return trades.sort_values(["created_time", "trade_id"]).drop_duplicates("trade_id")
 
 
@@ -215,6 +292,14 @@ def map_games_to_markets(
         canonical_team
     )
     markets = markets.sort_values(["game_date", "home_code", "market_ticker"])
+    # Never shift a doubleheader onto the wrong game when one market/feed is
+    # absent. Ordinal pairing is allowed only for complete matching groups.
+    keys = ["game_date", "home_code"]
+    game_counts = mapped_games.groupby(keys).size().rename("game_count")
+    market_counts = markets.groupby(keys).size().rename("market_count")
+    complete = game_counts.to_frame().join(market_counts).query("game_count == market_count").reset_index()[keys]
+    mapped_games = mapped_games.merge(complete, on=keys, how="inner")
+    markets = markets.merge(complete, on=keys, how="inner")
     markets["ordinal"] = markets.groupby(["game_date", "home_code"]).cumcount()
     mapped_games = mapped_games.sort_values(
         ["game_date", "home_code", "first_pitch_time"]
@@ -245,10 +330,18 @@ def build_shared(
     settlement_model_output: Path | None = None,
     settlement_state_output: Path | None = None,
     settlement_pregame_priors: Path | None = None,
+    pregame_prior_state: Path | None = None,
+    prior_state_as_of: date | None = None,
+    start_date: date | None = None,
+    end_date: date | None = None,
 ) -> tuple[pd.DataFrame, pd.DataFrame]:
     states = load_pitch_states(pitch_states)
-    pitch_times, feed_games = feed_rows(feed_cache)
-    downloaded = load_downloaded_trades(trade_dir)
+    if start_date is not None:
+        states = states[states.game_date >= start_date]
+    if end_date is not None:
+        states = states[states.game_date <= end_date]
+    pitch_times, feed_games = feed_rows(feed_cache, set(states.game_pk))
+    downloaded = load_downloaded_trades(trade_dir, start_date, end_date)
     games = map_games_to_markets(states, feed_games, downloaded)
     games = games.dropna(subset=["home_win"]).copy()
     games["home_win"] = games.home_win.astype(int)
@@ -263,6 +356,12 @@ def build_shared(
             "first_pitch_time", "last_pitch_time",
         ]], on=["game_date", "market_ticker"], how="inner",
     )
+    if "market_result" in home_trades:
+        expected = home_trades.home_win.map({1: "yes", 0: "no"})
+        inconsistent = home_trades.market_result.fillna("").astype(str).str.lower().ne(expected)
+        if inconsistent.any():
+            bad = home_trades.loc[inconsistent, "market_ticker"].unique().tolist()
+            raise ValueError(f"Missing/inconsistent Kalshi settlement labels: {bad[:10]}")
     anchor_rows = (
         home_trades[home_trades.created_time < home_trades.first_pitch_time]
         .sort_values(["game_pk", "created_time", "trade_id"])
@@ -272,6 +371,14 @@ def build_shared(
         columns={"yes_price_dollars": "pregame_prob"}
     )
     games = games.merge(anchors, on="game_pk", how="inner")
+    if pregame_prior_state is not None:
+        if prior_state_as_of is None or games.game_date.min() <= prior_state_as_of:
+            raise ValueError("Frozen prior requires --prior-state-as-of strictly before every evaluated game")
+        prior = json.loads(pregame_prior_state.read_text())
+        team_pairs = states.groupby("game_pk")[["home_team", "away_team"]].first()
+        games["pregame_prob"] = games.game_pk.map(lambda game_pk: pregame_probability_from_rating_state(
+            prior, team_pairs.loc[game_pk, "home_team"], team_pairs.loc[game_pk, "away_team"]
+        ))
     home_trades = home_trades[
         (home_trades.created_time >= home_trades.first_pitch_time)
         & (home_trades.created_time <= home_trades.last_pitch_time)
@@ -336,47 +443,7 @@ def build_shared(
     ).sort_values(["game_pk", "at_bat_number", "pitch_number"])
     model = CatBoostClassifier()
     model.load_model(model_path)
-    batting_probability = model.predict_proba(
-        settlement_state_frame(work), thread_count=-1
-    )[:, 1]
-    work["fair_before"] = np.where(
-        work.inning_topbot.astype(int).eq(1),
-        batting_probability, 1.0 - batting_probability,
-    )
-    work["fair_after"] = work.groupby("game_pk").fair_before.shift(-1)
-    post = [
-        "inning", "inning_topbot", "outs_when_up", "score_diff", "balls",
-        "strikes", "runner_on_first", "runner_on_second", "runner_on_third",
-    ]
-    for column in post:
-        work[f"{column}_after"] = work.groupby("game_pk")[column].shift(-1)
-    work = work.drop(columns=[
-        "pitch_start_time", "pitch_end_time", "completed_event",
-        "completed_event_batting_home",
-    ], errors="ignore").merge(
-        pitch_times, on=["game_pk", "at_bat_number", "pitch_number"], how="inner"
-    ).dropna(subset=["fair_after", "pitch_start_time", "pitch_end_time"])
-    valid_clock = work.pitch_end_time > work.pitch_start_time
-    if not valid_clock.all():
-        print(
-            f"Excluding {int((~valid_clock).sum())} state rows with "
-            "pitch_end_time <= pitch_start_time",
-            flush=True,
-        )
-        work = work[valid_clock].copy()
-    work["is_hit"] = work.completed_event.isin(
-        ["single", "double", "triple", "home_run"]
-    )
-    state_columns = [
-        "game_pk", "game_date", "market_ticker", "home_win", "at_bat_number",
-        "pitch_number", "pitch_start_time", "pitch_end_time", "completed_event",
-        "completed_event_batting_home", "is_hit", "atomic_play_input",
-        "fair_before", "fair_after",
-        *[f"{column}_after" for column in post],
-    ]
-    updates = work[state_columns].sort_values(
-        ["game_pk", "pitch_end_time", "at_bat_number", "pitch_number"]
-    )
+    updates = score_causal_updates(work, pitch_times, model)
     output_dir.mkdir(parents=True, exist_ok=True)
     home_trades.to_parquet(output_dir / "home_market_trades.parquet", index=False)
     away_trades.to_parquet(output_dir / "away_market_trades.parquet", index=False)
@@ -385,9 +452,21 @@ def build_shared(
     (output_dir / "state_updates.metadata.json").write_text(json.dumps({
         "model_path": str(model_path),
         "model_sha256": model_hash,
+        "state_contract": "atomic_pitch_or_play_v2",
+        "prior_source": "frozen_mlb_ratings" if pregame_prior_state else "pregame_market_trade",
+        "prior_state_as_of": str(prior_state_as_of) if prior_state_as_of else None,
+        "prior_sha256": hashlib.sha256(pregame_prior_state.read_bytes()).hexdigest() if pregame_prior_state else None,
         "minimum_strategy_date": str(home_trades.game_date.min()),
         "maximum_strategy_date": str(home_trades.game_date.max()),
         "rows": int(len(updates)),
+        "coverage": {
+            "statcast_games": int(states.game_pk.nunique()),
+            "feed_games": int(feed_games.game_pk.nunique()),
+            "home_tape_games": int(home_trades.game_pk.nunique()),
+            "away_tape_games": int(away_trades.game_pk.nunique()),
+            "state_games": int(updates.game_pk.nunique()),
+            "unmapped_game_pks": sorted(set(states.game_pk.astype(int)) - set(games.game_pk.astype(int))),
+        },
     }, indent=2))
 
     if settlement_model_train_end is not None:
@@ -414,36 +493,7 @@ def build_shared(
         settlement_model = CatBoostClassifier(
         )
         settlement_model.load_model(settlement_model_output)
-        batting_probability = settlement_model.predict_proba(
-            settlement_state_frame(settlement), thread_count=-1
-        )[:, 1]
-        settlement["fair_before"] = np.where(
-            settlement.inning_topbot.astype(int).eq(1),
-            batting_probability, 1.0 - batting_probability,
-        )
-        settlement["fair_after"] = settlement.groupby(
-            "game_pk"
-        ).fair_before.shift(-1)
-        for column in post:
-            settlement[f"{column}_after"] = settlement.groupby(
-                "game_pk"
-            )[column].shift(-1)
-        settlement = settlement.drop(columns=[
-            "pitch_start_time", "pitch_end_time", "completed_event",
-            "completed_event_batting_home",
-        ], errors="ignore").merge(
-            pitch_times,
-            on=["game_pk", "at_bat_number", "pitch_number"], how="inner",
-        ).dropna(subset=["fair_after", "pitch_start_time", "pitch_end_time"])
-        settlement = settlement[
-            settlement.pitch_end_time > settlement.pitch_start_time
-        ].copy()
-        settlement["is_hit"] = settlement.completed_event.isin(
-            ["single", "double", "triple", "home_run"]
-        )
-        settlement_updates = settlement[state_columns].sort_values(
-            ["game_pk", "pitch_end_time", "at_bat_number", "pitch_number"]
-        )
+        settlement_updates = score_causal_updates(settlement, pitch_times, settlement_model)
         settlement_state_output.parent.mkdir(parents=True, exist_ok=True)
         settlement_updates.to_parquet(settlement_state_output, index=False)
         print(
@@ -483,6 +533,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--settlement-model-output", type=Path)
     parser.add_argument("--settlement-state-output", type=Path)
     parser.add_argument("--settlement-pregame-priors", type=Path)
+    parser.add_argument("--pregame-prior-state", type=Path)
+    parser.add_argument("--prior-state-as-of", type=date.fromisoformat)
+    parser.add_argument("--start-date", type=date.fromisoformat)
+    parser.add_argument("--end-date", type=date.fromisoformat)
     return parser.parse_args()
 
 
@@ -493,4 +547,6 @@ if __name__ == "__main__":
         args.model, args.output_dir, args.settlement_model_train_end,
         args.settlement_model_output, args.settlement_state_output,
         args.settlement_pregame_priors,
+        args.pregame_prior_state, args.prior_state_as_of,
+        args.start_date, args.end_date,
     )

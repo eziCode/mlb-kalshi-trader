@@ -1,0 +1,312 @@
+{
+  "started_at": "2026-09-27T16:49:36.527610+00:00",
+  "hashes": {
+    "data/reboot/dataset.json": "a773eb84a84f8c9f89b5d2954a2fc03151273b4dd10d4b2c835740ee60ad4843",
+    "research/continuous.py": "3c45603aee788741ae48c3fcfd83e16c5276d9972c87b19cf2c29b6950deda74",
+    "research/validation.py": "a0a464fb40dca202df2644f583b14e31ced6d59534b9fbf8d611336fada0bbef",
+    "research/CONTINUOUS_PROTOCOL.md": "e5cfa81ec240d91f435f0b4ea3fb885266c8b09fe786c073a7e200210346d54d",
+    "hit_reversion_strategy/scripts/backtest.py": "414e8ee7ea8d18c3186b7629fd955f68ba8958b5c3842b16365cb3d50d1cb32c",
+    "hit_reversion_strategy/trade_tape_strategy/strategy.py": "e7d455398b96a733955e28397cb7a59deb25a69d57d7aefc25d7ee9ae799ce81",
+    "hit_reversion_strategy/trade_tape_strategy/hybrid.py": "32f982a81a46b53a7e73e3920541c7e2af668ae98a2a2b8291fff6620fe7c71d",
+    "hit_reversion_strategy/models/event_observation_latency.json": "823734dc750680011436741e466570a38be763d451de9c26c3b0eec392474c55",
+    "hit_reversion_strategy/models/local_win_expectancy.cbm": "6df4316dbc259979691bbd6d1aaf920557a0527fee3c0fac51b7be207525a379",
+    "hit_reversion_strategy/models/mlb_pregame_prior.json": "c376cfdd690085ed4fd2205466b6d715785b2ed68332259a24c2eefee67e3b61",
+    "data/reboot/2026-08-12_2026-08-18/away_market_trades.parquet": "1eeb2a08e7ad20a66bd0ce008380c99061ad99962b8e3b560d59d2482be1da02",
+    "data/reboot/2026-08-12_2026-08-18/home_market_trades.parquet": "028274980bd8be759a3313e0aad1c69448ee09bc464584de070862a73220b0dc",
+    "data/reboot/2026-08-12_2026-08-18/state_updates.metadata.json": "f4683b3991240d2b402ea823ef633b5248bf267edf094ced7e8b5ba80ce9c09e",
+    "data/reboot/2026-08-12_2026-08-18/state_updates.parquet": "bb00c73b04d2cbe00017ceeb03f146003c070944376a8980621d5346596f54ab",
+    "data/reboot/2026-08-19_2026-08-25/away_market_trades.parquet": "408a5ddc05613920bc69ae5fe7af3c0636bd2dcfaa63a5dc413e499ddac488b6",
+    "data/reboot/2026-08-19_2026-08-25/home_market_trades.parquet": "a38724d668231bc615eae3aa5f7ac33fe78aed8a6ef5e0a33351ad90d715fcbf",
+    "data/reboot/2026-08-19_2026-08-25/state_updates.metadata.json": "d1671c73309df8cdfa4c5e12795234bdba0973ecc48b57161d87c30bbe1662d3",
+    "data/reboot/2026-08-19_2026-08-25/state_updates.parquet": "53278adc4e7d59374647917873a21bc224c2c4c71ceb46c826f62278b7913f3f",
+    "data/reboot/2026-08-26_2026-09-01/away_market_trades.parquet": "d21b7f0a3b86dfc8ef5f28e626b32bf07d66ad7b3b71887f297f81b78c4ff027",
+    "data/reboot/2026-08-26_2026-09-01/home_market_trades.parquet": "37162df4a0c7afc25ea0ad4e01197f84fc75617690889c89c02282af4d2c060f",
+    "data/reboot/2026-08-26_2026-09-01/state_updates.metadata.json": "b77772e75a782b71fa1dc4862a61146771520d52c0e0b7af825cfadd84bd2899",
+    "data/reboot/2026-08-26_2026-09-01/state_updates.parquet": "51c3d3b2f5ec63b68954e7d12af875ffe45eb56c027568f314a3caf74d3541e5",
+    "data/reboot/2026-09-02_2026-09-08/away_market_trades.parquet": "8d4dc144fba9cd70b313630d8b33397bcc78daaff411680a8266f02df11a553c",
+    "data/reboot/2026-09-02_2026-09-08/home_market_trades.parquet": "c55108a8899128562b60546bf2c5781fd461c598af325f43f9c8f6625b2b3b0f",
+    "data/reboot/2026-09-02_2026-09-08/state_updates.metadata.json": "7fcb4fc17be4aa78caf9bea4b426894950b83f8e183d04cd1f2cf4430e73185b",
+    "data/reboot/2026-09-02_2026-09-08/state_updates.parquet": "5536ae2ad3b2ba1013cbbe6bb877aa6b04c17a654393fc8b4bb3e84a0abaa9c1",
+    "data/reboot/2026-09-09_2026-09-15/away_market_trades.parquet": "ed04dae579a68634c07e2ebef179c8079b2f9a9503c4a05bcfa26eadbd36e36c",
+    "data/reboot/2026-09-09_2026-09-15/home_market_trades.parquet": "875826b656dcc1ee6d3df056471d57d4d5bec7b3b3a88700d56faf66b24101d6",
+    "data/reboot/2026-09-09_2026-09-15/state_updates.metadata.json": "bd26cb1e7ba8db5b4e1a1b3427551960bfe801648ef3c8e9db1ebec6540ce04c",
+    "data/reboot/2026-09-09_2026-09-15/state_updates.parquet": "e17364a3f8257d7d8abc4f6749ecf79411a13fefe4dc4440914bd49360bea693"
+  },
+  "execution": {
+    "latency": 0.68,
+    "window": 0.25,
+    "penalty": 0.01,
+    "participation": 0.1,
+    "state_delay": 2.0,
+    "step": 5,
+    "quote_age": 10.0
+  },
+  "candidates": [
+    {
+      "family": "revert_30",
+      "hold": 60,
+      "edge": 0.0
+    },
+    {
+      "family": "revert_30",
+      "hold": 60,
+      "edge": 0.01
+    },
+    {
+      "family": "revert_30",
+      "hold": 60,
+      "edge": 0.03
+    },
+    {
+      "family": "revert_30",
+      "hold": 300,
+      "edge": 0.0
+    },
+    {
+      "family": "revert_30",
+      "hold": 300,
+      "edge": 0.01
+    },
+    {
+      "family": "revert_30",
+      "hold": 300,
+      "edge": 0.03
+    },
+    {
+      "family": "revert_120",
+      "hold": 60,
+      "edge": 0.0
+    },
+    {
+      "family": "revert_120",
+      "hold": 60,
+      "edge": 0.01
+    },
+    {
+      "family": "revert_120",
+      "hold": 60,
+      "edge": 0.03
+    },
+    {
+      "family": "revert_120",
+      "hold": 300,
+      "edge": 0.0
+    },
+    {
+      "family": "revert_120",
+      "hold": 300,
+      "edge": 0.01
+    },
+    {
+      "family": "revert_120",
+      "hold": 300,
+      "edge": 0.03
+    },
+    {
+      "family": "momentum_30",
+      "hold": 60,
+      "edge": 0.0
+    },
+    {
+      "family": "momentum_30",
+      "hold": 60,
+      "edge": 0.01
+    },
+    {
+      "family": "momentum_30",
+      "hold": 60,
+      "edge": 0.03
+    },
+    {
+      "family": "momentum_30",
+      "hold": 300,
+      "edge": 0.0
+    },
+    {
+      "family": "momentum_30",
+      "hold": 300,
+      "edge": 0.01
+    },
+    {
+      "family": "momentum_30",
+      "hold": 300,
+      "edge": 0.03
+    },
+    {
+      "family": "momentum_120",
+      "hold": 60,
+      "edge": 0.0
+    },
+    {
+      "family": "momentum_120",
+      "hold": 60,
+      "edge": 0.01
+    },
+    {
+      "family": "momentum_120",
+      "hold": 60,
+      "edge": 0.03
+    },
+    {
+      "family": "momentum_120",
+      "hold": 300,
+      "edge": 0.0
+    },
+    {
+      "family": "momentum_120",
+      "hold": 300,
+      "edge": 0.01
+    },
+    {
+      "family": "momentum_120",
+      "hold": 300,
+      "edge": 0.03
+    },
+    {
+      "family": "cross_market",
+      "hold": 60,
+      "edge": 0.0
+    },
+    {
+      "family": "cross_market",
+      "hold": 60,
+      "edge": 0.01
+    },
+    {
+      "family": "cross_market",
+      "hold": 60,
+      "edge": 0.03
+    },
+    {
+      "family": "cross_market",
+      "hold": 300,
+      "edge": 0.0
+    },
+    {
+      "family": "cross_market",
+      "hold": 300,
+      "edge": 0.01
+    },
+    {
+      "family": "cross_market",
+      "hold": 300,
+      "edge": 0.03
+    },
+    {
+      "family": "state_value",
+      "hold": 60,
+      "edge": 0.0
+    },
+    {
+      "family": "state_value",
+      "hold": 60,
+      "edge": 0.01
+    },
+    {
+      "family": "state_value",
+      "hold": 60,
+      "edge": 0.03
+    },
+    {
+      "family": "state_value",
+      "hold": 300,
+      "edge": 0.0
+    },
+    {
+      "family": "state_value",
+      "hold": 300,
+      "edge": 0.01
+    },
+    {
+      "family": "state_value",
+      "hold": 300,
+      "edge": 0.03
+    },
+    {
+      "family": "all_play",
+      "hold": 60,
+      "edge": 0.0
+    },
+    {
+      "family": "all_play",
+      "hold": 60,
+      "edge": 0.01
+    },
+    {
+      "family": "all_play",
+      "hold": 60,
+      "edge": 0.03
+    },
+    {
+      "family": "all_play",
+      "hold": 300,
+      "edge": 0.0
+    },
+    {
+      "family": "all_play",
+      "hold": 300,
+      "edge": 0.01
+    },
+    {
+      "family": "all_play",
+      "hold": 300,
+      "edge": 0.03
+    },
+    {
+      "family": "learned",
+      "hold": 60,
+      "edge": 0.0
+    },
+    {
+      "family": "learned",
+      "hold": 60,
+      "edge": 0.01
+    },
+    {
+      "family": "learned",
+      "hold": 60,
+      "edge": 0.03
+    },
+    {
+      "family": "learned",
+      "hold": 300,
+      "edge": 0.0
+    },
+    {
+      "family": "learned",
+      "hold": 300,
+      "edge": 0.01
+    },
+    {
+      "family": "learned",
+      "hold": 300,
+      "edge": 0.03
+    },
+    {
+      "family": "activity_control",
+      "hold": 60,
+      "edge": -10.0
+    },
+    {
+      "family": "activity_control",
+      "hold": 300,
+      "edge": -10.0
+    }
+  ],
+  "partitions": {
+    "development": [
+      "2026-08-12",
+      "2026-09-01"
+    ],
+    "selection": [
+      "2026-09-02",
+      "2026-09-15"
+    ],
+    "final_check": [
+      "2026-09-16",
+      "2026-09-26"
+    ]
+  },
+  "status": "chronological_research_not_untouched_holdout",
+  "deployment_ready": false
+}

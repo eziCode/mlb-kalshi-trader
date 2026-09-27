@@ -54,6 +54,7 @@ def download_season(year, start_date, end_date):
     print(f"\n========== {year} ==========")
 
     monthly_data = []
+    failures = []
 
     for start_dt, end_dt in month_ranges(start_date, end_date):
 
@@ -78,6 +79,10 @@ def download_season(year, start_date, end_date):
 
             print(f"Failed: {start_dt} -> {end_dt}")
             print(e)
+            failures.append((start_dt, end_dt))
+
+    if failures:
+        raise RuntimeError(f"Incomplete Statcast download; existing data preserved: {failures}")
 
     if not monthly_data:
         print(f"No data found for {year}")
@@ -86,8 +91,15 @@ def download_season(year, start_date, end_date):
     season_df = pd.concat(monthly_data, ignore_index=True)
 
     output_file = OUTPUT_DIR / f"{year}.parquet"
-
-    season_df.to_parquet(output_file, index=False)
+    # Incremental windows must not erase previously acquired seasons.
+    if output_file.exists():
+        season_df = pd.concat([pd.read_parquet(output_file), season_df], ignore_index=True)
+    season_df = season_df.drop_duplicates(
+        ["game_pk", "at_bat_number", "pitch_number"], keep="last"
+    ).sort_values(["game_date", "game_pk", "at_bat_number", "pitch_number"])
+    temporary = output_file.with_suffix(".parquet.tmp")
+    season_df.to_parquet(temporary, index=False)
+    temporary.replace(output_file)
 
     print(f"\nSaved {len(season_df):,} pitches")
     print(output_file)
@@ -97,12 +109,19 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--start-season", type=int, default=2023)
     parser.add_argument("--end-season", type=int, default=TODAY.year)
+    parser.add_argument("--start-date", type=datetime.fromisoformat)
+    parser.add_argument("--end-date", type=datetime.fromisoformat)
     args = parser.parse_args()
-    for year in range(args.start_season, args.end_season + 1):
-        end = min(TODAY, datetime(year, 12, 31))
-        if end.year != year:
+    start_year = args.start_date.year if args.start_date else args.start_season
+    end_year = args.end_date.year if args.end_date else args.end_season
+    if args.start_date and args.end_date and args.start_date > args.end_date:
+        parser.error("--start-date must not follow --end-date")
+    for year in range(start_year, end_year + 1):
+        start = max(args.start_date or datetime(year, 3, 1), datetime(year, 1, 1))
+        end = min(args.end_date or TODAY, TODAY, datetime(year, 12, 31))
+        if end < start:
             continue
-        download_season(year, datetime(year, 3, 1), end)
+        download_season(year, start, end)
 
 
 if __name__ == "__main__":

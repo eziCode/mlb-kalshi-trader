@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import argparse
-from dataclasses import asdict, replace
+from dataclasses import asdict, fields, replace
 import hashlib
 import json
 from pathlib import Path
@@ -20,6 +20,7 @@ if str(PROJECT_ROOT) not in sys.path:
 
 from trade_tape_strategy.core import (  # noqa: E402
     TradeTapeConfig,
+    TapeTradeRecord,
     simulate_trade_tape,
 )
 from trade_tape_strategy.reversion_value import (  # noqa: E402
@@ -61,6 +62,12 @@ LATENCY_PROFILE_PATH = MODEL_DIR / "event_observation_latency.json"
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--data-dir", type=Path, default=DATA_DIR)
+    parser.add_argument("--execution-window-seconds", type=float, default=0.25)
+    parser.add_argument("--execution-price-penalty", type=float, default=0.01)
+    parser.add_argument("--maximum-volume-participation", type=float, default=0.1)
+    parser.add_argument("--additional-publication-delay", type=float, default=0.0)
+    parser.add_argument("--legacy-unbounded-fill-proxy", action="store_true")
+    parser.add_argument("--allow-legacy-state-data", action="store_true")
     parser.add_argument(
         "--start-date", type=pd.Timestamp,
         default=pd.Timestamp(OUTER_HOLDOUT_START),
@@ -120,6 +127,13 @@ def parse_args() -> argparse.Namespace:
         default=None,
     )
     args = parser.parse_args()
+    if not np.isfinite(args.execution_window_seconds) or args.execution_window_seconds <= 0:
+        parser.error("execution window must be finite and positive")
+    if not 0 < args.maximum_volume_participation <= 1:
+        parser.error("volume participation must be in (0, 1]")
+    for name in ("execution_price_penalty", "additional_publication_delay", "entry_submission_latency", "exit_submission_latency"):
+        if not np.isfinite(getattr(args, name)) or getattr(args, name) < 0:
+            parser.error(f"{name} must be finite and nonnegative")
     args.start_date = args.start_date.date()
     if args.end_date is not None:
         args.end_date = args.end_date.date()
@@ -254,6 +268,7 @@ def apply_live_paired_execution_prices(
     home_rows = pd.merge_asof(
         home, away_quotes, by="game_pk", left_on="created_time",
         right_on="away_quote_time", direction="backward", tolerance=tolerance,
+        allow_exact_matches=False,
     )
     home_rows["no_price_dollars"] = home_rows["away_yes_price"]
     home_rows["yes_count_fp"] = home_rows["count_fp"]
@@ -269,6 +284,7 @@ def apply_live_paired_execution_prices(
     away_rows = pd.merge_asof(
         away, home_quotes, by="game_pk", left_on="created_time",
         right_on="home_quote_time", direction="backward", tolerance=tolerance,
+        allow_exact_matches=False,
     )
     away_rows = away_rows[away_rows["home_yes_price"].notna()].copy()
     away_rows["no_price_dollars"] = away_rows["yes_price_dollars"]
@@ -290,12 +306,19 @@ def apply_live_paired_execution_prices(
 def main() -> None:
     args = parse_args()
     config = TradeTapeConfig(**json.loads(CONFIG_PATH.read_text()))
+    metadata_path = args.data_dir / "state_updates.metadata.json"
+    metadata = json.loads(metadata_path.read_text()) if metadata_path.exists() else {}
+    if not args.allow_legacy_state_data and metadata.get("state_contract") != "atomic_pitch_or_play_v2":
+        raise RuntimeError("Rebuild state updates with atomic_pitch_or_play_v2; legacy shifted states are not a causal replay input")
     if args.live_fill_proxy:
         config = replace(
             config, require_compatible_taker=True,
             require_post_signal_trade=True,
             entry_submission_latency_seconds=args.entry_submission_latency,
             exit_submission_latency_seconds=args.exit_submission_latency,
+            execution_window_seconds=None if args.legacy_unbounded_fill_proxy else args.execution_window_seconds,
+            execution_price_penalty=args.execution_price_penalty,
+            maximum_volume_participation=args.maximum_volume_participation,
         )
     if args.minimum_edge is not None:
         config = replace(config, minimum_edge=args.minimum_edge)
@@ -386,6 +409,7 @@ def main() -> None:
     test_updates = apply_publication_latency(
         updates[updates["game_pk"].isin(test_games)].copy()
     )
+    test_updates["event_available_time"] += pd.to_timedelta(args.additional_publication_delay, unit="s")
 
     entry_scorer = (
         CompetingRisksModel(MODEL_DIR, COMPETING_METADATA_PATH)
@@ -399,7 +423,12 @@ def main() -> None:
     result = simulate_trade_tape(
         test_trades, test_updates, config, entry_scorer=entry_scorer
     )
-    records = pd.DataFrame(asdict(record) for record in result.records)
+    records = pd.DataFrame(
+        (asdict(record) for record in result.records),
+        columns=[field.name for field in fields(TapeTradeRecord)],
+    )
+    for column in ("pnl", "fees", "contracts", "entry_price"):
+        records[column] = pd.to_numeric(records[column])
     game_pnl = records.groupby("game_pk").pnl.sum()
     segment_results = {
         f"{event_type}:{side}": {
@@ -415,14 +444,14 @@ def main() -> None:
     pnl_without_top_four_games = float(
         result.pnl - game_pnl.nlargest(min(4, len(game_pnl))).sum()
     )
-    deployment_enabled = bool(
-        config.enabled and result.trades >= 20 and result.pnl > 0
-        and result.roi > 0 and pnl_without_best_game > 0
-    )
+    # A printed trade is neither a quote nor proof that another order could
+    # have filled. Research PnL must never authorize real-money deployment.
+    deployment_enabled = False
     deployment_config = replace(config, enabled=deployment_enabled)
     summary = {
         "evaluation_status": (
-            "reused_research_holdout_not_an_unbiased_forward_estimate"
+            "later_period_execution_proxy_diagnostic" if args.start_date > pd.Timestamp("2026-08-11").date()
+            else "reused_research_holdout_not_an_unbiased_forward_estimate"
         ),
         "holdout_start": str(args.start_date),
         "holdout_end": str(args.end_date or max(test_trades["game_date"])),
@@ -440,6 +469,12 @@ def main() -> None:
         "fresh_hit_anchors": result.fresh_hit_anchors,
         "confirmed_signals": result.confirmed_signals,
         "model_rejected_signals": result.model_rejected_signals,
+        "expired_entry_orders": result.expired_entry_orders,
+        "expired_exit_orders": result.expired_exit_orders,
+        "state_metadata": metadata,
+        "additional_publication_delay_seconds": args.additional_publication_delay,
+        "deployment_blockers": ["Historical trade prints do not establish executable quotes or counterfactual fills"],
+        "config_sha256": hashlib.sha256(CONFIG_PATH.read_bytes()).hexdigest(),
         "trades": result.trades,
         "yes_trades": result.yes_trades,
         "no_trades": result.no_trades,

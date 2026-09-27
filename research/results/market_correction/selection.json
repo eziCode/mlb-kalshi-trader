@@ -1,0 +1,10 @@
+{
+  "frozen_at": "2026-09-27T17:23:54.653081+00:00",
+  "candidate": "corrected_01c",
+  "eligible": [
+    "corrected_01c"
+  ],
+  "fallback": false,
+  "deployment_ready": false,
+  "correction_sha256": "a58b1b85b024ed5a02e0b961dd04e7aa3d0d45a8e28edcd0aa2e886616a0fef3"
+}

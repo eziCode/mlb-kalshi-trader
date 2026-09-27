@@ -686,17 +686,17 @@ class TradeTapeStrategyTests(unittest.TestCase):
             },
         ]
         events = [{
-            "event_ticker": f"KXMLBGAME-G{number}",
+            "event_ticker": f"KXMLBGAME-26JUL20{clock}NYMATL",
             "markets": [
-                {"ticker": f"KXMLBGAME-G{number}-NYM"},
-                {"ticker": f"KXMLBGAME-G{number}-ATL"},
+                {"ticker": f"KXMLBGAME-26JUL20{clock}NYMATL-NYM"},
+                {"ticker": f"KXMLBGAME-26JUL20{clock}NYMATL-ATL"},
             ],
-        } for number in (1, 2)]
+        } for clock in ("1300", "1900")]
         matched, warnings = match_games_to_home_markets(games, events)
         self.assertEqual(warnings, [])
         self.assertEqual(len(matched), 1)
         self.assertEqual(matched[0].game_pk, 2)
-        self.assertEqual(matched[0].market_ticker, "KXMLBGAME-G2-ATL")
+        self.assertEqual(matched[0].market_ticker, "KXMLBGAME-26JUL201900NYMATL-ATL")
 
     def test_doubleheader_time_matches_single_listed_game(self):
         games = [
@@ -742,6 +742,7 @@ class TradeTapeStrategyTests(unittest.TestCase):
             },
             {
                 "gamePk": 2, "gameDate": "2026-07-22T23:05:00Z",
+                "rescheduledFrom": "2026-07-21T23:05:00Z",
                 "status": {"abstractGameState": "Preview"},
                 "teams": {
                     "away": {"team": {"id": 134}},
@@ -768,6 +769,33 @@ class TradeTapeStrategyTests(unittest.TestCase):
         self.assertEqual(warnings, [])
         self.assertIn("26JUL221335", matched[0].market_ticker)
         self.assertIn("26JUL211905", matched[1].market_ticker)
+
+    def test_previous_day_market_cannot_match_without_postponement_evidence(self):
+        games = [{"gamePk": 824705, "gameDate": "2026-09-27T19:05:00Z", "officialDate": "2026-09-27",
+            "teams": {"away": {"team": {"id": 112}}, "home": {"team": {"id": 111}}}}]
+        ticker = "KXMLBGAME-26SEP261915CHCBOS"
+        events = [{"event_ticker": ticker, "markets": [{"ticker": f"{ticker}-CHC"}, {"ticker": f"{ticker}-BOS"}]}]
+        matched, warnings = match_games_to_home_markets(games, events)
+        self.assertEqual(matched, [])
+        self.assertIn("time-matched 0 of 1", warnings[0])
+
+    def test_delayed_unique_same_day_game_does_not_require_original_start_time(self):
+        games = [{"gamePk": 1, "gameDate": "2026-09-27T17:05:00Z", "officialDate": "2026-09-27",
+            "teams": {"away": {"team": {"id": 121}}, "home": {"team": {"id": 120}}}}]
+        ticker = "KXMLBGAME-26SEP271505NYMWSH"
+        events = [{"event_ticker": ticker, "markets": [{"ticker": f"{ticker}-NYM"}, {"ticker": f"{ticker}-WSH"}]}]
+        matched, warnings = match_games_to_home_markets(games, events)
+        self.assertEqual(len(matched), 1)
+        self.assertFalse(warnings)
+
+    def test_ambiguous_doubleheader_is_not_resolved_by_list_order(self):
+        games = [{"gamePk": pk, "gameDate": "2026-09-27T17:05:00Z", "officialDate": "2026-09-27",
+            "teams": {"away": {"team": {"id": 110}}, "home": {"team": {"id": 147}}}} for pk in (1, 2)]
+        events = [{"event_ticker": ticker, "markets": [{"ticker": f"{ticker}-BAL"}, {"ticker": f"{ticker}-NYY"}]}
+                  for ticker in ("KXMLBGAME-26SEP271305BALNYY", "KXMLBGAME-26SEP271335BALNYY")]
+        matched, warnings = match_games_to_home_markets(games, events)
+        self.assertFalse(matched)
+        self.assertIn("time-matched 0 of 2", warnings[0])
 
     def test_main_log_surfaces_readiness_and_trades(self):
         self.assertTrue(should_surface_worker_line("TRADER READY game_pk=1"))

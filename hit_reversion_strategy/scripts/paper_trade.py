@@ -648,6 +648,21 @@ def clock_time_delta(scheduled: datetime, event_time: datetime) -> timedelta:
     return timedelta(minutes=abs(scheduled_minutes - event_minutes))
 
 
+def original_game_dates(game: dict, scheduled: datetime) -> set[date]:
+    """Require schedule evidence before binding an older market to a game."""
+    originals = set()
+    for key in ("rescheduledFrom", "rescheduledFromDate"):
+        value = game.get(key)
+        if not value:
+            continue
+        stamp = pd.Timestamp(value)
+        originals.add(stamp.tz_convert(KALSHI_EVENT_TIMEZONE).date() if stamp.tzinfo else stamp.date())
+    if originals:
+        return originals
+    official = game.get("officialDate")
+    return {date.fromisoformat(official) if official else scheduled.astimezone(KALSHI_EVENT_TIMEZONE).date()}
+
+
 def match_games_to_home_markets(
     games: list[dict],
     events: list[dict],
@@ -698,57 +713,30 @@ def match_games_to_home_markets(
     matched: list[DiscoveredGame] = []
     for matchup, scheduled_games in game_groups.items():
         market_events = event_groups.get(matchup, [])
-        if market_events and all(value[2] is not None for value in market_events):
-            candidates = sorted(
-                (
-                    clock_time_delta(scheduled, event_time),
-                    game_index, market_index
-                )
-                for game_index, (scheduled, _) in enumerate(scheduled_games)
-                for market_index, (_, _, event_time) in enumerate(market_events)
-                if (
-                    event_time.astimezone(KALSHI_EVENT_TIMEZONE).date()
-                    == scheduled.astimezone(KALSHI_EVENT_TIMEZONE).date()
-                    and clock_time_delta(scheduled, event_time)
-                    <= MAX_EVENT_TIME_DELTA
-                )
-            )
-            used_games: set[int] = set()
-            used_markets: set[int] = set()
-            pair_indexes = []
-            for delta, game_index, market_index in candidates:
-                if game_index in used_games or market_index in used_markets:
-                    continue
-                used_games.add(game_index)
-                used_markets.add(market_index)
-                pair_indexes.append((game_index, market_index, delta))
-            remaining_games = [
-                index for index in range(len(scheduled_games))
-                if index not in used_games
-            ]
-            remaining_markets = [
-                index for index in range(len(market_events))
-                if index not in used_markets
-            ]
-            if remaining_games and len(remaining_games) == len(remaining_markets):
-                for game_index, market_index in zip(
-                    remaining_games, remaining_markets
-                ):
-                    pair_indexes.append((
-                        game_index, market_index,
-                        clock_time_delta(
-                            scheduled_games[game_index][0],
-                            market_events[market_index][2],
-                        ),
-                    ))
-            pairs = [
-                (scheduled_games[game_index], market_events[market_index])
-                for game_index, market_index, _ in sorted(pair_indexes)
-            ]
-        elif len(market_events) == len(scheduled_games):
-            pairs = list(zip(scheduled_games, market_events))
-        else:
-            pairs = []
+        candidates = {
+            (gi, mi): clock_time_delta(scheduled, event_time)
+            for gi, (scheduled, info) in enumerate(scheduled_games)
+            for mi, (_, _, event_time) in enumerate(market_events)
+            if event_time is not None and event_time.astimezone(KALSHI_EVENT_TIMEZONE).date()
+            in original_game_dates(info["row"], scheduled)
+        }
+        pair_indexes = []
+        # Date plus teams can uniquely identify a delayed single game despite
+        # a shifted start time. Doubleheaders need unambiguous time matches.
+        for enforce_time in (False, True):
+            if enforce_time:
+                candidates = {pair: delta for pair, delta in candidates.items() if delta <= MAX_EVENT_TIME_DELTA}
+            while candidates:
+                unique = [(gi, mi) for gi, mi in candidates
+                    if sum(g == gi for g, _ in candidates) == 1
+                    and sum(m == mi for _, m in candidates) == 1]
+                if not unique:
+                    break
+                pair_indexes.extend(unique)
+                used_games, used_markets = {g for g, _ in unique}, {m for _, m in unique}
+                candidates = {pair: delta for pair, delta in candidates.items()
+                              if pair[0] not in used_games and pair[1] not in used_markets}
+        pairs = [(scheduled_games[gi], market_events[mi]) for gi, mi in sorted(pair_indexes)]
         if len(pairs) != len(scheduled_games) or len(pairs) != len(market_events):
             warnings.append(
                 f"{sorted(matchup)}: time-matched {len(pairs)} of "
@@ -756,9 +744,9 @@ def match_games_to_home_markets(
                 f"{len(market_events)} Kalshi events"
             )
         for (scheduled, info), (_, markets, _) in pairs:
-            if info["row"].get("status", {}).get(
-                "abstractGameState"
-            ) == "Final":
+            status = info["row"].get("status", {})
+            if (status.get("abstractGameState") == "Final"
+                    or str(status.get("detailedState", "")).lower() in {"postponed", "cancelled", "canceled"}):
                 continue
             home_market = markets.get(info["home"])
             if home_market is None:
@@ -777,7 +765,7 @@ def match_games_to_home_markets(
     return sorted(matched, key=lambda game: game.scheduled_time), warnings
 
 
-def discover_daily_games(game_date: date) -> tuple[list[DiscoveredGame], list[str]]:
+def discover_daily_games(game_date: date, *, include_schedule: bool = False):
     schedule = requests.get(
         f"{MLB_API}/v1/schedule",
         params={"sportId": 1, "date": game_date.isoformat()},
@@ -788,8 +776,6 @@ def discover_daily_games(game_date: date) -> tuple[list[DiscoveredGame], list[st
         game
         for day in schedule.json().get("dates") or []
         for game in day.get("games") or []
-        if str(game.get("status", {}).get("detailedState") or "").lower()
-        not in {"postponed", "cancelled", "canceled"}
     ]
 
     from download_market_data import (
@@ -809,7 +795,8 @@ def discover_daily_games(game_date: date) -> tuple[list[DiscoveredGame], list[st
             **event,
             "markets": fetch_event_markets(event, verbose=False),
         })
-    return match_games_to_home_markets(games, hydrated)
+    matched, warnings = match_games_to_home_markets(games, hydrated)
+    return (matched, warnings, games) if include_schedule else (matched, warnings)
 
 
 def run_daily_coordinator(game_date: date) -> int:
@@ -1176,31 +1163,8 @@ def event_within_entry_window(
     )
 
 
-def state_from_play(play: dict) -> dict:
-    """Build post-play model state only from one atomic play object."""
-    result = play.get("result") or {}
-    about = play.get("about") or {}
-    count = play.get("count") or {}
-    required = {"homeScore", "awayScore"}
-    if not required.issubset(result) or "outs" not in count:
-        raise ValueError("Resolved play lacks post-play score or outs")
-    occupied = {"1B": 0, "2B": 0, "3B": 0}
-    for runner in play.get("runners") or []:
-        movement = runner.get("movement") or {}
-        end = movement.get("end")
-        if not bool(movement.get("isOut")) and end in occupied:
-            occupied[end] = 1
-    return {
-        "inning": int(about.get("inning") or 1),
-        "inning_topbot": int(not bool(about.get("isTopInning"))),
-        "outs_when_up": int(count["outs"]),
-        "score_diff": int(result["homeScore"]) - int(result["awayScore"]),
-        "balls": 0,
-        "strikes": 0,
-        "runner_on_first": occupied["1B"],
-        "runner_on_second": occupied["2B"],
-        "runner_on_third": occupied["3B"],
-    }
+# One atomic-state implementation is used in live and historical paths.
+from settlement_value_strategy.play_eligibility import state_from_play
 
 
 def event_inputs_aligned(game: GameSnapshot) -> bool:
@@ -1580,26 +1544,7 @@ def home_fair_probability(
     return batting if int(state["inning_topbot"]) == 1 else 1.0 - batting
 
 
-def pregame_probability_from_rating_state(
-    rating_state: dict, home_code: str, away_code: str,
-) -> float:
-    aliases = {
-        "ARI": "AZ", "CHW": "CWS", "OAK": "ATH", "KCR": "KC",
-        "SDP": "SD", "SFG": "SF", "TBR": "TB", "WAS": "WSH",
-    }
-
-    def rating(code: str) -> float:
-        code = str(code).upper()
-        key = code if code in rating_state["ratings"] else aliases.get(code, code)
-        return float(rating_state["ratings"].get(
-            key, rating_state["initial_rating"]
-        ))
-
-    difference = (
-        rating(home_code) + float(rating_state["home_advantage"])
-        - rating(away_code)
-    )
-    return 1.0 / (1.0 + 10.0 ** (-difference / 400.0))
+from settlement_value_strategy.play_eligibility import pregame_probability_from_rating_state
 
 
 def fetch_model_pregame_prior() -> float:
@@ -1701,9 +1646,9 @@ async def main() -> None:
         if hybrid_config.direct_value_model_enabled else None
     )
     allow_unvalidated = os.getenv("ALLOW_UNVALIDATED_HYBRID") == "1"
-    if not hybrid_config.enabled and not allow_unvalidated:
+    if not hybrid_config.enabled and (LIVE_MODE or not allow_unvalidated):
         raise RuntimeError(
-            "Hybrid policy has not passed a fresh forward test and is disabled. "
+            "Hybrid policy is disabled for real-money execution. "
             "Set ALLOW_UNVALIDATED_HYBRID=1 only to collect paper observations."
         )
     portfolio_path = Path(os.getenv(
@@ -1720,8 +1665,8 @@ async def main() -> None:
     live_executor = (
         LiveExecutor(Path(os.environ["LIVE_RISK_DB"])) if LIVE_MODE else None
     )
-    pregame_prob = await wait_for_pregame_anchor()
-    print(f"Causal pre-first-pitch market anchor: {pregame_prob:.1%}")
+    pregame_prob = await wait_for_model_pregame_prior()
+    print(f"Frozen MLB pregame model prior: {pregame_prob:.1%}")
     print(
         f"Hybrid threshold={hybrid_config.minimum_edge:.1%}, "
         f"confirmation={hybrid_config.confirmation_seconds:g} seconds, "

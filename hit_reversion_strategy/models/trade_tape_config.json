@@ -1,5 +1,5 @@
 {
-  "enabled": true,
+  "enabled": false,
   "minimum_edge": 0.01,
   "confirmation_seconds": 0.0,
   "maximum_pre_event_trade_age_seconds": 10.0,

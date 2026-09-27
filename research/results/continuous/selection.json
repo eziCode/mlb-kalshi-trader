@@ -1,0 +1,27 @@
+{
+  "frozen_at": "2026-09-27T16:51:31.924631+00:00",
+  "candidate": "revert_120_300s_00c",
+  "policy": {
+    "family": "revert_120",
+    "hold": 300,
+    "edge": 0.0
+  },
+  "development_selection_pass": false,
+  "eligible_candidates": [],
+  "activity_candidates": [
+    "revert_120_60s_00c",
+    "revert_120_300s_00c",
+    "state_value_60s_00c",
+    "state_value_60s_01c",
+    "state_value_60s_03c",
+    "state_value_300s_00c",
+    "state_value_300s_01c",
+    "state_value_300s_03c"
+  ],
+  "fallback": true,
+  "deployment_ready": false,
+  "model_hashes": {
+    "60": "00890fab09b975587b9e5978d2e233bc340d18addab7a9b876504fd5b97652b5",
+    "300": "0b61f54ba2a7b98834687f56989c97691524222bdb15e0d4c4a6fe0f92359dfd"
+  }
+}

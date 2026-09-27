@@ -1,0 +1,214 @@
+{
+  "training_games": 1490,
+  "training_rows": 439425,
+  "raw_regular_games_before_calibration_end": 1801,
+  "games_with_final_feed_labels": 1801,
+  "new_model": {
+    "games": 281,
+    "rows": 82864,
+    "game_weighted_brier": 0.15885728258719262,
+    "game_weighted_log_loss": 0.4747415322875852,
+    "bins": [
+      {
+        "lower_bound": 0.0,
+        "rows": 9451,
+        "mean_probability": 0.04492318764682414,
+        "observed_win_fraction": 0.043989155766391355
+      },
+      {
+        "lower_bound": 0.1,
+        "rows": 6327,
+        "mean_probability": 0.14651889770496102,
+        "observed_win_fraction": 0.12614509910554414
+      },
+      {
+        "lower_bound": 0.2,
+        "rows": 5167,
+        "mean_probability": 0.25034616694414036,
+        "observed_win_fraction": 0.18795632425739692
+      },
+      {
+        "lower_bound": 0.30000000000000004,
+        "rows": 4911,
+        "mean_probability": 0.3497987140682539,
+        "observed_win_fraction": 0.3382585348570433
+      },
+      {
+        "lower_bound": 0.4,
+        "rows": 7477,
+        "mean_probability": 0.45374201545986975,
+        "observed_win_fraction": 0.4591586250613579
+      },
+      {
+        "lower_bound": 0.5,
+        "rows": 15145,
+        "mean_probability": 0.5484987425538758,
+        "observed_win_fraction": 0.5190655091653069
+      },
+      {
+        "lower_bound": 0.6000000000000001,
+        "rows": 7725,
+        "mean_probability": 0.6494646172462268,
+        "observed_win_fraction": 0.645119939380657
+      },
+      {
+        "lower_bound": 0.7000000000000001,
+        "rows": 6364,
+        "mean_probability": 0.749696188483452,
+        "observed_win_fraction": 0.7589772256863032
+      },
+      {
+        "lower_bound": 0.8,
+        "rows": 7144,
+        "mean_probability": 0.8539458313197298,
+        "observed_win_fraction": 0.8156259741656378
+      },
+      {
+        "lower_bound": 0.9,
+        "rows": 13153,
+        "mean_probability": 0.9616898794431749,
+        "observed_win_fraction": 0.9622457343460512
+      }
+    ]
+  },
+  "old_model_same_inputs": {
+    "games": 281,
+    "rows": 82864,
+    "game_weighted_brier": 0.166905149774384,
+    "game_weighted_log_loss": 0.5239325459140106,
+    "bins": [
+      {
+        "lower_bound": 0.0,
+        "rows": 16960,
+        "mean_probability": 0.029335862531554856,
+        "observed_win_fraction": 0.1109930164913027
+      },
+      {
+        "lower_bound": 0.1,
+        "rows": 6323,
+        "mean_probability": 0.14880247648570008,
+        "observed_win_fraction": 0.20130549531942127
+      },
+      {
+        "lower_bound": 0.2,
+        "rows": 6147,
+        "mean_probability": 0.24799223114940658,
+        "observed_win_fraction": 0.38063624741686414
+      },
+      {
+        "lower_bound": 0.30000000000000004,
+        "rows": 7870,
+        "mean_probability": 0.35611444836359213,
+        "observed_win_fraction": 0.4320641850093969
+      },
+      {
+        "lower_bound": 0.4,
+        "rows": 10702,
+        "mean_probability": 0.45047828512480176,
+        "observed_win_fraction": 0.558685092514761
+      },
+      {
+        "lower_bound": 0.5,
+        "rows": 7252,
+        "mean_probability": 0.5422849172648553,
+        "observed_win_fraction": 0.6340577103071263
+      },
+      {
+        "lower_bound": 0.6000000000000001,
+        "rows": 5817,
+        "mean_probability": 0.6498154544602919,
+        "observed_win_fraction": 0.7044389630417867
+      },
+      {
+        "lower_bound": 0.7000000000000001,
+        "rows": 5280,
+        "mean_probability": 0.7512281025814913,
+        "observed_win_fraction": 0.8104584620756737
+      },
+      {
+        "lower_bound": 0.8,
+        "rows": 6306,
+        "mean_probability": 0.8516937550944857,
+        "observed_win_fraction": 0.8616165690999595
+      },
+      {
+        "lower_bound": 0.9,
+        "rows": 10207,
+        "mean_probability": 0.9600041227490397,
+        "observed_win_fraction": 0.9855273182368552
+      }
+    ]
+  },
+  "pregame_only": {
+    "games": 281,
+    "rows": 82864,
+    "game_weighted_brier": 0.2501962541851777,
+    "game_weighted_log_loss": 0.6964032765291488,
+    "bins": [
+      {
+        "lower_bound": 0.0,
+        "rows": 0,
+        "mean_probability": null,
+        "observed_win_fraction": null
+      },
+      {
+        "lower_bound": 0.1,
+        "rows": 1113,
+        "mean_probability": 0.1654961753437029,
+        "observed_win_fraction": 0.25000000000000006
+      },
+      {
+        "lower_bound": 0.2,
+        "rows": 2953,
+        "mean_probability": 0.2615619164674417,
+        "observed_win_fraction": 0.3
+      },
+      {
+        "lower_bound": 0.30000000000000004,
+        "rows": 9879,
+        "mean_probability": 0.3688300666567465,
+        "observed_win_fraction": 0.47058823529411764
+      },
+      {
+        "lower_bound": 0.4,
+        "rows": 16112,
+        "mean_probability": 0.4548714764989998,
+        "observed_win_fraction": 0.43636363636363634
+      },
+      {
+        "lower_bound": 0.5,
+        "rows": 23591,
+        "mean_probability": 0.5546783488616054,
+        "observed_win_fraction": 0.6419753086419753
+      },
+      {
+        "lower_bound": 0.6000000000000001,
+        "rows": 20070,
+        "mean_probability": 0.6400942027087111,
+        "observed_win_fraction": 0.5151515151515151
+      },
+      {
+        "lower_bound": 0.7000000000000001,
+        "rows": 8279,
+        "mean_probability": 0.7498478442878265,
+        "observed_win_fraction": 0.6428571428571428
+      },
+      {
+        "lower_bound": 0.8,
+        "rows": 867,
+        "mean_probability": 0.8692336084109054,
+        "observed_win_fraction": 0.33333333333333337
+      },
+      {
+        "lower_bound": 0.9,
+        "rows": 0,
+        "mean_probability": null,
+        "observed_win_fraction": null
+      }
+    ]
+  },
+  "model_sha256": "0a1814d5cde1d75edfd445b1f7406d38f49a1b7cd9aaca718f17c8c48ef47294",
+  "deployment_ready": false,
+  "interpretation": "Probability diagnostic on later games; no trading-profit claim. Both models received the same new cutoff-safe prior inputs.",
+  "training_manifest_sha256": "30905fbc02632cd54a8982ccc4190cf4a6ad3b92cb5b04f3f2c6c43b2ee49041"
+}

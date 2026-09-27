@@ -14,6 +14,13 @@ __pycache__/
 /data/shared/
 /data/settlement_value/
 /data/hit_reversion/
+/data/reboot/
+
+# Local graph query history
+graphify-out/.graphify_learning.json
+graphify-out/reflections/
+graphify-out/memory/
+graphify-out/cache/last_query_stamp
 
 # Paper-trading runtime state
 **/logs/

@@ -54,6 +54,11 @@ class TradeTapeConfig:
     competing_risks_enabled: bool = False
     maximum_entry_inning: int | None = None
     maximum_outs_after_by_event: dict[str, int] = field(default_factory=dict)
+    # None reproduces the legacy unbounded trade-tape diagnostic. A finite
+    # window freezes an order at decision time; it is still a fill proxy.
+    execution_window_seconds: float | None = None
+    execution_price_penalty: float = 0.0
+    maximum_volume_participation: float = 1.0
 
 
 @dataclass
@@ -81,6 +86,8 @@ class PendingEntry:
     side: str
     created_ns: int
     confirmation_price: float
+    limit_price: float | None = None
+    contracts: float | None = None
 
 
 @dataclass
@@ -99,6 +106,7 @@ class TapePosition:
     trigger_event_time_ns: int
     pending_exit_ns: int | None = None
     pending_exit_reason: str | None = None
+    pending_exit_limit: float | None = None
     held_price_history: list[tuple[int, float]] = field(default_factory=list)
     momentum_hold_started_ns: int | None = None
     momentum_high_water: float | None = None
@@ -139,6 +147,8 @@ class TradeTapeResult:
     expired_candidates: int = 0
     confirmed_signals: int = 0
     model_rejected_signals: int = 0
+    expired_entry_orders: int = 0
+    expired_exit_orders: int = 0
     trades: int = 0
     yes_trades: int = 0
     no_trades: int = 0
@@ -378,6 +388,16 @@ def simulate_trade_tape(
     if missing := required_updates - set(updates.columns):
         raise ValueError(f"State updates are missing columns: {sorted(missing)}")
 
+    strict_execution = config.execution_window_seconds is not None
+    if strict_execution and (not np.isfinite(config.execution_window_seconds) or config.execution_window_seconds <= 0):
+        raise ValueError("execution_window_seconds must be finite and positive")
+    if not 0 < config.maximum_volume_participation <= 1:
+        raise ValueError("maximum_volume_participation must be in (0, 1]")
+    if not np.isfinite(config.execution_price_penalty) or config.execution_price_penalty < 0:
+        raise ValueError("execution_price_penalty must be finite and nonnegative")
+    if strict_execution and (not config.require_post_signal_trade or not config.require_compatible_taker):
+        raise ValueError("Bounded execution requires later compatible trade evidence")
+    execution_window_ns = int((config.execution_window_seconds or 0) * 1e9)
     result = TradeTapeResult()
     availability_column = (
         "event_available_time"
@@ -447,6 +467,7 @@ def simulate_trade_tape(
         ]
         update_index = 0
         current_fair = float(update_rows[0].fair_before)
+        latest_state_ns = -1
         candidate: Candidate | None = None
         pending_entry: PendingEntry | None = None
         positions: list[TapePosition] = []
@@ -457,17 +478,24 @@ def simulate_trade_tape(
             while (
                 newest_visible_update_index + 1 < len(update_rows)
                 and update_available_ns[newest_visible_update_index + 1]
-                <= trade_ns
+                < trade_ns
             ):
                 newest_visible_update_index += 1
             while (
                 update_index < len(update_rows)
-                and update_available_ns[update_index] <= trade_ns
+                and update_available_ns[update_index] < trade_ns
             ):
                 update = update_rows[update_index]
+                state_ns = pd.Timestamp(update.pitch_end_time).value
+                if state_ns < latest_state_ns:
+                    # Publication delays can arrive out of order. An old
+                    # play must never roll the current state backwards.
+                    update_index += 1
+                    continue
+                latest_state_ns = state_ns
                 active_candidate = (
                     pending_entry.candidate
-                    if pending_entry is not None
+                    if pending_entry is not None and not strict_execution
                     else candidate
                 )
                 if (
@@ -483,7 +511,8 @@ def simulate_trade_tape(
                     if later_pitch or completed_plate_appearance or material_change:
                         result.invalidated_candidates += 1
                         candidate = None
-                        pending_entry = None
+                        if not strict_execution:
+                            pending_entry = None
                 current_fair = float(update.fair_after)
                 if (
                     str(update.completed_event) in allowed_events
@@ -562,17 +591,18 @@ def simulate_trade_tape(
                                         update_index
                                     ],
                                 )
-                                pending_entry = None
+                                if not strict_execution:
+                                    pending_entry = None
                 update_index += 1
 
             yes_price = float(yes_prices[trade_index])
             no_price = float(no_prices[trade_index])
-            remaining_yes_size = float(yes_sizes[trade_index])
-            remaining_no_size = float(no_sizes[trade_index])
+            remaining_yes_size = float(yes_sizes[trade_index]) * config.maximum_volume_participation
+            remaining_no_size = float(no_sizes[trade_index]) * config.maximum_volume_participation
 
             active_candidate = (
                 pending_entry.candidate
-                if pending_entry is not None
+                if pending_entry is not None and not strict_execution
                 else candidate
             )
             if (
@@ -582,7 +612,17 @@ def simulate_trade_tape(
             ):
                 result.expired_candidates += 1
                 candidate = None
+                if not strict_execution:
+                    pending_entry = None
+
+            if strict_execution and pending_entry is not None and trade_ns > (
+                pending_entry.created_ns + entry_submission_latency_ns + execution_window_ns
+            ):
+                result.expired_entry_orders += 1
                 pending_entry = None
+                # One historical submission per event. Repeated retry fills
+                # would require recorded order/book observations.
+                candidate = None
 
             closed_positions: list[TapePosition] = []
             for position in positions:
@@ -590,6 +630,8 @@ def simulate_trade_tape(
                 held_price = yes_price if position.side == "yes" else no_price
                 if not np.isfinite(held_price):
                     if (
+                        not strict_execution
+                        and
                         position.pending_exit_ns is None
                         and maximum_hold_ns > 0
                         and trade_ns - position.entry_ns >= maximum_hold_ns
@@ -610,6 +652,13 @@ def simulate_trade_tape(
                     remaining_yes_size
                     if position.side == "yes" else remaining_no_size
                 )
+                if strict_execution and position.pending_exit_ns is not None and trade_ns > (
+                    position.pending_exit_ns + exit_submission_latency_ns + execution_window_ns
+                ):
+                    result.expired_exit_orders += 1
+                    position.pending_exit_ns = None
+                    position.pending_exit_reason = None
+                    position.pending_exit_limit = None
                 velocity = None
                 if config.momentum_exit_enabled:
                     position.held_price_history.append((trade_ns, held_price))
@@ -627,6 +676,7 @@ def simulate_trade_tape(
                         position.pending_exit_reason == "reversion"
                         and not reverted
                         and not config.latch_reversion_exit
+                        and not strict_execution
                     ):
                         position.pending_exit_ns = None
                         position.pending_exit_reason = None
@@ -641,9 +691,14 @@ def simulate_trade_tape(
                             )
                         )
                         and (
-                            reverted
+                            strict_execution
+                            or reverted
                             or config.latch_reversion_exit
                             or position.pending_exit_reason != "reversion"
+                        )
+                        and (
+                            not strict_execution
+                            or held_price >= float(position.pending_exit_limit) + config.execution_price_penalty
                         )
                     ):
                         sold_contracts = min(
@@ -654,7 +709,7 @@ def simulate_trade_tape(
                         )
                         if sold_contracts <= 0:
                             continue
-                        exit_price = held_price
+                        exit_price = held_price - config.execution_price_penalty if strict_execution else held_price
                         exit_fee = taker_fee(sold_contracts, exit_price)
                         allocated_entry_fee = (
                             position.entry_fee * sold_contracts
@@ -679,6 +734,10 @@ def simulate_trade_tape(
                         else:
                             remaining_no_size -= sold_contracts
                         if position.contracts > 1e-9:
+                            if strict_execution:
+                                position.pending_exit_ns = None
+                                position.pending_exit_reason = None
+                                position.pending_exit_limit = None
                             continue
                         result.reversion_exits += int(
                             position.pending_exit_reason == "reversion"
@@ -747,6 +806,8 @@ def simulate_trade_tape(
                         else:
                             position.pending_exit_ns = trade_ns
                             position.pending_exit_reason = "reversion"
+                    if strict_execution and position.pending_exit_ns is not None:
+                        position.pending_exit_limit = max(0.0001, held_price - config.execution_price_penalty)
             if closed_positions:
                 positions = [p for p in positions if p not in closed_positions]
 
@@ -756,6 +817,8 @@ def simulate_trade_tape(
                     target, yes_price, pending_entry.candidate.event_type,
                     config, no_price,
                 )
+                if strict_execution:
+                    side = pending_entry.side
                 if side != pending_entry.side:
                     candidate = pending_entry.candidate
                     candidate.watch_side = None
@@ -791,10 +854,14 @@ def simulate_trade_tape(
                         side,
                         config.minimum_reversion_move,
                     )
-                    if reversion_move < minimum_reversion_move:
+                    if not strict_execution and reversion_move < minimum_reversion_move:
                         continue
                     entry_price = yes_price if side == "yes" else no_price
-                    if not _direct_model_accepts(
+                    if strict_execution:
+                        entry_price += config.execution_price_penalty
+                        if not np.isfinite(entry_price) or entry_price > pending_entry.limit_price:
+                            continue
+                    if not strict_execution and not _direct_model_accepts(
                         pending_entry.candidate, side, entry_price,
                         trade_ns, entry_scorer,
                     ):
@@ -804,7 +871,7 @@ def simulate_trade_tape(
                         candidate.watch_started_ns = None
                         pending_entry = None
                         continue
-                    contracts = position_contracts(entry_price, config)
+                    contracts = pending_entry.contracts if strict_execution else position_contracts(entry_price, config)
                     available_size = (
                         remaining_yes_size if side == "yes" else remaining_no_size
                     )
@@ -944,11 +1011,35 @@ def simulate_trade_tape(
                         ) * 1_000_000_000
                     )
                 ):
+                    entry_price = yes_price if side == "yes" else no_price
+                    if not _direct_model_accepts(candidate, side, entry_price, trade_ns, entry_scorer):
+                        result.model_rejected_signals += 1
+                        candidate.watch_side = None
+                        candidate.watch_started_ns = None
+                        continue
                     result.confirmed_signals += 1
                     pending_entry = PendingEntry(
                         candidate, side, trade_ns, yes_price
                     )
                     candidate = None
+
+            if strict_execution and pending_entry is not None and pending_entry.limit_price is None:
+                # Price and size are frozen before any future print arrives.
+                limit = (yes_price if pending_entry.side == "yes" else no_price) + config.execution_price_penalty
+                target = _dynamic_target(pending_entry.candidate, current_fair)
+                held_target = target if pending_entry.side == "yes" else 1 - target
+                threshold = segment_value(config.minimum_edges_by_segment, pending_entry.candidate.event_type,
+                                          pending_entry.side, config.minimum_edge)
+                if not 0 < limit < 1 or held_target - limit - estimated_round_trip_fee_per_contract(limit) < threshold:
+                    pending_entry = None
+                else:
+                    if not _direct_model_accepts(pending_entry.candidate, pending_entry.side, limit,
+                                                trade_ns, entry_scorer):
+                        result.model_rejected_signals += 1
+                        pending_entry = None
+                    else:
+                        pending_entry.limit_price = limit
+                        pending_entry.contracts = position_contracts(limit, config)
 
         for position in positions:
             won = (

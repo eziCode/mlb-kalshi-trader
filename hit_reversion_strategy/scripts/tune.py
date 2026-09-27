@@ -219,9 +219,8 @@ def main() -> None:
         ascending=False,
     )
     selection = eligible.iloc[0] if not eligible.empty else grid.iloc[0]
-    enabled = bool(
-        not eligible.empty and selection["pnl"] > 0 and selection["roi"] > 0
-    )
+    # Historical trade-tape optimization is research, not deployment evidence.
+    enabled = False
     config = TradeTapeConfig(
         enabled=enabled,
         minimum_edge=float(selection["minimum_edge"]),

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from dataclasses import asdict
+from dataclasses import asdict, replace
 import hashlib
 import json
 from pathlib import Path
@@ -173,6 +173,7 @@ def main() -> None:
         selected["maximum_hold_seconds"], selected["exit_target_mode"],
         selected["latch_reversion_exit"],
     ))
+    config = replace(config, enabled=False)
     RESULTS.mkdir(exist_ok=True)
     serializable = [{
         key: value for key, value in row.items() if key != "folds"

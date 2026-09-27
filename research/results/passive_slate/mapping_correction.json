@@ -1,0 +1,17 @@
+{
+  "original_slate_sha256": "26ca4deb83b90ed3720edd2f988357436ecc0e5a25b2e594863ca1483f8b8c85",
+  "audited_slate_sha256": "5ef167a981e57a7d80f556099f2d6d13dde9e0eb72b70377a26fcaa1a445333f",
+  "scheduled_game_count": 15,
+  "mapped_game_count": 14,
+  "excluded_game_pk": 824705,
+  "excluded_home_market": "KXMLBGAME-26SEP261915CHCBOS-BOS",
+  "reason": "Contract rules refer to Sep 26; MLB officialDate is Sep 27 and the schedule supplies no rescheduled-from evidence.",
+  "correctly_dated_contract_lookup": "KXMLBGAME-26SEP271505CHCBOS returned 404 at audit time; no replacement was inferred.",
+  "old_result_scope": "Initial 15-game prefixes were pregame and had zero entries. Their Boston mapping is superseded by this audit. The original recorder continues preserving all raw observations; scoring uses only the audited slate.",
+  "evidence_files": {
+    "data/raw/mapping_audit_20260927/KXMLBGAME-26SEP271505CHCBOS-BOS.json": "dea78f843e46c45482b84c9d9db6d16b10a294376e65bcf67a43484f071428c1",
+    "data/raw/mapping_audit_20260927/kalshi_event.json": "1107ea5fe46084a50237628cbe903ec0d97a7f16032924c9da06836ff51c29b4",
+    "data/raw/mapping_audit_20260927/bos_schedule.json": "e6f9960256e2ae8f9991776f9ee3529af897f9e110295b40ec95184b9459aa81",
+    "data/raw/mapping_audit_20260927/KXMLBGAME-26SEP271505CHCBOS.json": "dea78f843e46c45482b84c9d9db6d16b10a294376e65bcf67a43484f071428c1"
+  }
+}

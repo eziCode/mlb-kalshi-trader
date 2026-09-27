@@ -1,0 +1,8 @@
+{
+  "reason": "Added a fail-closed check for changed development inputs before the final evaluation. No signal, selection, or execution parameters changed. Re-ran both phases.",
+  "development_selection_metrics_identical": true,
+  "final_metrics_identical": true,
+  "all_final_trade_csvs_byte_identical": true,
+  "previous_manifest_sha256": "2eb2b7e601ecf0f4a3ad066f4f35e1ce05e6a6723f77f87dfe864a609a36a425",
+  "previous_final_manifest_sha256": "03597e9bd47932e3b8b6d612ce5535d7e7ffd9d3dc69f582139be3f6208a984f"
+}

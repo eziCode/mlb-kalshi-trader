@@ -1,14 +1,14 @@
 # Settlement-value strategy
 
-This strategy estimates final game settlement probability after a safely
-observed pitch transition and buys only when that probability remains far
-enough from the executable price after fees. Positions normally remain open to
-game settlement; early exits are disabled.
+This research strategy estimates a causal 3-10 second post-pitch market move
+after a safely observed transition and trades only when the forecast remains
+far enough from the executable price after fees. Positions remain open to game
+settlement; early exits are disabled.
 
-The folder was formerly named `mispricing_strategy`. The deployed probability
-is the local state model's final-outcome estimate. The former latency-residual
-regressor remains available for research but is not deployed because most of
-its target horizon elapsed before executable entry.
+The folder was formerly named `mispricing_strategy`. The final candidate is a
+latency-residual CatBoost model anchored by a local state model. Corrected
+latency-aware replay was unprofitable, so the checked-in policy is disabled.
+This fail-closed result supersedes earlier local-state and $10 study results.
 
 ## Strategy thesis
 
@@ -68,24 +68,23 @@ Event names such as single, walk, strikeout, or home run are deliberately not
 features. The contract is event-agnostic and represents the observable state
 transition instead.
 
-The deployed policy compares the local state model's home-win probability
-directly with executable contract prices, matching the prediction target to
-the settlement holding period.
+The candidate converts its bounded market-logit residual forecast back into a
+home probability and compares that value with executable prices.
 
 ## Entry, fill, and settlement
 
-The paper deployment uses `local_state_probability` in
-`model/live_config.json`. It requires at least a ten-point executable edge and
-rejects fills below 50 cents. Retrain the local state model with:
+The final configuration uses `latency_residual` in `model/live_config.json`.
+It requires at least a two-point probability edge, excludes fills from 45 to
+55 cents, and uses a $2.50 order budget. Retrain the local state model with:
 
 ```bash
 python -m settlement_value_strategy.train_local_state_model --train-end YYYY-MM-DD
 ```
 
 The walk-forward research harness is
-`python -m settlement_value_strategy.research_latency`. The latency model is
-retained only as a comparison baseline. Real-money execution still requires the independent
-`LIVE_TRADING_ENABLED` acknowledgement and account-level capital limits.
+`python -m settlement_value_strategy.research_latency`. Real-money execution
+still requires the independent `LIVE_TRADING_ENABLED` acknowledgement,
+account-level capital limits, and an override while this policy is disabled.
 
 For a fixed dollar stake, the strategy computes expected PnL after Kalshi’s
 rounded taker fee. Each signal independently chooses YES or NO on the home-team
@@ -107,11 +106,11 @@ requires at least 0.75 fills per scheduled game, positive aggregate PnL,
 positive PnL in most chronological folds, and resistance to top-game
 concentration. Ties favor the strongest worst chronological fold.
 
-The frozen-policy expanding-window replay currently contains 1,071 fills over
-1,440 scheduled games (0.744/game), +$201.83 net PnL, and 8.74% ROI at the
-actual $2.50 order budget. All seven folds are positive; the July 18-22 final
-holdout contains 41 fills, +$25.12, and 27.62% ROI. Removing its best four
-games leaves +$2.80.
+The corrected expanding-window replay contains 213 fills over 1,440 scheduled
+games, -$15.70 net PnL, and -3.36% ROI; only two of seven folds are positive.
+The post-training July 24-August 9 slice contains 41 fills over 234 games,
+-$4.23 net PnL, and -4.32% ROI. Removing its best four games leaves -$16.95.
+Accordingly, `enabled`, `tuning_passed`, and `validation_passed` are all false.
 
 The two-position limit counts concurrently open positions, not lifetime trades
 in a game. A fully exited reversal frees a slot. The 120-second cooldown is
@@ -247,7 +246,7 @@ orders; guarded live mode requires the explicit real-money acknowledgement.
 `ALLOW_UNVALIDATED_MISPRICING=1` permits paper observation when a future loaded
 policy is disabled.
 
-## Docker and reference result
+## Final result and Docker
 
 The external strategy selector remains `mispricing` for command compatibility:
 
@@ -256,8 +255,9 @@ docker build -t mlb-kalshi-trader .
 docker run --rm mlb-kalshi-trader mispricing backtest
 ```
 
-The deployed policy is `local_state_probability` in `model/live_config.json`.
-Its post-training June 18-August 9 causal replay contains 571 fills and produces
-$44.65 net PnL on $1,319.01 deployed capital (3.39% ROI); removing its four best
-games leaves $26.11. Additional same-side positions are allowed only when both
-probability and expected return improve.
+The authoritative result is
+[`results/live_policy_backtest_summary.json`](results/live_policy_backtest_summary.json):
+the corrected policy lost $15.70 across the seven-fold replay and $4.23 in the
+post-training forward slice. This is why live startup fails closed. Earlier
+positive artifacts remain in the repository as an audit trail, not as the
+current deployment claim.

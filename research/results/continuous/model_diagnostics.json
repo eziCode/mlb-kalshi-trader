@@ -1,0 +1,72 @@
+{
+  "60": {
+    "training_rows": 158394,
+    "training_games": 283,
+    "features": [
+      "mid",
+      "spread",
+      "return_10",
+      "return_30",
+      "return_120",
+      "other_gap",
+      "flow_30",
+      "volume_30",
+      "fair_gap",
+      "play_gap",
+      "state_age",
+      "play_age",
+      "inning",
+      "score_diff",
+      "outs",
+      "home_side"
+    ],
+    "parameters": {
+      "iterations": 250,
+      "learning_rate": 0.04,
+      "depth": 4,
+      "l2_leaf_reg": 20,
+      "loss_function": "RMSE",
+      "thread_count": 4,
+      "random_seed": 20260927,
+      "verbose": false,
+      "allow_writing_files": false
+    },
+    "selection_rmse": 0.053142454641262035,
+    "zero_change_rmse": 0.053494279667658594
+  },
+  "300": {
+    "training_rows": 155441,
+    "training_games": 283,
+    "features": [
+      "mid",
+      "spread",
+      "return_10",
+      "return_30",
+      "return_120",
+      "other_gap",
+      "flow_30",
+      "volume_30",
+      "fair_gap",
+      "play_gap",
+      "state_age",
+      "play_age",
+      "inning",
+      "score_diff",
+      "outs",
+      "home_side"
+    ],
+    "parameters": {
+      "iterations": 250,
+      "learning_rate": 0.04,
+      "depth": 4,
+      "l2_leaf_reg": 20,
+      "loss_function": "RMSE",
+      "thread_count": 4,
+      "random_seed": 20260927,
+      "verbose": false,
+      "allow_writing_files": false
+    },
+    "selection_rmse": 0.11682632273854947,
+    "zero_change_rmse": 0.11569834533494118
+  }
+}
