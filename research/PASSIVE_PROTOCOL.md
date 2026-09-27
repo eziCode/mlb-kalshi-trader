@@ -24,8 +24,11 @@ Default rules in `passive.py`:
 * Include adverse trades through the limit; a pending cancel cannot erase such
   a fill. Ignore duplicate IDs and block trades.
 * Reserve pending-order cash, track partial fills and signed YES/NO inventory,
-  and reconcile closing cash. Opening maker fees default to zero under the
-  current standard series schedule; the CLI accepts a different maker fee rate.
+  and reconcile closing cash. Maker fees default to `0.0175 × contracts ×
+  price × (1 − price)`, rounding the combined fee and position cost upward to
+  a centicent: KXMLBGAME has maker
+  multiplier one in the July 7, 2026 fee schedule. The CLI accepts a different
+  maker fee rate for a different applicable schedule.
 * Report both realized PnL and the value of remaining inventory sold into
   displayed bids after taker fees. Missing bid depth contributes zero to that
   mark. Unpaired inventory is never excluded from the result.

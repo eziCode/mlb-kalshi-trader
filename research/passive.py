@@ -28,7 +28,8 @@ class MakerConfig:
     tick: float = .01
     contracts: float = 1.
     starting_cash: float = 100.
-    maker_fee_rate: float = 0.
+    # KXMLBGAME has maker multiplier 1 in the July 7, 2026 schedule.
+    maker_fee_rate: float = .0175
     maximum_inventory_seconds: float = 60.
 
     def __post_init__(self):
@@ -85,7 +86,9 @@ class Book:
 
 
 def fee(quantity, price, rate):
-    return math.ceil(quantity * price * (1 - price) * rate * 10000 - 1e-9) / 10000
+    principal = quantity * price
+    raw = quantity * price * (1 - price) * rate
+    return max(0., math.ceil((principal + raw) * 10000 - 1e-9) / 10000 - principal)
 
 
 class PassiveReplay:
@@ -351,7 +354,7 @@ def main():
     parser.add_argument("--ticker", required=True, help="One market; YES/NO quotes share its inventory")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--latency", type=float, default=.68)
-    parser.add_argument("--maker-fee-rate", type=float, default=0.)
+    parser.add_argument("--maker-fee-rate", type=float, default=MakerConfig().maker_fee_rate)
     args = parser.parse_args()
     if args.output.exists():
         parser.error("Output already exists; use a new path")

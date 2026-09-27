@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 import tempfile
 
-from research.passive import MakerConfig, PassiveReplay, replay
+from research.passive import MakerConfig, PassiveReplay, replay, fee
 
 
 def snapshot(yes=.45, no=.53, size=5):
@@ -26,6 +26,8 @@ def delta(side, price, size):
 
 class PassiveResearchTests(unittest.TestCase):
     def engine(self, **changes):
+        # Most execution invariants isolate queue behavior from fees.
+        changes = {"maker_fee_rate": 0., **changes}
         engine = PassiveReplay("M", replace(MakerConfig(), **changes))
         engine.observe(0., snapshot())
         return engine
@@ -94,6 +96,19 @@ class PassiveResearchTests(unittest.TestCase):
         self.assertAlmostEqual(result["realized_pnl"], .02)
         self.assertAlmostEqual(result["liquidation_marked_pnl"], .02)
         self.assertAlmostEqual(e.cash + e.reserved, 100.02)
+
+    def test_mlb_default_charges_maker_fees_on_both_legs(self):
+        self.assertEqual(MakerConfig().maker_fee_rate, .0175)
+        e = self.engine(maker_fee_rate=MakerConfig().maker_fee_rate)
+        e.observe(1., trade("a", "no", .45, 6))
+        e.observe(1.2, trade("b", "yes", .47, 6))
+        result = e.summary()
+        self.assertAlmostEqual(result["fees"], .0088)
+        self.assertAlmostEqual(result["realized_pnl"], .0112)
+        self.assertAlmostEqual(e.cash + e.reserved, 100.0112)
+
+    def test_fractional_fee_rounds_combined_cost_to_centicent(self):
+        self.assertAlmostEqual(.01 * .3333 + fee(.01, .3333, .0175), .0034)
 
     def test_unpaired_inventory_is_marked_after_taker_cost(self):
         e = self.engine()
