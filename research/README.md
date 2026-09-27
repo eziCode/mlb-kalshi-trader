@@ -37,6 +37,38 @@ An integration check received 30 snapshots, 123 deltas, and 19 trades across
 15 games with no gaps; its 20-second pregame window produced zero shadow fills
 and does not evaluate profitability.
 
+The [prospective slate experiment](PASSIVE_SLATE_PROTOCOL.md) adds twelve
+declared passive variants, observed inning-break windows, inventory timeouts,
+bounded liquidation, and subsequent fill-price diagnostics. Its shared cash
+replay processes every game's timers chronologically. Freeze an immutable
+prefix before inspecting a recording that is still growing:
+
+```bash
+.venv/bin/python -m research.slate_study snapshot CAPTURE --output-dir NEW_SNAPSHOT
+.venv/bin/python -m research.slate_study evaluate NEW_SNAPSHOT/capture.jsonl.gz \
+  --slate SLATE_JSON --output-dir NEW_RESULTS --shared-cash 100
+```
+
+An ended recording and an observed final game are reported separately. No
+settlement is invented for open inventory at the end of a recording. Initial
+September 27 prefixes contain rain delays and pregame markets, with no entries.
+
+The separate [state-model refresh](STATE_REFRESH_PROTOCOL.md) trained on 1,490
+completed 2026 regular-season games using final MLB labels and team ratings
+that exclude same-day and future results. On 281 later games, its log loss
+was 0.475 versus 0.524 for the packaged model given the same inputs. Direct
+hold-to-settlement trading remained negative across development and selection
+for every tested edge threshold. The most active candidate entered 594 of
+610 games and lost $18.49 overall; this is a failed trading experiment despite
+the probability improvement. See [calibration](results/state_refresh/calibration.json)
+and [trading results](results/state_refresh/settlement_summary.json).
+
+```bash
+.venv/bin/python -m research.state_refresh --output-dir NEW_MODEL_DIRECTORY
+.venv/bin/python -m research.settlement_study --model-dir NEW_MODEL_DIRECTORY \
+  --output-dir NEW_TRADING_RESULTS
+```
+
 An additional [old quote-log audit](results/paired_quote_audit.json) found nine
 apparent paired-price dislocations in eight of 256 markets. These are sparse
 old-policy observations, not synchronized executable opportunities or a count
