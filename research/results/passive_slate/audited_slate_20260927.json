@@ -1,0 +1,862 @@
+{
+  "date": "2026-09-27",
+  "games": [
+    {
+      "game_pk": 822679,
+      "scheduled_time": "2026-09-27T17:05:00+00:00",
+      "away_code": "NYM",
+      "home_code": "WSH",
+      "market_ticker": "KXMLBGAME-26SEP271505NYMWSH-WSH",
+      "away_market_ticker": "KXMLBGAME-26SEP271505NYMWSH-NYM"
+    },
+    {
+      "game_pk": 823490,
+      "scheduled_time": "2026-09-27T17:05:00+00:00",
+      "away_code": "BAL",
+      "home_code": "NYY",
+      "market_ticker": "KXMLBGAME-26SEP271520BALNYY-NYY",
+      "away_market_ticker": "KXMLBGAME-26SEP271520BALNYY-BAL"
+    },
+    {
+      "game_pk": 823408,
+      "scheduled_time": "2026-09-27T18:30:00+00:00",
+      "away_code": "TB",
+      "home_code": "PHI",
+      "market_ticker": "KXMLBGAME-26SEP271505TBPHI-PHI",
+      "away_market_ticker": "KXMLBGAME-26SEP271505TBPHI-TB"
+    },
+    {
+      "game_pk": 824948,
+      "scheduled_time": "2026-09-27T19:05:00+00:00",
+      "away_code": "HOU",
+      "home_code": "ATH",
+      "market_ticker": "KXMLBGAME-26SEP271505HOUATH-ATH",
+      "away_market_ticker": "KXMLBGAME-26SEP271505HOUATH-HOU"
+    },
+    {
+      "game_pk": 823164,
+      "scheduled_time": "2026-09-27T19:05:00+00:00",
+      "away_code": "LAD",
+      "home_code": "SF",
+      "market_ticker": "KXMLBGAME-26SEP271505LADSF-SF",
+      "away_market_ticker": "KXMLBGAME-26SEP271505LADSF-LAD"
+    },
+    {
+      "game_pk": 822761,
+      "scheduled_time": "2026-09-27T19:07:00+00:00",
+      "away_code": "CIN",
+      "home_code": "TOR",
+      "market_ticker": "KXMLBGAME-26SEP271507CINTOR-TOR",
+      "away_market_ticker": "KXMLBGAME-26SEP271507CINTOR-CIN"
+    },
+    {
+      "game_pk": 824055,
+      "scheduled_time": "2026-09-27T19:10:00+00:00",
+      "away_code": "CLE",
+      "home_code": "KC",
+      "market_ticker": "KXMLBGAME-26SEP271510CLEKC-KC",
+      "away_market_ticker": "KXMLBGAME-26SEP271510CLEKC-CLE"
+    },
+    {
+      "game_pk": 824217,
+      "scheduled_time": "2026-09-27T19:10:00+00:00",
+      "away_code": "PIT",
+      "home_code": "DET",
+      "market_ticker": "KXMLBGAME-26SEP271510PITDET-DET",
+      "away_market_ticker": "KXMLBGAME-26SEP271510PITDET-PIT"
+    },
+    {
+      "game_pk": 823246,
+      "scheduled_time": "2026-09-27T19:10:00+00:00",
+      "away_code": "ARI",
+      "home_code": "SD",
+      "market_ticker": "KXMLBGAME-26SEP271510AZSD-SD",
+      "away_market_ticker": "KXMLBGAME-26SEP271510AZSD-AZ"
+    },
+    {
+      "game_pk": 823084,
+      "scheduled_time": "2026-09-27T19:10:00+00:00",
+      "away_code": "LAA",
+      "home_code": "SEA",
+      "market_ticker": "KXMLBGAME-26SEP271510LAASEA-SEA",
+      "away_market_ticker": "KXMLBGAME-26SEP271510LAASEA-LAA"
+    },
+    {
+      "game_pk": 823650,
+      "scheduled_time": "2026-09-27T19:10:00+00:00",
+      "away_code": "TEX",
+      "home_code": "MIN",
+      "market_ticker": "KXMLBGAME-26SEP271510TEXMIN-MIN",
+      "away_market_ticker": "KXMLBGAME-26SEP271510TEXMIN-TEX"
+    },
+    {
+      "game_pk": 824542,
+      "scheduled_time": "2026-09-27T19:10:00+00:00",
+      "away_code": "COL",
+      "home_code": "CHW",
+      "market_ticker": "KXMLBGAME-26SEP271510COLCWS-CWS",
+      "away_market_ticker": "KXMLBGAME-26SEP271510COLCWS-COL"
+    },
+    {
+      "game_pk": 823814,
+      "scheduled_time": "2026-09-27T19:10:00+00:00",
+      "away_code": "ATL",
+      "home_code": "MIA",
+      "market_ticker": "KXMLBGAME-26SEP271510ATLMIA-MIA",
+      "away_market_ticker": "KXMLBGAME-26SEP271510ATLMIA-ATL"
+    },
+    {
+      "game_pk": 823731,
+      "scheduled_time": "2026-09-27T19:10:00+00:00",
+      "away_code": "STL",
+      "home_code": "MIL",
+      "market_ticker": "KXMLBGAME-26SEP271510STLMIL-MIL",
+      "away_market_ticker": "KXMLBGAME-26SEP271510STLMIL-STL"
+    }
+  ],
+  "scheduled_game_count": 15,
+  "unmapped_game_pks": [
+    824705
+  ],
+  "schedule_identity_evidence": [
+    {
+      "gamePk": 822679,
+      "gameDate": "2026-09-27T17:05:00Z",
+      "officialDate": "2026-09-27",
+      "teams": {
+        "away": {
+          "team": {
+            "id": 121,
+            "name": "New York Mets",
+            "link": "/api/v1/teams/121"
+          },
+          "leagueRecord": {
+            "wins": 74,
+            "losses": 87,
+            "ties": 0,
+            "pct": ".460"
+          },
+          "score": 0,
+          "splitSquad": false,
+          "seriesNumber": 52
+        },
+        "home": {
+          "team": {
+            "id": 120,
+            "name": "Washington Nationals",
+            "link": "/api/v1/teams/120"
+          },
+          "leagueRecord": {
+            "wins": 76,
+            "losses": 85,
+            "ties": 0,
+            "pct": ".472"
+          },
+          "score": 0,
+          "splitSquad": false,
+          "seriesNumber": 52
+        }
+      },
+      "status": {
+        "abstractGameState": "Live",
+        "codedGameState": "P",
+        "detailedState": "Warmup",
+        "statusCode": "PW",
+        "startTimeTBD": false,
+        "abstractGameCode": "L"
+      },
+      "rescheduledFrom": null,
+      "rescheduledFromDate": null
+    },
+    {
+      "gamePk": 823490,
+      "gameDate": "2026-09-27T17:05:00Z",
+      "officialDate": "2026-09-27",
+      "teams": {
+        "away": {
+          "team": {
+            "id": 110,
+            "name": "Baltimore Orioles",
+            "link": "/api/v1/teams/110"
+          },
+          "leagueRecord": {
+            "wins": 79,
+            "losses": 82,
+            "ties": 0,
+            "pct": ".491"
+          },
+          "splitSquad": false,
+          "seriesNumber": 52
+        },
+        "home": {
+          "team": {
+            "id": 147,
+            "name": "New York Yankees",
+            "link": "/api/v1/teams/147"
+          },
+          "leagueRecord": {
+            "wins": 93,
+            "losses": 68,
+            "ties": 0,
+            "pct": ".578"
+          },
+          "splitSquad": false,
+          "seriesNumber": 52
+        }
+      },
+      "status": {
+        "abstractGameState": "Preview",
+        "codedGameState": "P",
+        "detailedState": "Delayed Start",
+        "statusCode": "PR",
+        "startTimeTBD": false,
+        "reason": "Rain",
+        "abstractGameCode": "P"
+      },
+      "rescheduledFrom": null,
+      "rescheduledFromDate": null
+    },
+    {
+      "gamePk": 823408,
+      "gameDate": "2026-09-27T18:30:00Z",
+      "officialDate": "2026-09-27",
+      "teams": {
+        "away": {
+          "team": {
+            "id": 139,
+            "name": "Tampa Bay Rays",
+            "link": "/api/v1/teams/139"
+          },
+          "leagueRecord": {
+            "wins": 98,
+            "losses": 63,
+            "ties": 0,
+            "pct": ".609"
+          },
+          "score": 0,
+          "splitSquad": false,
+          "seriesNumber": 52
+        },
+        "home": {
+          "team": {
+            "id": 143,
+            "name": "Philadelphia Phillies",
+            "link": "/api/v1/teams/143"
+          },
+          "leagueRecord": {
+            "wins": 87,
+            "losses": 74,
+            "ties": 0,
+            "pct": ".540"
+          },
+          "score": 0,
+          "splitSquad": false,
+          "seriesNumber": 52
+        }
+      },
+      "status": {
+        "abstractGameState": "Preview",
+        "codedGameState": "P",
+        "detailedState": "Pre-Game",
+        "statusCode": "P",
+        "startTimeTBD": false,
+        "abstractGameCode": "P"
+      },
+      "rescheduledFrom": null,
+      "rescheduledFromDate": null
+    },
+    {
+      "gamePk": 824705,
+      "gameDate": "2026-09-27T19:05:00Z",
+      "officialDate": "2026-09-27",
+      "teams": {
+        "away": {
+          "team": {
+            "id": 112,
+            "name": "Chicago Cubs",
+            "link": "/api/v1/teams/112"
+          },
+          "leagueRecord": {
+            "wins": 88,
+            "losses": 73,
+            "ties": 0,
+            "pct": ".547"
+          },
+          "score": 0,
+          "splitSquad": false,
+          "seriesNumber": 53
+        },
+        "home": {
+          "team": {
+            "id": 111,
+            "name": "Boston Red Sox",
+            "link": "/api/v1/teams/111"
+          },
+          "leagueRecord": {
+            "wins": 87,
+            "losses": 74,
+            "ties": 0,
+            "pct": ".540"
+          },
+          "score": 0,
+          "splitSquad": false,
+          "seriesNumber": 52
+        }
+      },
+      "status": {
+        "abstractGameState": "Preview",
+        "codedGameState": "P",
+        "detailedState": "Pre-Game",
+        "statusCode": "P",
+        "startTimeTBD": false,
+        "abstractGameCode": "P"
+      },
+      "rescheduledFrom": null,
+      "rescheduledFromDate": null
+    },
+    {
+      "gamePk": 824948,
+      "gameDate": "2026-09-27T19:05:00Z",
+      "officialDate": "2026-09-27",
+      "teams": {
+        "away": {
+          "team": {
+            "id": 117,
+            "name": "Houston Astros",
+            "link": "/api/v1/teams/117"
+          },
+          "leagueRecord": {
+            "wins": 80,
+            "losses": 81,
+            "ties": 0,
+            "pct": ".497"
+          },
+          "splitSquad": false,
+          "seriesNumber": 52
+        },
+        "home": {
+          "team": {
+            "id": 133,
+            "name": "Athletics",
+            "link": "/api/v1/teams/133"
+          },
+          "leagueRecord": {
+            "wins": 64,
+            "losses": 97,
+            "ties": 0,
+            "pct": ".398"
+          },
+          "splitSquad": false,
+          "seriesNumber": 52
+        }
+      },
+      "status": {
+        "abstractGameState": "Preview",
+        "codedGameState": "P",
+        "detailedState": "Pre-Game",
+        "statusCode": "P",
+        "startTimeTBD": false,
+        "abstractGameCode": "P"
+      },
+      "rescheduledFrom": null,
+      "rescheduledFromDate": null
+    },
+    {
+      "gamePk": 823164,
+      "gameDate": "2026-09-27T19:05:00Z",
+      "officialDate": "2026-09-27",
+      "teams": {
+        "away": {
+          "team": {
+            "id": 119,
+            "name": "Los Angeles Dodgers",
+            "link": "/api/v1/teams/119"
+          },
+          "leagueRecord": {
+            "wins": 99,
+            "losses": 62,
+            "ties": 0,
+            "pct": ".615"
+          },
+          "score": 0,
+          "splitSquad": false,
+          "seriesNumber": 52
+        },
+        "home": {
+          "team": {
+            "id": 137,
+            "name": "San Francisco Giants",
+            "link": "/api/v1/teams/137"
+          },
+          "leagueRecord": {
+            "wins": 65,
+            "losses": 96,
+            "ties": 0,
+            "pct": ".404"
+          },
+          "score": 0,
+          "splitSquad": false,
+          "seriesNumber": 53
+        }
+      },
+      "status": {
+        "abstractGameState": "Preview",
+        "codedGameState": "P",
+        "detailedState": "Pre-Game",
+        "statusCode": "P",
+        "startTimeTBD": false,
+        "abstractGameCode": "P"
+      },
+      "rescheduledFrom": null,
+      "rescheduledFromDate": null
+    },
+    {
+      "gamePk": 822761,
+      "gameDate": "2026-09-27T19:07:00Z",
+      "officialDate": "2026-09-27",
+      "teams": {
+        "away": {
+          "team": {
+            "id": 113,
+            "name": "Cincinnati Reds",
+            "link": "/api/v1/teams/113"
+          },
+          "leagueRecord": {
+            "wins": 75,
+            "losses": 86,
+            "ties": 0,
+            "pct": ".466"
+          },
+          "score": 0,
+          "splitSquad": false,
+          "seriesNumber": 52
+        },
+        "home": {
+          "team": {
+            "id": 141,
+            "name": "Toronto Blue Jays",
+            "link": "/api/v1/teams/141"
+          },
+          "leagueRecord": {
+            "wins": 78,
+            "losses": 83,
+            "ties": 0,
+            "pct": ".484"
+          },
+          "score": 0,
+          "splitSquad": false,
+          "seriesNumber": 53
+        }
+      },
+      "status": {
+        "abstractGameState": "Preview",
+        "codedGameState": "P",
+        "detailedState": "Pre-Game",
+        "statusCode": "P",
+        "startTimeTBD": false,
+        "abstractGameCode": "P"
+      },
+      "rescheduledFrom": null,
+      "rescheduledFromDate": null
+    },
+    {
+      "gamePk": 824055,
+      "gameDate": "2026-09-27T19:10:00Z",
+      "officialDate": "2026-09-27",
+      "teams": {
+        "away": {
+          "team": {
+            "id": 114,
+            "name": "Cleveland Guardians",
+            "link": "/api/v1/teams/114"
+          },
+          "leagueRecord": {
+            "wins": 85,
+            "losses": 76,
+            "ties": 0,
+            "pct": ".528"
+          },
+          "score": 0,
+          "splitSquad": false,
+          "seriesNumber": 52
+        },
+        "home": {
+          "team": {
+            "id": 118,
+            "name": "Kansas City Royals",
+            "link": "/api/v1/teams/118"
+          },
+          "leagueRecord": {
+            "wins": 68,
+            "losses": 93,
+            "ties": 0,
+            "pct": ".422"
+          },
+          "score": 0,
+          "splitSquad": false,
+          "seriesNumber": 52
+        }
+      },
+      "status": {
+        "abstractGameState": "Preview",
+        "codedGameState": "P",
+        "detailedState": "Pre-Game",
+        "statusCode": "P",
+        "startTimeTBD": false,
+        "abstractGameCode": "P"
+      },
+      "rescheduledFrom": null,
+      "rescheduledFromDate": null
+    },
+    {
+      "gamePk": 824217,
+      "gameDate": "2026-09-27T19:10:00Z",
+      "officialDate": "2026-09-27",
+      "teams": {
+        "away": {
+          "team": {
+            "id": 134,
+            "name": "Pittsburgh Pirates",
+            "link": "/api/v1/teams/134"
+          },
+          "leagueRecord": {
+            "wins": 81,
+            "losses": 80,
+            "ties": 0,
+            "pct": ".503"
+          },
+          "score": 0,
+          "splitSquad": false,
+          "seriesNumber": 52
+        },
+        "home": {
+          "team": {
+            "id": 116,
+            "name": "Detroit Tigers",
+            "link": "/api/v1/teams/116"
+          },
+          "leagueRecord": {
+            "wins": 76,
+            "losses": 85,
+            "ties": 0,
+            "pct": ".472"
+          },
+          "score": 0,
+          "splitSquad": false,
+          "seriesNumber": 52
+        }
+      },
+      "status": {
+        "abstractGameState": "Preview",
+        "codedGameState": "P",
+        "detailedState": "Pre-Game",
+        "statusCode": "P",
+        "startTimeTBD": false,
+        "abstractGameCode": "P"
+      },
+      "rescheduledFrom": null,
+      "rescheduledFromDate": null
+    },
+    {
+      "gamePk": 823246,
+      "gameDate": "2026-09-27T19:10:00Z",
+      "officialDate": "2026-09-27",
+      "teams": {
+        "away": {
+          "team": {
+            "id": 109,
+            "name": "Arizona Diamondbacks",
+            "link": "/api/v1/teams/109"
+          },
+          "leagueRecord": {
+            "wins": 86,
+            "losses": 75,
+            "ties": 0,
+            "pct": ".534"
+          },
+          "score": 0,
+          "splitSquad": false,
+          "seriesNumber": 53
+        },
+        "home": {
+          "team": {
+            "id": 135,
+            "name": "San Diego Padres",
+            "link": "/api/v1/teams/135"
+          },
+          "leagueRecord": {
+            "wins": 90,
+            "losses": 71,
+            "ties": 0,
+            "pct": ".559"
+          },
+          "score": 0,
+          "splitSquad": false,
+          "seriesNumber": 52
+        }
+      },
+      "status": {
+        "abstractGameState": "Preview",
+        "codedGameState": "P",
+        "detailedState": "Pre-Game",
+        "statusCode": "P",
+        "startTimeTBD": false,
+        "abstractGameCode": "P"
+      },
+      "rescheduledFrom": null,
+      "rescheduledFromDate": null
+    },
+    {
+      "gamePk": 823084,
+      "gameDate": "2026-09-27T19:10:00Z",
+      "officialDate": "2026-09-27",
+      "teams": {
+        "away": {
+          "team": {
+            "id": 108,
+            "name": "Los Angeles Angels",
+            "link": "/api/v1/teams/108"
+          },
+          "leagueRecord": {
+            "wins": 62,
+            "losses": 99,
+            "ties": 0,
+            "pct": ".385"
+          },
+          "score": 0,
+          "splitSquad": false,
+          "seriesNumber": 52
+        },
+        "home": {
+          "team": {
+            "id": 136,
+            "name": "Seattle Mariners",
+            "link": "/api/v1/teams/136"
+          },
+          "leagueRecord": {
+            "wins": 75,
+            "losses": 86,
+            "ties": 0,
+            "pct": ".466"
+          },
+          "score": 0,
+          "splitSquad": false,
+          "seriesNumber": 52
+        }
+      },
+      "status": {
+        "abstractGameState": "Preview",
+        "codedGameState": "P",
+        "detailedState": "Pre-Game",
+        "statusCode": "P",
+        "startTimeTBD": false,
+        "abstractGameCode": "P"
+      },
+      "rescheduledFrom": null,
+      "rescheduledFromDate": null
+    },
+    {
+      "gamePk": 823650,
+      "gameDate": "2026-09-27T19:10:00Z",
+      "officialDate": "2026-09-27",
+      "teams": {
+        "away": {
+          "team": {
+            "id": 140,
+            "name": "Texas Rangers",
+            "link": "/api/v1/teams/140"
+          },
+          "leagueRecord": {
+            "wins": 80,
+            "losses": 81,
+            "ties": 0,
+            "pct": ".497"
+          },
+          "score": 0,
+          "splitSquad": false,
+          "seriesNumber": 52
+        },
+        "home": {
+          "team": {
+            "id": 142,
+            "name": "Minnesota Twins",
+            "link": "/api/v1/teams/142"
+          },
+          "leagueRecord": {
+            "wins": 76,
+            "losses": 85,
+            "ties": 0,
+            "pct": ".472"
+          },
+          "score": 0,
+          "splitSquad": false,
+          "seriesNumber": 52
+        }
+      },
+      "status": {
+        "abstractGameState": "Preview",
+        "codedGameState": "P",
+        "detailedState": "Pre-Game",
+        "statusCode": "P",
+        "startTimeTBD": false,
+        "abstractGameCode": "P"
+      },
+      "rescheduledFrom": null,
+      "rescheduledFromDate": null
+    },
+    {
+      "gamePk": 824542,
+      "gameDate": "2026-09-27T19:10:00Z",
+      "officialDate": "2026-09-27",
+      "teams": {
+        "away": {
+          "team": {
+            "id": 115,
+            "name": "Colorado Rockies",
+            "link": "/api/v1/teams/115"
+          },
+          "leagueRecord": {
+            "wins": 58,
+            "losses": 103,
+            "ties": 0,
+            "pct": ".360"
+          },
+          "score": 0,
+          "splitSquad": false,
+          "seriesNumber": 52
+        },
+        "home": {
+          "team": {
+            "id": 145,
+            "name": "Chicago White Sox",
+            "link": "/api/v1/teams/145"
+          },
+          "leagueRecord": {
+            "wins": 83,
+            "losses": 78,
+            "ties": 0,
+            "pct": ".516"
+          },
+          "score": 0,
+          "splitSquad": false,
+          "seriesNumber": 53
+        }
+      },
+      "status": {
+        "abstractGameState": "Preview",
+        "codedGameState": "P",
+        "detailedState": "Pre-Game",
+        "statusCode": "P",
+        "startTimeTBD": false,
+        "abstractGameCode": "P"
+      },
+      "rescheduledFrom": null,
+      "rescheduledFromDate": null
+    },
+    {
+      "gamePk": 823814,
+      "gameDate": "2026-09-27T19:10:00Z",
+      "officialDate": "2026-09-27",
+      "teams": {
+        "away": {
+          "team": {
+            "id": 144,
+            "name": "Atlanta Braves",
+            "link": "/api/v1/teams/144"
+          },
+          "leagueRecord": {
+            "wins": 94,
+            "losses": 67,
+            "ties": 0,
+            "pct": ".584"
+          },
+          "score": 0,
+          "splitSquad": false,
+          "seriesNumber": 54
+        },
+        "home": {
+          "team": {
+            "id": 146,
+            "name": "Miami Marlins",
+            "link": "/api/v1/teams/146"
+          },
+          "leagueRecord": {
+            "wins": 79,
+            "losses": 82,
+            "ties": 0,
+            "pct": ".491"
+          },
+          "score": 0,
+          "splitSquad": false,
+          "seriesNumber": 52
+        }
+      },
+      "status": {
+        "abstractGameState": "Preview",
+        "codedGameState": "P",
+        "detailedState": "Pre-Game",
+        "statusCode": "P",
+        "startTimeTBD": false,
+        "abstractGameCode": "P"
+      },
+      "rescheduledFrom": null,
+      "rescheduledFromDate": null
+    },
+    {
+      "gamePk": 823731,
+      "gameDate": "2026-09-27T19:10:00Z",
+      "officialDate": "2026-09-27",
+      "teams": {
+        "away": {
+          "team": {
+            "id": 138,
+            "name": "St. Louis Cardinals",
+            "link": "/api/v1/teams/138"
+          },
+          "leagueRecord": {
+            "wins": 77,
+            "losses": 84,
+            "ties": 0,
+            "pct": ".478"
+          },
+          "score": 0,
+          "splitSquad": false,
+          "seriesNumber": 53
+        },
+        "home": {
+          "team": {
+            "id": 158,
+            "name": "Milwaukee Brewers",
+            "link": "/api/v1/teams/158"
+          },
+          "leagueRecord": {
+            "wins": 102,
+            "losses": 59,
+            "ties": 0,
+            "pct": ".634"
+          },
+          "score": 0,
+          "splitSquad": false,
+          "seriesNumber": 52
+        }
+      },
+      "status": {
+        "abstractGameState": "Preview",
+        "codedGameState": "P",
+        "detailedState": "Pre-Game",
+        "statusCode": "P",
+        "startTimeTBD": false,
+        "abstractGameCode": "P"
+      },
+      "rescheduledFrom": null,
+      "rescheduledFromDate": null
+    }
+  ],
+  "mapping_method": "original_date_and_unambiguous_team_time_v2",
+  "mapping_source_sha256": "3b79c93a6a304beca7372a95a073c172a93ccfdef48d1561dbab93b72d09aa17",
+  "discovered_at": "2026-09-27T17:45:59.313015+00:00",
+  "warnings": [
+    "['BOS', 'CHC']: time-matched 0 of 1 MLB games to 1 Kalshi events"
+  ],
+  "orders_enabled": false
+}

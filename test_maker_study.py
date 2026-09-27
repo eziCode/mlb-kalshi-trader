@@ -9,7 +9,8 @@ def baseball(live=True, phase="Top", outs=0, end="1970-01-01T00:00:00Z", inning=
     return {"game_pk": 1, "observation": {
         "gameData": {"status": {"abstractGameState": "Live" if live else "Preview"}},
         "linescore": {"currentInning": inning, "inningState": phase},
-        "currentPlay": {"count": {"outs": outs}, "about": {"endTime": end}}}}
+        "currentPlay": {"count": {"outs": outs}, "about": {"endTime": end},
+                        "playEvents": [{"isPitch": True}]}}}
 
 
 class MakerStudyTests(unittest.TestCase):
@@ -33,6 +34,16 @@ class MakerStudyTests(unittest.TestCase):
         e.baseball(2.1, baseball(), 0.)
         e.observe(3.1, {"type": "heartbeat"})
         self.assertEqual(len(e.orders), 2)
+
+    def test_mlb_warmup_live_label_does_not_allow_pregame_quotes(self):
+        e = MakerStudyReplay("M", "PEER", 1)
+        data = baseball()
+        data["observation"]["gameData"]["status"]["detailedState"] = "Warmup"
+        data["observation"]["currentPlay"]["playEvents"] = [{"isPitch": False}]
+        e.baseball(0., data, 0.)
+        e.observe(0., snapshot())
+        self.assertFalse(e.orders)
+        self.assertFalse(e.game_live)
 
     def test_break_clock_uses_source_end_and_does_not_reset_on_poll(self):
         e = MakerStudyReplay("M", "PEER", 1, StudyConfig(entry_regime="break"))

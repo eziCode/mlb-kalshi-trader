@@ -23,6 +23,24 @@ separate twelve-candidate passive study. It never retunes parameters or places
 orders. Each prefix is retained; source changes or continuity errors stop the
 watcher for review. See [the prospective protocol](FORWARD_VALUE_PROTOCOL.md).
 
+Add `--maker` to run the separately declared [passive hold experiment](FORWARD_MAKER_PROTOCOL.md)
+at the same three delays. The probability model stays frozen; fills must clear
+the observed queue or trade through the quote, and cancellations take time.
+Use `research.record_settlements` to collect public exchange-finalization
+observations and pass the journal to the watcher with `--settlements`. Payout
+reconciliation preserves partial quantities, actual market identity, missing
+settlements, and pending-order uncertainty. It reports settled shadow PnL
+separately from open-inventory marks; no actual order is placed.
+
+September 27's [mapping audit](results/passive_slate/mapping_correction.json)
+corrects the initial discovery: 14 games are mapped out of 15 scheduled. Boston's
+September 27 game had been paired with a September 26 contract without schedule
+evidence of postponement. The unverified pair is excluded. The daily matcher now
+requires the original game date, uses explicit postponement fields when present,
+and rejects ambiguous doubleheaders. All earlier prefixes are retained with
+their original scope; subsequent scoring uses the audited slate. MLB's warmup
+status also reports abstract `Live`, so passive entries now require a pitch.
+
 ## Continuous strategy search and passive experiment
 
 The completed [48-candidate search](results/continuous/REPORT.md) tested

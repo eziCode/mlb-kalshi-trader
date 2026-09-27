@@ -5,6 +5,7 @@ import argparse
 from datetime import datetime, timezone
 import gzip
 import heapq
+import inspect
 import json
 import math
 from pathlib import Path
@@ -231,7 +232,7 @@ class ForwardValueGame(PortfolioGame):
         return result
 
 
-def run(args):
+def run(args, engine_class=ForwardValueGame):
     frozen, selection = verify_run(args.frozen_run)
     verify_model_directory(args.model_dir, frozen)
     if selection["candidate"] != "corrected_01c":
@@ -243,21 +244,25 @@ def run(args):
              ROOT / "research/FORWARD_VALUE_PROTOCOL.md", ROOT / "research/maker_portfolio.py",
              ROOT / "research/maker_study.py", ROOT / "research/passive.py", ROOT / "research/record.py",
              ROOT / "research/market_check.py", ROOT / "research/market_correction.py", ROOT / "research/state_refresh.py",
-             ROOT / "settlement_value_strategy/play_eligibility.py"]
+             ROOT / "settlement_value_strategy/play_eligibility.py", Path(inspect.getfile(engine_class))]
+    if engine_class is not ForwardValueGame:
+        paths.append(ROOT / "research/FORWARD_MAKER_PROTOCOL.md")
     hashes = {str(path.resolve()): digest(path) for path in paths}
     (output / "manifest.json").write_text(json.dumps({"started_at": datetime.now(timezone.utc).isoformat(),
         "hashes": hashes, "candidate": selection["candidate"], "latency": args.latency,
-        "penalty": args.penalty, "role": "prospective_frozen_policy_shadow", "deployment_ready": False}, indent=2))
+        "penalty": args.penalty, "execution_class": engine_class.__name__,
+        "role": "prospective_frozen_policy_shadow", "deployment_ready": False}, indent=2))
     model = CatBoostClassifier().load_model(str(args.model_dir / "model.cbm"))
     correction = json.loads((args.frozen_run / "correction.json").read_text())
     ratings = json.loads((args.model_dir / "prior.json").read_text())["ratings"]
     account = CashAccount.funded(100.)
     aliases = {"CHW": "CWS", "ARI": "AZ"}
     games, tickers = {}, {}
-    for game in json.loads(args.slate.read_text())["games"]:
+    slate = json.loads(args.slate.read_text())
+    for game in slate["games"]:
         home = game["home_code"] if game["home_code"] in ratings else aliases.get(game["home_code"], game["home_code"])
         away = game["away_code"] if game["away_code"] in ratings else aliases.get(game["away_code"], game["away_code"])
-        engine = ForwardValueGame(game, account, model, probability(home, away, ratings), correction, args.latency, args.penalty)
+        engine = engine_class(game, account, model, probability(home, away, ratings), correction, args.latency, args.penalty)
         games[game["game_pk"]] = engine
         for ticker in (engine.ticker, engine.peer_ticker):
             if ticker in tickers:
@@ -317,7 +322,11 @@ def run(args):
         summaries.append(result)
         (output / f"{pk}.json").write_text(json.dumps({**result, "fills": engine.fills}, indent=2, allow_nan=False))
     summary = {"portfolio": clock.summary(), "games": len(games),
+        "scheduled_game_count": slate.get("scheduled_game_count", len(games)),
+        "unmapped_game_pks": slate.get("unmapped_game_pks", []),
+        "mapping_method": slate.get("mapping_method", "not_recorded"),
         "games_observed_live": sum(r["game_observed_live"] for r in summaries),
+        "games_with_first_pitch": sum(r["first_pitch_observed"] for r in summaries),
         "games_observed_final": sum(r["game_observed_final"] for r in summaries),
         "games_with_entries": sum(r["entry_orders_filled"] > 0 for r in summaries),
         "entry_orders_filled": sum(r["entry_orders_filled"] for r in summaries),

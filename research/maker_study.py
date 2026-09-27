@@ -50,6 +50,7 @@ class MakerStudyReplay(PassiveReplay):
         super().__init__(ticker, config)
         self.peer_ticker, self.peer_book, self.game_pk = peer_ticker, None, game_pk
         self.game_live, self.feed_seen = False, -math.inf
+        self.game_started = False
         self.game_final, self.first_live_seen, self.final_seen = False, None, None
         self.break_key, self.break_since = None, None
         self.liquidation = None
@@ -67,7 +68,10 @@ class MakerStudyReplay(PassiveReplay):
         observation = row.get("observation")
         if observation is not None:
             status = (observation.get("gameData") or {}).get("status") or {}
-            self.game_live = str(status.get("abstractGameState", "")).lower() == "live"
+            plays = list(observation.get("recentPlays") or []) + [observation.get("currentPlay") or {}]
+            self.game_started = self.game_started or any(p.get("isPitch") for play in plays for p in play.get("playEvents", []))
+            # MLB labels warmup as abstract Live before the first pitch.
+            self.game_live = self.game_started and str(status.get("abstractGameState", "")).lower() == "live"
             self.game_final = str(status.get("abstractGameState", "")).lower() == "final"
             if self.game_live and self.first_live_seen is None:
                 self.first_live_seen = now

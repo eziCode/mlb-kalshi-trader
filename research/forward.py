@@ -7,7 +7,8 @@ from __future__ import annotations
 
 import argparse
 from dataclasses import asdict
-from datetime import date, datetime
+from datetime import date, datetime, timezone
+import hashlib
 import json
 from pathlib import Path
 import subprocess
@@ -26,9 +27,20 @@ def discover(day):
         if str(directory) not in sys.path:
             sys.path.insert(0, str(directory))
     from scripts.paper_trade import discover_daily_games
-    games, warnings = discover_daily_games(day)
+    games, warnings, schedule = discover_daily_games(day, include_schedule=True)
     rows = [{**asdict(game), "scheduled_time": game.scheduled_time.isoformat()} for game in games]
-    return {"date": str(day), "games": rows, "warnings": warnings, "orders_enabled": False}
+    scheduled = [{key: game.get(key) for key in ("gamePk", "gameDate", "officialDate", "teams", "status",
+                                                "rescheduledFrom", "rescheduledFromDate")} for game in schedule]
+    eligible = [g for g in schedule if str((g.get("status") or {}).get("detailedState", "")).lower()
+                not in {"postponed", "cancelled", "canceled"}]
+    matched = {g.game_pk for g in games}
+    return {"date": str(day), "games": rows, "scheduled_game_count": len(eligible),
+        "unmapped_game_pks": [g["gamePk"] for g in eligible if g["gamePk"] not in matched
+                              and (g.get("status") or {}).get("abstractGameState") != "Final"],
+        "schedule_identity_evidence": scheduled,
+        "mapping_method": "original_date_and_unambiguous_team_time_v2",
+        "mapping_source_sha256": hashlib.sha256((ROOT / "hit_reversion_strategy/scripts/paper_trade.py").read_bytes()).hexdigest(),
+        "discovered_at": datetime.now(timezone.utc).isoformat(), "warnings": warnings, "orders_enabled": False}
 
 
 def main():

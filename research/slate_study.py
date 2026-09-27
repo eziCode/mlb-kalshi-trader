@@ -208,6 +208,9 @@ def evaluate(capture, slate_path, output, latency=.68, penalty=.01, shared_cash=
     if any(digest(ROOT / name) != value for name, value in hashes.items()):
         raise RuntimeError("Source changed during replay")
     (output / "summary.json").write_text(json.dumps({"role": "development", "deployment_ready": False,
+        "scheduled_game_count": slate.get("scheduled_game_count", len(slate["games"])),
+        "unmapped_game_pks": slate.get("unmapped_game_pks", []),
+        "mapping_method": slate.get("mapping_method", "not_recorded"),
         "capture_complete": complete, "observed_seconds": last_good_when, "continuity_error": gap,
         "candidates": results}, indent=2, allow_nan=False))
     for name, result in results.items():
