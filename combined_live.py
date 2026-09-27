@@ -25,6 +25,11 @@ def settlement_enabled() -> bool:
     return bool(json.loads(config.read_text()).get("enabled", False))
 
 
+def hit_reversion_enabled() -> bool:
+    config = ROOT / "hit_reversion_strategy/models/trade_tape_config.json"
+    return bool(json.loads(config.read_text()).get("enabled", False))
+
+
 def stop(processes: list[subprocess.Popen]) -> None:
     for process in reversed(processes):
         if process.poll() is None:
@@ -52,6 +57,10 @@ def wait_ready(process: subprocess.Popen, url: str, name: str) -> None:
 
 
 def run(selected: date | None) -> int:
+    run_settlement = settlement_enabled()
+    run_hit = hit_reversion_enabled()
+    if not run_settlement and not run_hit:
+        raise RuntimeError("Both live policies are disabled; validate a policy before starting real-money workers")
     state = Path(os.getenv("LIVE_STATE_DIR", "/app/live-state"))
     state.mkdir(parents=True, exist_ok=True)
     common = os.environ.copy()
@@ -68,7 +77,6 @@ def run(selected: date | None) -> int:
     settlement = common.copy()
     hit = common.copy()
     hit.update({
-        "ALLOW_UNVALIDATED_HYBRID": "1",
         "SUPPRESS_SLATE_SUMMARY": "1",
     })
     processes: list[subprocess.Popen] = []
@@ -87,7 +95,7 @@ def run(selected: date | None) -> int:
         wait_ready(mlb, MLB_FEED_URL, "MLB feed")
         date_args = [] if selected is None else ["--date", selected.isoformat()]
         settlement_worker = None
-        if settlement_enabled():
+        if run_settlement:
             settlement_worker = subprocess.Popen(
                 [sys.executable, "-u", "-m",
                  "settlement_value_strategy.live_paper_trader", "--continuous",
@@ -100,23 +108,25 @@ def run(selected: date | None) -> int:
                 "no settlement worker started",
                 flush=True,
             )
-        hit_worker = subprocess.Popen(
-            [sys.executable, "-u", "scripts/paper_trade.py", "--continuous",
-             *date_args], cwd=ROOT / "hit_reversion_strategy", env=hit,
-        )
-        processes.append(hit_worker)
+        hit_worker = None
+        if run_hit:
+            hit_worker = subprocess.Popen(
+                [sys.executable, "-u", "scripts/paper_trade.py", "--continuous",
+                 *date_args], cwd=ROOT / "hit_reversion_strategy", env=hit,
+            )
+            processes.append(hit_worker)
         print(
             "Combined LIVE runtime started: one Kalshi WebSocket, one "
             "adaptive MLB feed, "
-            + ("settlement-value + " if settlement_worker else "")
-            + "hit-reversion",
+            + " + ".join(name for name, enabled in (("settlement-value", run_settlement), ("hit-reversion", run_hit)) if enabled),
             flush=True,
         )
         while True:
             workers = [
                 ("Kalshi feed", kalshi), ("MLB feed", mlb),
-                ("hit-reversion", hit_worker),
             ]
+            if hit_worker is not None:
+                workers.append(("hit-reversion", hit_worker))
             if settlement_worker is not None:
                 workers.append(("settlement-value", settlement_worker))
             for name, process in workers:

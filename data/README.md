@@ -14,7 +14,15 @@ data/
 └─ hit_reversion/          local win-model training inputs
 ```
 
-## Recommended command
+## Frozen-model later-period evaluation
+
+Use `.venv/bin/python -m research.reboot prepare` for the September reboot.
+This preserves all model weights and writes atomic pitch/play states under
+`data/reboot/`. See [research instructions](../research/README.md). The older
+setup command below retrains models and is intended for model development,
+not for evaluating an already frozen policy.
+
+## Model-development command
 
 From the repository root:
 
@@ -70,7 +78,7 @@ execution tape with:
 .venv/bin/python -m settlement_value_strategy.prepare_data
 ```
 
-## Checked-in dataset snapshot
+## Previous local dataset snapshot
 
 | File | Rows |
 | --- | ---: |

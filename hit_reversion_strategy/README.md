@@ -1,5 +1,10 @@
 # Event-reaction reversion strategy
 
+**September reboot:** real-money deployment is disabled. Use the
+[frozen-policy validation workflow](../research/README.md) and
+[diagnostic report](../research/results/reboot/REPORT.md). The earlier figures
+below used a superseded state/fill contract and are retained as research history.
+
 This strategy trades delayed Kalshi reactions after configured completed MLB
 events. It estimates a state-adjusted market target immediately after the
 event, enters when the exact trade tape remains sufficiently far from that
@@ -26,7 +31,8 @@ target = logistic(logit(M0) + logit(F1) - logit(F0))
 ```
 
 The target moves dynamically if later baseball state changes occur while a
-candidate or position is active.
+candidate or position is active. Submitted IOC orders keep their original price
+and quantity until filled or expired; later state cannot cancel them in hindsight.
 
 ## Event and signal lifecycle
 
@@ -51,7 +57,7 @@ then considers only events observed afterward.
 
 The packaged CatBoost model estimates home-win probability from:
 
-- pregame home probability;
+- pregame home probability from the frozen MLB rating state;
 - inning and top/bottom half;
 - outs;
 - home score differential;
@@ -64,10 +70,12 @@ incremental fair move; it is not itself the trading policy.
 
 ## Entry and execution assumptions
 
-The backtest uses executed trades, not reconstructed quotes. Its fill contract
-requires a later execution on the compatible taker side after the measured
-0.68-second submission latency, with enough reported size. The simulator
-remains a fill proxy rather than a historical order-book reconstruction.
+The default replay uses a compatible later print after 0.68 seconds of submission
+latency, within a 250 ms evidence window. It freezes price and quantity when
+submitting, applies a one-cent adverse price adjustment, and caps participation
+at 10% of printed volume. These are explicit stress assumptions, not proof of
+available historical liquidity. The legacy unbounded proxy requires an explicit
+`--legacy-unbounded-fill-proxy` flag and cannot authorize deployment.
 
 The checked-in deployment policy currently uses:
 
@@ -159,9 +167,10 @@ backtest latency flags.
   --output-prefix live_window_conservative)
 ```
 
-The tuner rewrites `models/trade_tape_config.json`. The backtest rewrites the
-holdout artifacts and refuses to enable deployment unless the loaded policy
-was already enabled and remains profitable.
+The tuners write disabled research configurations to `models/trade_tape_config.json`.
+The backtest writes research
+artifacts. Trade-tape PnL never enables deployment. `research.reboot evaluate`
+also reports a cash-constrained portfolio and day-block bootstrap uncertainty.
 
 ## Tests
 
@@ -201,7 +210,7 @@ cash and positions. The trader polls public MLB and Kalshi endpoints, validates
 quote/feed freshness, recovers positions after restart, and never submits real
 orders.
 
-## Final reference result
+## Historical reference result (superseded)
 
 The selected competing-risks policy was replayed from June 28 through August
 9, 2026:
@@ -243,8 +252,8 @@ using only actual away-market trade size and aggressor direction,
 dynamic targets, partial exits, the 60-second entry cooldown, and the same
 competing-risks gate loaded by live trading.
 
-The value-model metadata hashes the model binary, deployment configuration,
-and latency profile. Both replay and live startup fail closed if those files do
-not match, preventing a model trained under one policy from silently running
-under another. Historical executions remain a fill proxy rather than a full
-order-book reconstruction.
+The direct value-model metadata hashes its model binary, policy, and latency
+profile; that model is disabled. The active competing-risk loader verifies its
+own model binaries. The reboot evaluation additionally records source, policy,
+latency-profile, local-model, prior, and dataset hashes. Historical executions
+remain a fill proxy rather than a full order-book reconstruction.

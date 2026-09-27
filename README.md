@@ -18,11 +18,49 @@ Paper mode never submits orders. Real execution is separately guarded by an
 explicit acknowledgement, account-level capital limits, and a durable SQLite
 risk ledger.
 
-## Final research results
+## September 2026 research reboot
+
+Both live policies are disabled. The earlier reversion enablement depended on
+post-event states taken from the next pitch and an unbounded trade-print fill
+proxy. The corrected research path uses atomic pitch/play state, fixed
+submission-time orders, bounded fill evidence, independent away-market
+liquidity, cash constraints, and a fixed execution stress grid.
+
+Use the frozen-model workflow to refresh and evaluate a later period without
+retraining or replacing model files:
+
+```bash
+.venv/bin/python -m research.reboot prepare
+.venv/bin/python -m research.reboot evaluate
+```
+
+Defaults: August 12–September 26, 2026, $100 starting cash. Pass explicit
+`--start-date` and `--end-date` for another completed period. Downloads are
+resumable. Preparation writes weekly chunks under `data/reboot/`; evaluation
+writes model/data/source hashes, trades, uncertainty, and all seven scenarios
+under `research/results/reboot/`. Completed reports cannot be overwritten;
+use a new `--output-dir` for another run.
+
+The completed 610-game diagnostic produced **+$6.73 on 24 simulated fills**
+under the reference assumptions, after fees. The result was **−$0.66 at 1.5 s
+submission latency**, **−$6.10 at 3 s**, and **−$2.45 with two extra seconds of
+MLB publication delay**. This is a positive reference signal with material
+execution sensitivity, not demonstrated live profitability.
+
+Read [the repository audit](research/REBOOT_AUDIT.md),
+[the validation protocol](research/VALIDATION_PROTOCOL.md),
+[research commands and recording](research/README.md), and
+[the completed diagnostic](research/results/reboot/REPORT.md).
+Historical trade prints remain a liquidity proxy, so positive research PnL
+never enables real-money execution. A separate read-only recorder captures
+order-book snapshots/deltas and timestamped MLB observations for prospective
+validation.
+
+## Historical research results (superseded)
 
 | Strategy | Evaluation window | Games | Fills | Net PnL | ROI | Status |
 | --- | ---: | ---: | ---: | ---: | ---: | --- |
-| Event reversion + competing risks | 2026-06-28 to 2026-08-09 | 531 | 119 | +$24.68 | 9.95% | Enabled |
+| Event reversion + competing risks | 2026-06-28 to 2026-08-09 | 531 | 119 | +$24.68 | 9.95% | Disabled pending prospective validation |
 | Settlement-value latency residual | 2026-07-24 to 2026-08-09 forward slice | 234 | 41 | -$4.23 | -4.32% | Disabled |
 
 Both figures use a $2.50 order budget, Kalshi fees, measured submission
@@ -34,7 +72,7 @@ game and +$13.49 after removing the best four. The negative settlement result
 is equally important: its model and policy fail closed in the checked-in live
 configuration.
 
-The checked-in dataset contains 12,984,711 home-market executions, 15,554,123
+The earlier local dataset snapshot contained 12,984,711 home-market executions, 15,554,123
 paired away-market executions, 1,149,706 causal state updates, and 377,762
 settlement decision rows. See each strategy README for its thesis, causal
 contract, and detailed limitations.
@@ -47,10 +85,11 @@ contract, and detailed limitations.
   latency, require compatible later executions, and cap fills by printed size.
 - Home-NO signals execute through the independently traded away-team YES
   market rather than assuming synthetic liquidity.
-- Model binaries, policies, and latency profiles are hash-verified at startup;
-  shared cash, positions, cooldowns, and pending reservations survive restarts.
+- Competing-risk model binaries are hash-verified at startup; the new research
+  manifest also fingerprints policy, latency, source, and data files. Shared
+  cash, positions, cooldowns, and pending reservations survive restarts.
 
-## Quick start
+## Legacy model-development workflow
 
 Run every command below from the repository root.
 
@@ -258,7 +297,7 @@ Kalshi cash eligible while atomically reserving concurrent pending orders. A
 numeric value retains a fixed total allocation cap.
 `LIVE_TRADING_ENABLED` is always required. The checked-in settlement policy is
 disabled after failing corrected validation, so `ALLOW_UNVALIDATED_LIVE` is
-also required to override that fail-closed state. Hit reversion remains enabled.
+also required to override that fail-closed state. Hit reversion is also disabled pending prospective validation.
 
 ```bash
 docker network create mlb-trading

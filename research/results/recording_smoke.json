@@ -1,0 +1,31 @@
+{
+  "capture_file": "data/raw/forward_observations/capture_20260927T161422Z_87eb1a18.jsonl.gz",
+  "sha256": "2d33d166cfed6a8d6df11e21e8ae4b147417e2eae4a348c54fdcd41b567f2120",
+  "start": "2026-09-27T16:14:22.117804+00:00",
+  "end": "2026-09-27T16:14:52.148698+00:00",
+  "tickers": [
+    "KXMLBGAME-26SEP271505NYMWSH-WSH",
+    "KXMLBGAME-26SEP271505NYMWSH-NYM"
+  ],
+  "game_pks": [
+    822679
+  ],
+  "record_count": 37,
+  "record_types": {
+    "capture_start": 1,
+    "connection_start": 1,
+    "mlb_observation": 15,
+    "kalshi_message": 18,
+    "connection_end": 1,
+    "capture_end": 1
+  },
+  "kalshi_message_types": {
+    "subscribed": 2,
+    "orderbook_snapshot": 2,
+    "orderbook_delta": 11,
+    "trade": 3
+  },
+  "gaps_or_errors": 0,
+  "order_submission_supported": false,
+  "purpose": "Read-only connectivity and recording integration check; not a profitability or fill validation"
+}

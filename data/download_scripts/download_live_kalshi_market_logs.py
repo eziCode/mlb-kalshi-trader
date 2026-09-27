@@ -37,11 +37,14 @@ import json
 import re
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, time as datetime_time, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
 import pandas as pd
+import pyarrow as pa
+import pyarrow.parquet as pq
 import requests
 from requests.adapters import HTTPAdapter
 from urllib3.util.retry import Retry
@@ -158,8 +161,10 @@ def fetch_all_pages(
         if cursor:
             page_params["cursor"] = cursor
         payload = api_get(path, page_params, verbose=verbose)
-        if not payload:
-            break
+        if payload is None:
+            raise RuntimeError(f"Missing paginated endpoint: {path}")
+        if response_key not in payload:
+            raise RuntimeError(f"Malformed {path}: missing {response_key}")
 
         batch = payload.get(response_key) or []
         rows.extend(batch)
@@ -304,7 +309,9 @@ def fetch_market_trades(
     is_final = str(market.get("status", "")).lower() in FINAL_MARKET_STATUSES
     if cache_file.exists() and not refresh and is_final:
         cached = json.loads(cache_file.read_text())
-        return cached.get("trades", [])
+        # An earlier snapshot of an open market is not a complete final tape.
+        if cached.get("market_status") in FINAL_MARKET_STATUSES and cached.get("complete"):
+            return cached["trades"]
 
     min_ts, max_ts = market_trade_window(market, game_date)
     base_params: dict[str, Any] = {"ticker": ticker}
@@ -356,12 +363,16 @@ def fetch_market_trades(
         key=lambda item: (item.get("created_time", ""), item.get("trade_id", "")),
     )
     cache_dir.mkdir(parents=True, exist_ok=True)
-    cache_file.write_text(json.dumps({
+    temporary = cache_file.with_suffix(".json.tmp")
+    temporary.write_text(json.dumps({
         "ticker": ticker,
         "downloaded_at": datetime.now(timezone.utc).isoformat(),
         "include_block_trades": include_block_trades,
+        "market_status": str(market.get("status", "")).lower(),
+        "complete": True,
         "trades": trades,
     }))
+    temporary.replace(cache_file)
     return trades
 
 
@@ -451,11 +462,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--refresh-markets", action="store_true")
     parser.add_argument("--refresh-trades", action="store_true")
     parser.add_argument("--verbose", action="store_true")
+    parser.add_argument("--workers", type=int, default=1, help="Concurrent market downloads (1–8).")
     args = parser.parse_args()
     if args.days < 1:
         parser.error("--days must be at least 1")
     if args.max_games is not None and args.max_games < 1:
         parser.error("--max-games must be at least 1")
+    if not 1 <= args.workers <= 8:
+        parser.error("--workers must be between 1 and 8")
     return args
 
 
@@ -492,53 +506,74 @@ def main() -> None:
     trades_cutoff = parse_iso_timestamp(cutoffs.get("trades_created_ts"))
     print(f"Kalshi trades cutoff: {trades_cutoff}")
 
-    rows: list[dict[str, Any]] = []
-    market_count = 0
-    for event_index, event in enumerate(events, start=1):
+    failures = []
+    jobs = []
+    for event in events:
         game_date = parse_game_date(event.get("event_ticker"))
         if game_date is None:
             continue
         markets = fetch_event_markets(event, verbose=args.verbose)
-        print(
-            f"[{event_index:>4}/{len(events)}] {event.get('event_ticker')}: "
-            f"{len(markets)} market(s)"
-        )
+        if not markets:
+            failures.append({"event": event["event_ticker"], "error": "no markets returned"})
         for market in markets:
             market = {**market}
             market.setdefault("event_ticker", event.get("event_ticker"))
             market.setdefault("status", event.get("status"))
-            market_count += 1
-            try:
-                trades = fetch_market_trades(
-                    market,
-                    game_date,
-                    trades_cutoff,
-                    trades_cache_dir,
-                    include_block_trades=args.include_block_trades,
-                    refresh=args.refresh_trades,
-                    verbose=args.verbose,
-                )
-                rows.extend(trades_to_rows(trades, market, game_date))
-                print(f"    {market.get('ticker')}: {len(trades):,} trades")
-            except (requests.HTTPError, ValueError, RuntimeError) as error:
-                print(f"    !! {market.get('ticker')}: {error}", file=sys.stderr)
+            jobs.append((market, game_date))
 
-    frame = output_frame(rows)
+    def download(job):
+        market, game_date = job
+        try:
+            trades = fetch_market_trades(
+                market, game_date, trades_cutoff, trades_cache_dir,
+                include_block_trades=args.include_block_trades,
+                refresh=args.refresh_trades, verbose=args.verbose,
+            )
+            return market["ticker"], output_frame(trades_to_rows(trades, market, game_date)), None
+        except (requests.RequestException, ValueError, RuntimeError) as error:
+            return market["ticker"], None, str(error)
+
     qualifier = "all" if args.include_block_trades else "non_block"
     suffix = f"_{args.max_games}games" if args.max_games is not None else ""
-    output_path = output_dir / (
-        f"kalshi_mlb_trades_{window_name}_{qualifier}{suffix}.parquet"
-    )
-    frame.to_parquet(output_path, index=False)
+    output_path = output_dir / f"kalshi_mlb_trades_{window_name}_{qualifier}{suffix}.parquet"
+    temporary = output_path.with_suffix(".parquet.tmp")
+    timestamps = {"market_open_time", "market_close_time", "created_time"}
+    numbers = {"created_ts", "yes_price_dollars", "no_price_dollars", "count_fp"}
+    schema = pa.schema([
+        (name, pa.timestamp("us", tz="UTC") if name in timestamps else
+         pa.float64() if name in numbers else pa.int64() if name == "season" else
+         pa.bool_() if name == "is_block_trade" else pa.string())
+        for name in OUTPUT_COLUMNS
+    ])
+    total_rows = 0
+    # Batches bound both concurrent requests and completed results in memory.
+    # Do not accumulate an entire season of trade dictionaries in RAM.
+    with pq.ParquetWriter(temporary, schema, compression="zstd") as writer:
+        with ThreadPoolExecutor(max_workers=args.workers) as executor:
+            for offset in range(0, len(jobs), args.workers):
+                for ticker, frame, error in executor.map(download, jobs[offset:offset + args.workers]):
+                    if error is not None:
+                        failures.append({"market": ticker, "error": error})
+                        print(f"  FAILED {ticker}: {error}", flush=True)
+                        continue
+                    if not frame.empty:
+                        writer.write_table(pa.Table.from_pandas(frame, schema=schema, preserve_index=False))
+                    total_rows += len(frame)
+                    print(f"  {ticker}: {len(frame):,} trades ({total_rows:,} total)", flush=True)
+                print(f"Markets processed: {min(offset + args.workers, len(jobs))}/{len(jobs)}", flush=True)
 
-    print("\nDownload complete")
-    print(f"  Game events: {len(events):,}")
-    print(f"  Markets:     {market_count:,}")
-    print(f"  Trades:      {len(frame):,}")
-    if not frame.empty:
-        print(f"  First trade: {frame['created_time'].min()}")
-        print(f"  Last trade:  {frame['created_time'].max()}")
-    print(f"  Output:      {output_path}")
+    manifest = {
+        "start_date": str(start_date), "end_date": str(end_date),
+        "downloaded_at": datetime.now(timezone.utc).isoformat(),
+        "events": len(events), "markets": len(jobs), "trades": total_rows,
+        "failures": failures, "complete": bool(events) and not failures,
+        "smoke_test": args.max_games is not None,
+    }
+    (output_dir / f"acquisition_{window_name}.json").write_text(json.dumps(manifest, indent=2))
+    if not manifest["complete"]:
+        raise RuntimeError("Incomplete Kalshi acquisition; no aggregate published. See acquisition manifest and rerun to resume.")
+    temporary.replace(output_path)
+    print(f"Download complete: {len(events):,} events, {len(jobs):,} markets, {total_rows:,} trades -> {output_path}")
 
 
 if __name__ == "__main__":

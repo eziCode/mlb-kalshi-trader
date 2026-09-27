@@ -1176,31 +1176,8 @@ def event_within_entry_window(
     )
 
 
-def state_from_play(play: dict) -> dict:
-    """Build post-play model state only from one atomic play object."""
-    result = play.get("result") or {}
-    about = play.get("about") or {}
-    count = play.get("count") or {}
-    required = {"homeScore", "awayScore"}
-    if not required.issubset(result) or "outs" not in count:
-        raise ValueError("Resolved play lacks post-play score or outs")
-    occupied = {"1B": 0, "2B": 0, "3B": 0}
-    for runner in play.get("runners") or []:
-        movement = runner.get("movement") or {}
-        end = movement.get("end")
-        if not bool(movement.get("isOut")) and end in occupied:
-            occupied[end] = 1
-    return {
-        "inning": int(about.get("inning") or 1),
-        "inning_topbot": int(not bool(about.get("isTopInning"))),
-        "outs_when_up": int(count["outs"]),
-        "score_diff": int(result["homeScore"]) - int(result["awayScore"]),
-        "balls": 0,
-        "strikes": 0,
-        "runner_on_first": occupied["1B"],
-        "runner_on_second": occupied["2B"],
-        "runner_on_third": occupied["3B"],
-    }
+# One atomic-state implementation is used in live and historical paths.
+from settlement_value_strategy.play_eligibility import state_from_play
 
 
 def event_inputs_aligned(game: GameSnapshot) -> bool:
@@ -1580,26 +1557,7 @@ def home_fair_probability(
     return batting if int(state["inning_topbot"]) == 1 else 1.0 - batting
 
 
-def pregame_probability_from_rating_state(
-    rating_state: dict, home_code: str, away_code: str,
-) -> float:
-    aliases = {
-        "ARI": "AZ", "CHW": "CWS", "OAK": "ATH", "KCR": "KC",
-        "SDP": "SD", "SFG": "SF", "TBR": "TB", "WAS": "WSH",
-    }
-
-    def rating(code: str) -> float:
-        code = str(code).upper()
-        key = code if code in rating_state["ratings"] else aliases.get(code, code)
-        return float(rating_state["ratings"].get(
-            key, rating_state["initial_rating"]
-        ))
-
-    difference = (
-        rating(home_code) + float(rating_state["home_advantage"])
-        - rating(away_code)
-    )
-    return 1.0 / (1.0 + 10.0 ** (-difference / 400.0))
+from settlement_value_strategy.play_eligibility import pregame_probability_from_rating_state
 
 
 def fetch_model_pregame_prior() -> float:
@@ -1701,9 +1659,9 @@ async def main() -> None:
         if hybrid_config.direct_value_model_enabled else None
     )
     allow_unvalidated = os.getenv("ALLOW_UNVALIDATED_HYBRID") == "1"
-    if not hybrid_config.enabled and not allow_unvalidated:
+    if not hybrid_config.enabled and (LIVE_MODE or not allow_unvalidated):
         raise RuntimeError(
-            "Hybrid policy has not passed a fresh forward test and is disabled. "
+            "Hybrid policy is disabled for real-money execution. "
             "Set ALLOW_UNVALIDATED_HYBRID=1 only to collect paper observations."
         )
     portfolio_path = Path(os.getenv(
@@ -1720,8 +1678,8 @@ async def main() -> None:
     live_executor = (
         LiveExecutor(Path(os.environ["LIVE_RISK_DB"])) if LIVE_MODE else None
     )
-    pregame_prob = await wait_for_pregame_anchor()
-    print(f"Causal pre-first-pitch market anchor: {pregame_prob:.1%}")
+    pregame_prob = await wait_for_model_pregame_prior()
+    print(f"Frozen MLB pregame model prior: {pregame_prob:.1%}")
     print(
         f"Hybrid threshold={hybrid_config.minimum_edge:.1%}, "
         f"confirmation={hybrid_config.confirmation_seconds:g} seconds, "
