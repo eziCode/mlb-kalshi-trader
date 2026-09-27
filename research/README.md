@@ -5,6 +5,83 @@ compares published live results, MLB bot backtests, and market-making studies.
 It prioritizes fill-quality diagnostics, an independent sportsbook reference,
 and paired-contract consistency without changing the frozen experiments.
 
+## Selective maker implementation
+
+The [new protocol](NEXT_EXPERIMENT.md) adds three separate candidates:
+selective continuous quoting, observed inning-break quoting, and a frozen
+baseball model anchored to independent pregame sportsbook consensus. All
+retain zero-trade games, fee-inclusive shared cash, queues, cancellation
+races, repeated entries after flattening, and bounded forced exits. They
+remain shadow experiments. The prior frozen strategies are unchanged.
+The [first integration report](results/selective_maker/REPORT.md) records
+250 passing root tests and all nine valid replay scenarios. One game had
+started, with four reference opening attempts and no fills; profitability
+has not yet been evaluated. A periodic run continues on the recording.
+
+```bash
+# Fix source/config/model hashes before looking at this experiment's output.
+.venv/bin/python -m research.selective_study freeze \
+  --model-dir data/reboot/state_refresh_1 \
+  --output-dir data/reboot/selective_protocol_1
+
+# Freeze a complete prefix of an active recording first.
+.venv/bin/python -m research.slate_study snapshot LIVE_CAPTURE \
+  --output-dir data/reboot/selective_snapshot_1
+.venv/bin/python -m research.selective_study evaluate \
+  data/reboot/selective_snapshot_1/capture.jsonl.gz \
+  --slate SLATE_JSON --protocol data/reboot/selective_protocol_1/protocol.json \
+  --output-dir data/reboot/selective_results_1 --role development
+
+# Or periodically freeze/score the growing capture at all three latencies.
+.venv/bin/python -m research.selective_study watch LIVE_CAPTURE \
+  --slate SLATE_JSON --protocol data/reboot/selective_protocol_1/protocol.json \
+  --settlements LIVE_SETTLEMENT_CAPTURE \
+  --output-dir data/reboot/selective_watch_1 --role development
+```
+
+`--odds SPORTSBOOK_JOURNAL` enables the independent reference when the journal
+contains enough fresh quotes received before actual first pitch. Without it,
+the sportsbook candidate reports unavailable references and no entries.
+The other two candidates still run. `--role validation` rejects captures
+before protocol freeze and games on or before its Eastern calendar date.
+This guards chronology; researchers must also keep later evaluation data
+uninspected. No automatic parameter tuning or live promotion occurs.
+
+Each result has `REPORT.md`, all per-game JSON ledgers, `summary.json`, and
+`fill_quality/per_game.csv`. Diagnostics include missing 5/30/60-second
+horizons, spread capture, post-fill price movement, depth-checked marks, and
+game-cluster uncertainty. Grouping by game prevents thousands of fills from
+masquerading as thousands of independent outcomes. Analyze the earlier
+passive study with the same reporting tool:
+
+```bash
+.venv/bin/python -m research.fill_quality PASSIVE_REPLAY_DIRECTORY \
+  --output-dir NEW_DIAGNOSTIC_DIRECTORY
+```
+
+The sportsbook collector uses [The Odds API v4](https://the-odds-api.com/liveapi/guides/v4/).
+Configure `ODDS_API_KEY` in the process environment locally. With no key it
+exits before making a request. It never opens an account or purchases a plan.
+The default is one request; increasing `--requests` explicitly sets a bounded
+provider-quota budget. HTTP failures stop collection and errors redact URLs.
+
+```bash
+.venv/bin/python -m research.sportsbook record --requests 60 --interval 60 \
+  --output-dir data/raw/sportsbook
+
+# A raw provider response imported now cannot be backdated into a backtest.
+.venv/bin/python -m research.sportsbook import --input PROVIDER_RESPONSE_JSON \
+  --odds-format decimal --output-dir data/raw/sportsbook
+.venv/bin/python -m research.sportsbook inspect --input SPORTSBOOK_JOURNAL \
+  --slate SLATE_JSON --at 2026-09-27T19:00:00Z
+```
+
+Consensus needs three distinct fresh complete moneylines, not three copies
+of one book. Missing outcomes, duplicate books, ambiguous doubleheaders,
+future source timestamps, excessive disagreement, and stale quotes reject
+the reference. Receipt and journal times constrain when data become usable.
+Bookmaker consensus is a probability input, never assumed executable liquidity.
+
 ## Current candidate and prospective test
 
 The [frozen market correction](results/market_correction/REPORT.md) produces
