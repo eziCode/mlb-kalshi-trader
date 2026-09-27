@@ -1,5 +1,28 @@
 # Research reboot
 
+## Current candidate and prospective test
+
+The [frozen market correction](results/market_correction/REPORT.md) produces
+positive simulated net PnL in development, selection, and a later chronological
+check: $6.13 combined across 309 entries in 610 mapped games. It misses the
+every-game target, loses under the 1.5-second latency stress, and has a
+combined uncertainty interval spanning losses. It remains research evidence.
+
+```bash
+.venv/bin/python -m research.market_correction --model-dir MODEL_DIRECTORY \
+  --output-dir NEW_CORRECTION_RESULTS
+.venv/bin/python -m research.market_check --model-dir MODEL_DIRECTORY \
+  --frozen-run CORRECTION_RESULTS --output-dir NEW_STRESS_RESULTS
+.venv/bin/python -m research.forward_value FROZEN_CAPTURE --slate SLATE_JSON \
+  --model-dir MODEL_DIRECTORY --frozen-run CORRECTION_RESULTS --output-dir NEW_FORWARD_RESULTS
+```
+
+`research.watch_forward` periodically snapshots a growing capture and replays
+the frozen candidate at 680ms, 1.5s, and 3s delays. `--passive` also runs the
+separate twelve-candidate passive study. It never retunes parameters or places
+orders. Each prefix is retained; source changes or continuity errors stop the
+watcher for review. See [the prospective protocol](FORWARD_VALUE_PROTOCOL.md).
+
 ## Continuous strategy search and passive experiment
 
 The completed [48-candidate search](results/continuous/REPORT.md) tested

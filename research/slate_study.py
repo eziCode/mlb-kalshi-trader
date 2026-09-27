@@ -124,6 +124,11 @@ def evaluate(capture, slate_path, output, latency=.68, penalty=.01, shared_cash=
             if row["type"] == "connection_gap" or (ended and row["type"] == "connection_start"):
                 gap = "Connection gap; subsequent queue and exposed-order outcomes are indeterminate"
                 break
+            if ended:
+                # MLB requests can finish after the book connection closes.
+                # They cannot extend executable book time or fill old orders.
+                complete = complete or row["type"] == "capture_end"
+                continue
             try:
                 for clock in clocks.values():
                     clock.advance_before(when)

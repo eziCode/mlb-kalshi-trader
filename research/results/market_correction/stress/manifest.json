@@ -1,0 +1,35 @@
+{
+  "started_at": "2026-09-27T17:25:20.134040+00:00",
+  "source_sha256": "b6a21cfb0a80c5929f0e4925169407ce7d372013b9dcf8f3ad041a690d730026",
+  "frozen_run": "data/reboot/market_correction_1",
+  "frozen_artifact_hashes": {
+    "manifest.json": "096eb67ce96c65e8fa7f6916cb30761d1bbea0645a49286b80344180e29ac78e",
+    "selection.json": "35e7555e13fddba9a9fabb63f5552259e1e02e366b2c8d5ba6103d2f93af6205",
+    "correction.json": "a58b1b85b024ed5a02e0b961dd04e7aa3d0d45a8e28edcd0aa2e886616a0fef3",
+    "summary.json": "af1a95d29068707ac5e2dfdbabf0cad65355095de7ed8ebcde5e614b5ab1eb9a"
+  },
+  "candidate": "corrected_01c",
+  "scenarios": {
+    "reference": {},
+    "latency_1_5s": {
+      "latency": 1.5
+    },
+    "latency_3s": {
+      "latency": 3.0
+    },
+    "two_cent_cost": {
+      "penalty": 0.02
+    },
+    "publication_plus_2s": {
+      "state_delay": 4.0
+    },
+    "one_percent_volume": {
+      "participation": 0.01
+    },
+    "fifty_ms_window": {
+      "window": 0.05
+    }
+  },
+  "deployment_ready": false,
+  "role": "previously_inspected_chronological_stress"
+}

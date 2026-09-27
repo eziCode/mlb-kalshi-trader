@@ -148,6 +148,14 @@ class EvaluationTests(unittest.TestCase):
             self.assertEqual(result["games_observed_final"], 0)
             self.assertEqual(result["games_with_open_inventory"], 1)
 
+    def test_disconnect_cannot_extend_time_to_force_an_inventory_exit(self):
+        with tempfile.TemporaryDirectory() as temp:
+            result = self.evaluate_rows(Path(temp), self.events() + [
+                (2., {"type": "connection_end"}), (40., {"type": "capture_end"})])
+            self.assertTrue(result["capture_complete"])
+            self.assertEqual(result["games_with_open_inventory"], 1)
+            self.assertEqual(result["taker_fill_events"], 0)
+
 
 if __name__ == "__main__":
     unittest.main()
