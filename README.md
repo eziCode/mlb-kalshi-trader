@@ -20,6 +20,26 @@ risk ledger.
 
 ## September 2026 research reboot
 
+The subsequent [continuous strategy search](research/results/continuous/REPORT.md)
+evaluated 48 variants targeting more frequent entries. **None passed both
+profitability and activity requirements.** The frozen fallback produced 367
+simulated entries across 141 mapped final-period games (2.60/game, 87.2% game coverage)
+but lost $12.72 with one-contract trades after fees and execution penalties.
+All seven final execution scenarios lost money.
+
+The next implemented experiment is a [passive inventory shadow strategy](research/PASSIVE_PROTOCOL.md),
+with queue tracking, delayed cancellation, and explicit unpaired inventory.
+The new daily-slate recorder collects the books needed to evaluate it:
+
+```bash
+.venv/bin/python -m research.forward --discover-only
+# With the existing read-only market-data credentials exported:
+.venv/bin/python -m research.forward --duration-seconds 14400
+```
+
+This records observations and runs shadow replays; it submits no orders.
+Profitability and the every-game frequency goal remain unproven.
+
 Both live policies are disabled. The earlier reversion enablement depended on
 post-event states taken from the next pitch and an unbounded trade-print fill
 proxy. The corrected research path uses atomic pitch/play state, fixed

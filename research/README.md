@@ -1,5 +1,49 @@
 # Research reboot
 
+## Continuous strategy search and passive experiment
+
+The completed [48-candidate search](results/continuous/REPORT.md) tested
+continuous price reversion, momentum, paired-market differences, state value,
+all-play responses, and learned future bid changes. None passed both positive
+development/selection PnL and the activity requirements. The frozen fallback
+made 367 simulated entries in 141 mapped final-period games (2.60/game; 87.2% game
+coverage) and lost $12.72 after fees and execution penalties. Every final
+execution stress was negative. One contract per entry and $100 starting cash
+were used; this is not evidence that every possible strategy fails.
+Four ambiguous doubleheader games were excluded by the underlying dataset
+builder, as documented in the original reboot audit; they are outside these
+frequency denominators.
+
+```bash
+# Each new run needs an empty output directory; all trials are retained.
+.venv/bin/python -m research.continuous develop --output-dir research/results/NEW_RUN
+.venv/bin/python -m research.continuous check --output-dir research/results/NEW_RUN
+```
+
+The [protocol](CONTINUOUS_PROTOCOL.md) fixes the split, candidates, frequency
+requirements, and fallback rule. Both game coverage and entries/game are
+reported; contracts and order submissions are not counted as separate entries.
+Features exclude future observations, winners, and simulated execution outcomes.
+Cash reservations, failed attempts, exit retries, and all games' positions run
+through one chronological portfolio. The later dates were previously inspected
+for the old strategy and are not described as an untouched holdout.
+
+The next implemented experiment is [passive inventory quoting](PASSIVE_PROTOCOL.md).
+Its shadow replay tracks displayed queue, partial fills, post-only rejection,
+cancellation races, and inventory-inclusive marks. It makes no historical maker
+fill assumption. Use `python -m research.forward` to discover and record an
+entire slate without sending orders, then automatically replay each home market.
+An integration check received 30 snapshots, 123 deltas, and 19 trades across
+15 games with no gaps; its 20-second pregame window produced zero shadow fills
+and does not evaluate profitability.
+
+An additional [old quote-log audit](results/paired_quote_audit.json) found nine
+apparent paired-price dislocations in eight of 256 markets. These are sparse
+old-policy observations, not synchronized executable opportunities or a count
+of all opportunities during those games.
+
+## Frozen original-policy diagnostic
+
 Run from the repository root with the existing `.venv`. This workflow uses
 the packaged model weights without retraining and keeps generated data under
 the ignored `data/` paths.

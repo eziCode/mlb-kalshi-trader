@@ -1,0 +1,45 @@
+{
+  "started_at": "2026-09-27T16:51:33.089264+00:00",
+  "hashes": {
+    "data/reboot/dataset.json": "a773eb84a84f8c9f89b5d2954a2fc03151273b4dd10d4b2c835740ee60ad4843",
+    "research/continuous.py": "3c45603aee788741ae48c3fcfd83e16c5276d9972c87b19cf2c29b6950deda74",
+    "research/validation.py": "a0a464fb40dca202df2644f583b14e31ced6d59534b9fbf8d611336fada0bbef",
+    "research/CONTINUOUS_PROTOCOL.md": "e5cfa81ec240d91f435f0b4ea3fb885266c8b09fe786c073a7e200210346d54d",
+    "hit_reversion_strategy/scripts/backtest.py": "414e8ee7ea8d18c3186b7629fd955f68ba8958b5c3842b16365cb3d50d1cb32c",
+    "hit_reversion_strategy/trade_tape_strategy/strategy.py": "e7d455398b96a733955e28397cb7a59deb25a69d57d7aefc25d7ee9ae799ce81",
+    "hit_reversion_strategy/trade_tape_strategy/hybrid.py": "32f982a81a46b53a7e73e3920541c7e2af668ae98a2a2b8291fff6620fe7c71d",
+    "hit_reversion_strategy/models/event_observation_latency.json": "823734dc750680011436741e466570a38be763d451de9c26c3b0eec392474c55",
+    "hit_reversion_strategy/models/local_win_expectancy.cbm": "6df4316dbc259979691bbd6d1aaf920557a0527fee3c0fac51b7be207525a379",
+    "hit_reversion_strategy/models/mlb_pregame_prior.json": "c376cfdd690085ed4fd2205466b6d715785b2ed68332259a24c2eefee67e3b61",
+    "data/reboot/2026-09-16_2026-09-22/away_market_trades.parquet": "cf4c32504a3a35e4b5569ce6343722205a069c94cb4f0d67e2b76ba57d8782f1",
+    "data/reboot/2026-09-16_2026-09-22/home_market_trades.parquet": "c702aa3d21278c4a090b84bd2abd992e77db209623f6bb5bdbce59be7fd282a8",
+    "data/reboot/2026-09-16_2026-09-22/state_updates.metadata.json": "747e183125efa4bd066df455976936453fda7ad410756255bb5c32716b9623b1",
+    "data/reboot/2026-09-16_2026-09-22/state_updates.parquet": "313b47ff3c062621adb124a6176790eb6f2b1296f845cc8cd03e15505f4c4f38",
+    "data/reboot/2026-09-23_2026-09-26/away_market_trades.parquet": "57f429a3c5f3faaa6dfe186ef20ee58dd38603fe39665da35fcbd5b129969fa2",
+    "data/reboot/2026-09-23_2026-09-26/home_market_trades.parquet": "14ff2c1e558f352716081500e8165324a3058315e26dfa8af443d912f281ca87",
+    "data/reboot/2026-09-23_2026-09-26/state_updates.metadata.json": "87f30ea485f98e1ef7801572ba23f8b5a1c94af9b9afb4e9eda6d534920442e3",
+    "data/reboot/2026-09-23_2026-09-26/state_updates.parquet": "f8229b850ed75742a4604ede5e67192cb4ad50e3581eb0041907a069b84e4706"
+  },
+  "selection_sha256": "1434d6586e3b7f509b450f08bb0d582b7c6b7caba79bc4c4fca8c9f6f6a30e9d",
+  "stresses": {
+    "reference": {},
+    "latency_1_5s": {
+      "latency": 1.5
+    },
+    "latency_3s": {
+      "latency": 3.0
+    },
+    "two_cent_cost": {
+      "penalty": 0.02
+    },
+    "one_percent_volume": {
+      "participation": 0.01
+    },
+    "fifty_ms_window": {
+      "window": 0.05
+    },
+    "publication_plus_2s": {
+      "state_delay": 4.0
+    }
+  }
+}
